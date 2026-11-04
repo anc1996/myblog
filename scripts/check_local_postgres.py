@@ -1,4 +1,4 @@
-"""Run Django/Wagtail checks on empty local MySQL databases without migrations."""
+"""Run Django/Wagtail checks on empty local PostgreSQL databases without migrations."""
 
 from pathlib import Path
 import sys
@@ -19,16 +19,24 @@ def main():
     from django.conf import settings
 
     env = dotenv_values("/opt/myblog-services/secrets/admin.env", interpolate=False)
+    postgres_user = env.get("POSTGRES_USER", "postgres")
+    postgres_password = env.get("POSTGRES_PASSWORD") or env.get("MYSQL_PASSWORD", "")
+
     config = {key: value for key, value in vars(base).items() if key.isupper()}
     config.update(
         SECRET_KEY="process-only-service-compatibility-check",
         DEBUG=False,
         DATABASES={
             alias: {
-                "ENGINE": "django.db.backends.mysql",
-                "NAME": name, "HOST": "127.0.0.1", "PORT": "3306",
-                "USER": env["MYSQL_USER"], "PASSWORD": env["MYSQL_PASSWORD"],
-                "OPTIONS": {"charset": "utf8mb4"},
+                "ENGINE": "django.db.backends.postgresql",
+                "NAME": name,
+                "HOST": "127.0.0.1",
+                "PORT": "5432",
+                "USER": postgres_user,
+                "PASSWORD": postgres_password,
+                "CONN_MAX_AGE": 0,
+                "OPTIONS": {"connect_timeout": 10},
+                "TEST": {"NAME": "test_myblog"},
             }
             for alias, name in (
                 ("default", "myblog_dev"), ("verification_test", "myblog_test"),
@@ -49,23 +57,35 @@ def main():
             connection = connections[alias]
             connection.ensure_connection()
             connection.check_database_version_supported()
+
+            # 校验 PostgreSQL 特性：必须支持条件索引与行级排他锁 (select for update)
+            features = connection.features
+            assert features.supports_partial_indexes, f"{alias} must support partial indexes"
+            assert features.has_select_for_update, f"{alias} must support select for update"
+
             with connection.cursor() as cursor:
                 cursor.execute(
-                    "SELECT VERSION(), DATABASE(), @@server_uuid, "
-                    "@@sql_mode, @@default_storage_engine"
+                    "SELECT version(), current_database(), current_user, "
+                    "current_setting('server_encoding')"
                 )
-                version, database, server_uuid, sql_mode, engine = cursor.fetchone()
+                version_str, database, current_user, encoding = cursor.fetchone()
                 assert database == settings.DATABASES[alias]["NAME"]
-                assert "STRICT_TRANS_TABLES" in sql_mode or "STRICT_ALL_TABLES" in sql_mode
-                assert engine == "InnoDB"
+                assert encoding == "UTF8", f"{alias} must use UTF8"
+                # 校验两个库在运行 Django check 前为纯净零业务表
                 cursor.execute(
-                    "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=%s",
-                    [database],
+                    "SELECT count(*) FROM pg_class c "
+                    "JOIN pg_namespace n ON n.oid = c.relnamespace "
+                    "WHERE n.nspname NOT IN ('pg_catalog', 'information_schema') "
+                    "AND n.nspname NOT LIKE 'pg_toast%' "
+                    "AND n.nspname NOT LIKE 'pg_temp_%' "
+                    "AND c.relkind IN ('r', 'v', 'm', 'S', 'p', 'f')"
                 )
-                assert cursor.fetchone()[0] == 0
-                print("Django MySQL", alias, version, database, server_uuid, "zero tables")
+                assert cursor.fetchone()[0] == 0, f"{alias} contains unexpected tables"
+                print("Django PostgreSQL", alias, version_str.split()[1], database, current_user, "zero tables")
+
+        # 严格执行系统检查，fail_level WARNING，绝不屏蔽 W036
         call_command("check", databases=list(settings.DATABASES), fail_level="WARNING")
-        print("Django/Wagtail MySQL checks passed; no application migrations")
+        print("Django/Wagtail PostgreSQL checks passed; no application migrations")
     finally:
         connections.close_all()
 
@@ -78,5 +98,5 @@ if __name__ == "__main__":
         from django.core.management.base import SystemCheckError
         if isinstance(exc, SystemCheckError):
             print(str(exc), file=sys.stderr)
-        print(f"Django MySQL verification failed ({type(exc).__name__}); credentials withheld", file=sys.stderr)
+        print(f"Django PostgreSQL verification failed ({type(exc).__name__}); credentials withheld", file=sys.stderr)
         sys.exit(1)

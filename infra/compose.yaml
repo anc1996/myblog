@@ -2,22 +2,28 @@ name: myblog-services
 
 # Only infrastructure. This file never starts Django or applies migrations.
 services:
-  mysql:
-    image: mysql:26.10.0@sha256:3819b2b23835c4a73c8b022fafc33c8095c0f81c929a8b7a84613d2fba6c52f5
+  postgres:
+    # Official amd64 image loaded and verified by scripts/fetch_postgres.py.
+    image: postgres:18.6-trixie@sha256:aba87d5f7e99882ba959adcc69d534bebf388fcd1967338617e7fc66cb1c6e4e
+    pull_policy: never
     restart: unless-stopped
     env_file:
-      - path: /opt/myblog-services/secrets/mysql.env
+      - path: /opt/myblog-services/secrets/postgres.env
         format: raw
     command:
-      - --character-set-server=utf8mb4
-      - --collation-server=utf8mb4_0900_ai_ci
-      - --innodb-buffer-pool-size=256M
-      - --max-connections=60
-    ports: ["0.0.0.0:3306:3306"]
-    volumes: ["mysql-data:/var/lib/mysql"]
+      - postgres
+      - -c
+      - listen_addresses=*
+      - -c
+      - max_connections=60
+      - -c
+      - shared_buffers=128MB
+    ports: ["0.0.0.0:5432:5432"]
+    # PostgreSQL 18+ official images use a versioned PGDATA below this mount.
+    volumes: ["postgres-data:/var/lib/postgresql"]
     mem_limit: 1g
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "--host=127.0.0.1", "--silent"]
+      test: ["CMD", "pg_isready", "--host=127.0.0.1", "--username=postgres", "--dbname=postgres"]
       interval: 10s
       timeout: 5s
       retries: 30
@@ -84,7 +90,7 @@ services:
       start_period: 30s
 
 volumes:
-  mysql-data:
+  postgres-data:
   redis-data:
   mongo-data:
   mongo-config:

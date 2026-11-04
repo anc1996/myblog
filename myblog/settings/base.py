@@ -12,6 +12,9 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 from pathlib import Path
+import os
+
+from dotenv import dotenv_values
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 BASE_DIR = PROJECT_DIR.parent
@@ -46,6 +49,8 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    # Wagtail's PostgreSQL search fields and GIN indexes require this app.
+    "django.contrib.postgres",
 ]
 
 MIDDLEWARE = [
@@ -85,10 +90,25 @@ WSGI_APPLICATION = "myblog.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/6.1/ref/settings/#databases
 
+# Local files are explicit inputs and never override process environment.
+# Importing settings only reads configuration; it never connects or migrates.
+_env_filename = os.environ.get("MYBLOG_ENV_FILE", ".env.local")
+_env_path = Path(_env_filename)
+if not _env_path.is_absolute():
+    _env_path = BASE_DIR / _env_path
+_database_env = {**dotenv_values(_env_path, interpolate=False), **os.environ}
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": _database_env.get("POSTGRES_DB", "myblog_dev"),
+        "HOST": _database_env.get("POSTGRES_HOST", "127.0.0.1"),
+        "PORT": _database_env.get("POSTGRES_PORT", "5432"),
+        "USER": _database_env.get("POSTGRES_USER", "postgres"),
+        "PASSWORD": _database_env.get("POSTGRES_PASSWORD", ""),
+        "CONN_MAX_AGE": 0,
+        "OPTIONS": {"connect_timeout": 10},
+        # This database is separate from the manually provisioned service test DB.
+        "TEST": {"NAME": _database_env.get("POSTGRES_TEST_DB", "test_myblog")},
     }
 }
 

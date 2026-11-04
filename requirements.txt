@@ -1,7 +1,8 @@
 Django>=6.1,<6.2
 wagtail>=8.1,<8.2
-mysqlclient==2.2.7
+psycopg[binary]==3.3.7
 pymongo==4.19.0
 redis==8.1.0
 boto3==1.37.28
 python-dotenv==1.2.4
+jieba==0.42.1

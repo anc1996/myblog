@@ -2,6 +2,9 @@
 /media/
 /static/
 *.sqlite3
+# Local service credentials must never enter the Docker build context.
+**/.env*
+.git/
 
 # Python and others
 __pycache__

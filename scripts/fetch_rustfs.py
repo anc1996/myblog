@@ -31,24 +31,27 @@ def digest(data):
     return "sha256:" + hashlib.sha256(data).hexdigest()
 
 
-def main():
+def main(*, image=IMAGE, cache=CACHE, index_digest=INDEX,
+         manifest_digest=MANIFEST, config_digest=CONFIG, registry=REGISTRY):
+    """Load one pinned OCI image; defaults preserve the RustFS download contract."""
     if Path.cwd() != ROOT:
         raise RuntimeError("Use this project's authorized WSL directory")
-    CACHE.mkdir(parents=True, exist_ok=True, mode=0o700)
+    cache.mkdir(parents=True, exist_ok=True, mode=0o700)
+    repository = registry.split("/v2/", 1)[1].rstrip("/")
     opener = urllib.request.build_opener(
         urllib.request.ProxyHandler({"https": PROXY, "http": PROXY}),
     )
     with opener.open(
         "https://auth.docker.io/token?service=registry.docker.io"
-        "&scope=repository:rustfs/rustfs:pull", timeout=45,
+        f"&scope=repository:{repository}:pull", timeout=45,
     ) as response:
         token = json.load(response)["token"]
 
     def fetch(path, expected):
-        destination = CACHE / expected.split(":")[1]
+        destination = cache / expected.split(":")[1]
         if destination.exists() and digest(destination.read_bytes()) == expected:
             return destination
-        request = urllib.request.Request(REGISTRY + path, headers={
+        request = urllib.request.Request(registry + path, headers={
             "Authorization": "Bearer " + token,
             "Accept": "application/vnd.oci.image.index.v1+json,"
                       "application/vnd.oci.image.manifest.v1+json",
@@ -62,21 +65,21 @@ def main():
         partial.replace(destination)
         return destination
 
-    index = json.loads(fetch("manifests/" + INDEX, INDEX).read_bytes())
+    index = json.loads(fetch("manifests/" + index_digest, index_digest).read_bytes())
     platforms = [item for item in index["manifests"]
                  if item.get("platform") == {"architecture": "amd64", "os": "linux"}]
-    if len(platforms) != 1 or platforms[0]["digest"] != MANIFEST:
+    if len(platforms) != 1 or platforms[0]["digest"] != manifest_digest:
         raise RuntimeError("Unexpected official amd64 image manifest")
-    manifest = json.loads(fetch("manifests/" + MANIFEST, MANIFEST).read_bytes())
-    if manifest["config"]["digest"] != CONFIG:
+    manifest = json.loads(fetch("manifests/" + manifest_digest, manifest_digest).read_bytes())
+    if manifest["config"]["digest"] != config_digest:
         raise RuntimeError("Unexpected official image configuration")
-    config_path = fetch("blobs/" + CONFIG, CONFIG)
+    config_path = fetch("blobs/" + config_digest, config_digest)
     config = json.loads(config_path.read_bytes())
     diff_ids = config["rootfs"]["diff_ids"]
     if len(diff_ids) != len(manifest["layers"]):
         raise RuntimeError("Layer configuration mismatch")
 
-    with tempfile.TemporaryDirectory(prefix="load-", dir=CACHE) as directory:
+    with tempfile.TemporaryDirectory(prefix="load-", dir=cache) as directory:
         work = Path(directory)
         layers = []
         for number, (layer, diff_id) in enumerate(zip(manifest["layers"], diff_ids)):
@@ -91,15 +94,15 @@ def main():
             if actual != diff_id:
                 raise RuntimeError("Uncompressed official layer digest mismatch")
             layers.append(target.name)
-            print(f"Verified official RustFS layer {number + 1}/{len(diff_ids)}", flush=True)
-        config_name = CONFIG.split(":")[1] + ".json"
+            print(f"Verified official {image} layer {number + 1}/{len(diff_ids)}", flush=True)
+        config_name = config_digest.split(":")[1] + ".json"
         archive_path = work / "rustfs.docker.tar"
         with tarfile.open(archive_path, "w") as archive:
             archive.add(config_path, arcname=config_name)
             for layer_name in layers:
                 archive.add(work / layer_name, arcname=layer_name)
             content = json.dumps([{
-                "Config": config_name, "RepoTags": [IMAGE], "Layers": layers,
+                "Config": config_name, "RepoTags": [image], "Layers": layers,
             }]).encode()
             info = tarfile.TarInfo("manifest.json")
             info.size = len(content)
@@ -114,26 +117,26 @@ def main():
         exported = work / "exported.tar"
         subprocess.run(
             ["docker", "--host=unix:///var/run/docker.sock", "image", "save",
-             "--output", str(exported), IMAGE], check=True,
+             "--output", str(exported), image], check=True,
         )
         with tarfile.open(exported) as archive:
             saved = json.load(archive.extractfile("manifest.json"))
             if len(saved) != 1:
                 raise RuntimeError("Unexpected exported image count")
             exported_config = archive.extractfile(saved[0]["Config"]).read()
-            if digest(exported_config) != CONFIG:
+            if digest(exported_config) != config_digest:
                 raise RuntimeError("Loaded image config differs from official config bytes")
     result = subprocess.run(
         ["docker", "--host=unix:///var/run/docker.sock", "image", "inspect",
-         IMAGE, "--format", "{{.Id}}"], check=True, capture_output=True, text=True,
+         image, "--format", "{{.Id}}"], check=True, capture_output=True, text=True,
     )
     loaded_id = result.stdout.strip()
-    (CACHE / "verified.json").write_text(
-        json.dumps({"image": IMAGE, "index": INDEX, "manifest": MANIFEST,
-                    "config": CONFIG, "loaded_id": loaded_id},
+    (cache / "verified.json").write_text(
+        json.dumps({"image": image, "index": index_digest, "manifest": manifest_digest,
+                    "config": config_digest, "loaded_id": loaded_id},
                    indent=2) + "\n", encoding="utf-8",
     )
-    print("Pinned official RustFS image verified and loaded:", IMAGE, loaded_id)
+    print("Pinned official image verified and loaded:", image, loaded_id)
 
 
 if __name__ == "__main__":

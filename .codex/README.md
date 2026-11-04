@@ -4,21 +4,37 @@
 `custom` 提供方沿用宿主配置，仓库不包含凭据，不复制旧项目模型目录或 MCP 绝对路径。
 主会话由桌面宿主选择；角色文件不能改变已经运行的主会话身份。
 
-| 角色 | 模型 | 范围 | 本轮验证 |
-|---|---|---|---|
-| sol | gpt-6.1-sol | 架构、合同、证据复核 | 当前会话按显式 model 完成只读子任务；新项目具名角色待新会话验证 |
-| gemini | gemini-3.8-flash | 常规实现与定向测试 | TOML 配置；尝试既有 gemini 角色后，会话元数据显示选择了 Sol，未证明 Flash 路由 |
-| terra | gpt-6.1-terra | 只读独立风险审查 | 当前会话已选中该模型，收束时容量失败，无完整报告；新角色待新会话验证 |
-| argon | gemini-4-argon | 框架或复杂编辑器专项攻坚 | TOML 配置；当前 spawn 工具未列出该 model，未调用 |
+## 职责与本轮调用
 
-新会话优先按实际暴露的 `agent_type` 派发；V1 工具使用 `fork_context=false`，
-不用旧协议的 `fork_turns`。显式覆盖模型前核对当前工具接受的型号。
-不把生成 agent ID、HTTP 200 或代理自报身份当作提供方真实型号证明。
-若默认 Gemini 路由不可用，明确报告；由主代理限定任务和文件后重新指派已验证的 Sol，
+2026-11-04 使用具名 `agent_type` 派发只读任务，并核对原生会话的 `turn_context.model`。
+下表记录宿主选择和任务返回，不证明网关底层型号，也不代表常规编码、业务测试已经验收。
+
+| 角色 | 配置及本轮选中模型 | 范围 | 本轮任务 |
+|---|---|---|---|
+| sol | gpt-6.1-sol / high | 架构、合同、证据复核 | 用户、媒体及迁移依赖源码检查，完整返回 |
+| gemini | gemini-3.8-flash / high | 常规实现与定向测试 | 配置及文档只读检查，完整返回；部分工具范围与历史状态推断经主会话纠正 |
+| terra | gpt-6.1-terra / high | 只读独立风险审查 | 版本绑定、权限与删除方案审查，完整返回；指出版本核对、交付边界和引用锁定需明确 |
+| argon | gemini-4-argon / high | 框架或复杂编辑器专项攻坚 | 工作流与发布入口源码检查，完整返回 |
+
+对应任务 ID，便于核对宿主原始记录：
+
+- Sol：`01a1a486-2697-7fc3-a8fc-596d1517219d`
+- Flash：`01a1a486-ef10-7b53-9048-b11b001b54b5`
+- Terra：`01a1a48b-492d-7ec1-9410-b0d916813157`
+- Argon：`01a1a486-9241-72b1-ad40-3af4fff37de3`
+
+主会话修订后，Terra 定向复读确认上述三项文档问题已补齐；这不等于业务并发或集成验收通过。
+本轮四个任务均已完整返回并关闭，详细设计见[六项技术审查与推荐方案](../说明书/myblog_六项技术审查与推荐方案_2026-11-04.md)。
+
+此前出现过 Flash 任务选中 Sol、Terra 容量失败、Argon 未调用的记录，只代表当时那次尝试，
+不能覆盖上表的本轮结果。主会话仍由宿主选择，角色配置不会改变已经运行的主会话身份。
+
+派发参数以当前工具清单为准，优先使用具名角色；显式覆盖模型前核对工具支持情况。
+每次核对实际选择、完整返回和任务证据；生成 agent ID、HTTP 200 或代理自报身份都不够。
+路由不符或失败时如实报告；确需替补，由主代理明确重新指派并限定文件，
 参与实质实现后另安排独立高风险审查，不静默换型号。
-本轮新角色只验证静态配置；Gemini 两条路由需要宿主加载并完成真实无副作用任务才能启用。
-既有 `gemini` 角色调用成功不能算 Flash 成功：本轮该子任务的原生 turn_context 为
-`gpt-6.1-sol/high`。这只证明 Codex 侧选择，不证明网关底层身份。
+
+## 任务与记忆协作
 
 每份任务包只包含：目标、文件归属、输入合同、允许的 IO/写入、验收命令和停止条件。
 通常一个实现者加一个按需审查者；独立边界才并行，最多三个子代理，
@@ -32,5 +48,24 @@ ai-memory 标记为 `default/anc1996-myblog`，与旧项目 `default/wagtailblog
 只有明确要求保存时写持久知识；正式项目规则留在 AGENTS.md。
 Handoff 仅用于明确结束或用户要求下次接续，不在派发时消费或创建。
 
-Windows 编辑、WSL2 执行 Python/检查/测试。当前 `.env.local`、`.env.test` 仅为本地连接准备，
-没有被 Django settings 加载。不得因文件存在就运行首次迁移；先处理方案列出的 P0 阻断项。
+Windows 编辑、WSL2 执行 Python/检查/测试。2026-11-04 用户决定关系数据库全面改用 PostgreSQL，
+服务使用 `postgres:18.6-trixie`，已完成镜像校验、启动、默认管理员认证、两个 UTF8 空库检查与 Windows TCP 连通检查；
+settings 3 项和服务脚本 8 项离线测试通过；修复测试隔离后，6 个真实凭据文件与 2 个客户端 env 测试前后哈希不变。
+四服务读写、PostgreSQL 临时回滚/条件唯一索引、两库严格 Django/Wagtail 检查及中文临时 GIN 探针通过；
+dev 与 `.env.test` 的 `manage.py check --database default --fail-level WARNING` 均为 0 issues。
+`postgres.E005` 已通过注册 `django.contrib.postgres` 修复，两库严格重跑为 0 issues / 0 silenced。
+项目驱动改为 `psycopg[binary]==3.3.7`，旧站共享 Conda 中的 MySQL 包不卸载。
+settings 接入 `.env.local` 或 `MYBLOG_ENV_FILE=.env.test`，进程环境优先，
+数据库键为 `POSTGRES_DB/HOST/PORT/USER/PASSWORD`。
+`POSTGRES_TEST_DB` 默认 `test_myblog`，与手工探针库 `myblog_test` 分开。
+PostgreSQL 管理员为 `postgres`，MongoDB 仍为 `root`；密码仅在本地 env 沿用。
+客户端 env 已删除 `MYSQL_*` / `MINIO_*` 键；旧 MySQL 已确认归属、停止并设 `restart=no`，容器、卷和回退备份保留。
+测试覆盖凭据事件、备份恢复与临时目录隔离修复见[切换记录](../说明书/myblog_PostgreSQL切换记录_2026-11-04.md)；
+`prepare` 仅允许空 secrets 目录首次、单实例串行准备，禁止覆盖已有凭据；
+多文件写入非原子，中途失败须人工检查部分文件，不保证并发或中断安全。
+不得因配置已写入就运行首次迁移；先处理方案列出的 P0 阻断项。
+PostgreSQL 支持条件唯一索引，旧 MySQL W036 是历史问题；
+统一锁、幂等、批准 Revision 核对及真实 PostgreSQL 并发测试仍须完成。
+应用迁移、完整搜索集成、性能测试和恢复演练尚未执行。
+最新 `pip check` 仍仅报告一条冲突：`wagtailblog2==0.1.0` 要求 Wagtail 8.0.1，已安装为 8.1。
+8 个改动 Python 文件语法编译、5 份 Codex TOML 解析、Compose config 及差异格式检查通过。

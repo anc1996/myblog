@@ -26,6 +26,13 @@
 
 ## 开发与验证
 
+- 新站关系数据库采用 PostgreSQL 18，当前使用 `postgres:18.6-trixie`；版本、镜像、连接和业务验收分别核对，不能只凭镜像标签声称服务或并发已通过。
+- PostgreSQL/Wagtail 决定正式发布及 Revision；MongoDB 保存不可变字段版本，Redis 和搜索均为可重建辅助。SQL 回滚不会回滚 Mongo/RustFS，失败对象保留待对账，不能立即物理删除。
+- PostgreSQL 使用默认管理员 `postgres`、5432、`myblog_dev` / `myblog_test`（UTF8）；MongoDB 管理员仍为 `root`，不得随 SQL 用户名替换。密码仅在本地 env 沿用，不写入追踪文档。
+- 项目驱动采用 `psycopg[binary]==3.3.7`，不再声明 mysqlclient；不得因此卸载旧站共享 Conda 中的 MySQL 包或系统库。
+- 本地 settings 接入 `.env.local`，可由 `MYBLOG_ENV_FILE=.env.test` 指定测试配置，进程环境优先；数据库使用 `POSTGRES_DB/HOST/PORT/USER/PASSWORD`。Django 自动测试库由 `POSTGRES_TEST_DB` 指定，默认 `test_myblog`，不得混用手工服务探针库 `myblog_test`。
+- PostgreSQL 支持 Wagtail 条件唯一索引；旧 MySQL 的 `models.W036` 仅作历史记录。仍须验证统一锁顺序、幂等、批准 Revision 一致性与真实 PostgreSQL 并发。
+
 - 先检查 `git status`、当前分支和远程地址，再开始修改。
 - 每次只实现一个明确的小目标；代码必须保留必要注释，说明不直观的架构、权限或兼容性原因。
 - 修改后至少执行适用的 Python 语法检查、Django/Wagtail 检查、定向测试和 `git diff --check`。
