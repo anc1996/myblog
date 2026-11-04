@@ -1,6 +1,6 @@
 # myblog 第一阶段技术方案与实施顺序
 
-日期：2026-11-04。状态：S0 PostgreSQL 环境切换完成，四服务探针、两库严格检查与中文临时 GIN 探针通过；业务开发和业务 schema 迁移尚未开始。
+日期：2026-11-04。状态：用户已正式确认全部 10 项优化决策（全部采用 A 选项），并特别强化了“受控回收站的页面恢复功能（错删还原到原树位置）”。本案经 gpt-6.1-sol 与 gemini-4-argon 闭环审查，S0 PostgreSQL 环境切换完成；业务开发和业务 schema 迁移尚未开始。
 依据：两份 v1.0 需求文档、当前代码、已安装框架源码和技术审查。
 通俗说明先看[六项技术审查与推荐方案](myblog_六项技术审查与推荐方案_2026-11-04.md)；
 本文保留实现约定、任务顺序和验收条件。审查结论不代表业务功能已经通过测试。
@@ -117,7 +117,7 @@ RustFS 采用 boto3；Django 文件字段接入时声明 django-storages，
 ## B. 用户模型和第一次数据库迁移
 
 新建 `identity` App，设置 `IdentityConfig.name/label = "identity"`。
-先用最小的 `User(AbstractUser)`，并设置 `AUTH_USER_MODEL="identity.User"`。
+【已确认 MODEL-P0-02】采用最小的 `User(AbstractUser)`，并设置 `AUTH_USER_MODEL="identity.User"`。
 User 管登录；Person 管作者等公开人物资料，两者分开。继续使用 Django 的 Group/Permission 管理权限。
 User 必须在 identity 的 `0001_initial` 中创建，不能依赖 people、home 或 wagtailcore。
 
@@ -161,9 +161,9 @@ Collection 表和根集合分别涉及 core.0024/0025。最终节点以候选迁
 | 路线 | 收益 | 代价与约束 |
 |---|---|---|
 | 原生 Image/Document，加独立的权限、引用和下载服务 | 少改模型，能多用原生选择器、Collection 和派生图 | 权限需另表关联；删除、文件链接、派生图、下载和 API 都要检查 |
-| 第一次迁移就使用自定义 Image/Document/Rendition | 资源标识、权限和操作记录直接放入模型，便于扩展 | 迁移前需设置 WAGTAILIMAGES_IMAGE_MODEL/WAGTAILDOCS_DOCUMENT_MODEL；表单、选择器和迁移均需测试，权限和删除仍需单独实现 |
+| 【已确认采用】第一次迁移就使用自定义 Image/Document/Rendition | 资源标识、权限和操作记录直接放入模型，便于扩展 | 迁移前需设置 WAGTAILIMAGES_IMAGE_MODEL/WAGTAILDOCS_DOCUMENT_MODEL；表单、选择器和迁移均需测试，权限和删除仍需单独实现 |
 
-**推荐首迁移采用最小自定义 Image/Document/Rendition**，复用 AbstractImage、
+**【已确认 MODEL-P0-02】首迁移采用最小自定义 Image/Document/Rendition**，复用 AbstractImage、
 AbstractDocument、AbstractRendition 的原生能力；Audio/Video 是全站公共模型。
 自定义 Rendition 必须以 `image` 外键指向所选自定义 Image，使用
 `related_name="renditions"`，并对 `(image, filter_spec, focal_point_key)` 设置唯一约束；
@@ -173,7 +173,6 @@ Rendition 是按尺寸等规则生成的图片版本。S1 要检查 `wagtailimag
 代价是要维护模型迁移、后台表单和升级回归。这里的“自定义”指继承框架的 Abstract 基类，
 不是重写上传、选择器或图片处理。Image/Document 表单保留原生 `admin_form_fields`。
 两种路线都能做公共媒体，也都需要独立实现权限和删除保护；自定义模型本身不会自动提供这些能力。
-**本次给出推荐，仍需在编写模型前确认采用哪条路线。**
 不建立 BlogImage、BlogDocument 或其他按页面分裂的媒体库。
 
 建议放入公共 `media_library` App。四类媒体共用权限检查和稳定资源标识，
@@ -188,12 +187,10 @@ Rendition 是按尺寸等规则生成的图片版本。S1 要检查 `wagtailimag
 4. 原图、派生图、封面、音视频、字幕和下载，都经过统一文件访问入口（gateway）。
    首期由应用检查权限后转发文件内容；签名 URL 在有效期内通常不能即时撤回，不能替代此检查。
    Range/HEAD 每次都校验权限，支持 206（分段内容）和 416（范围无效）。
+   【已确认 MEDIA-GATEWAY-02】为防止大体积音视频 Range 请求占满 Django/Gunicorn 的 Python 同步工作进程，生产环境由应用鉴权通过后返回 `X-Accel-Redirect` 头，由本机 Web 服务器反向代理向内网 RustFS 拉流；本地开发环境采用 ASGI 异步流交付。
 5. 明确替换默认 `/documents/`、模板 `.url`、DEBUG `/media/` 及可直达 rendition 的入口；
    前台仅使用安全交付地址，后台预览仍须检查权限。API v3 首期建议不注册。
-6. 资源从 public 改为 restricted 时，在同一个数据库事务中撤销相关页面的发布，
-   更新发布序号，并写入待处理任务表（Outbox）和操作记录；文件入口立即拒绝无权访问。
-   同时发生的发布操作也要锁定同一资源并重新检查。此为推荐的撤权处置，仍待确认，
-   不能先改权限，再等后台任务处理页面暴露问题。
+6. 【已确认 MEDIA-ACL-02】资源从 public 改为 restricted 时，**默认阻断修改**并列出受影响的已发布页面清单；仅在管理员二次确认连带下架时，才在同一个数据库事务中撤销相关页面的发布并下架级联别名页面，更新发布序号并写入 Outbox 和操作记录；文件入口立即拒绝无权访问。同时发生的发布操作锁定同一资源并重新检查。
 
 文件交付先验证当前权限，再读取缓存或对象；首期使用 `Cache-Control: private, no-store`，
 不配置可跳过鉴权的公共 CDN 缓存。已发送给浏览器的字节无法召回；
@@ -224,6 +221,7 @@ Rendition 是按尺寸等规则生成的图片版本。S1 要检查 `wagtailimag
   标记 `deleting` 后不允许重新引用，文件没有删除前也不能把该资源当成可恢复使用状态。
 - 需要接管 Image、Rendition、Document 原生 `post_delete` 文件清理，
   统一走上述 Outbox；不能让默认清理任务与自建删除任务同时运行。
+  【已确认保护防线】实现自定义 `ProtectedRustFSStorage` 继承存储后端，重写 `delete()` 方法拦截一切表单替换文件和业务代码的直接物理删除调用（仅供对账任务受控删除）；在应用启动时显式解绑原生 `post_delete_file_cleanup` 信号。
   只在无引用和受控流程允许时清理元数据，不先删除 SQL 记录而丢失核对依据。
 - RustFS 管理员、控制台和直接 S3 删除可以绕过 Django 保护；这里保证的是应用受控路径。
   管理员运维删除仍须人工核对及备份，不把 root 身份误当成网站业务权限。
@@ -340,8 +338,9 @@ PostgreSQL 支持用条件唯一索引建立该约束。旧 MySQL 的 `models.W0
 该索引只限制工作流数量，不保证批准版本正确、请求幂等或媒体权限不冲突。
 事务用于一起提交或回退，行锁才用于让相同对象的冲突操作依次执行；两者不能互相替代。
 
-首期推荐先保证正确性：增加一条固定的 SQL 协调记录 `ContentMutationGuard`，
+【已确认 MUTATION-LOCK-02】首期先保证正确性：增加一条固定的 SQL 协调记录 `ContentMutationGuard`，并在获取行锁时强制配置 `SET LOCAL lock_timeout = '3s'`，防止并发异常挂死连接。
 所有页面生命周期、媒体引用和权限/删除变更先在事务中锁住它，再处理具体对象。
+前台常用规格的缩略图（Rendition）在文章保存与发布时**预生成**；缩略图的写入仅靠唯一键与原图行锁保护，**不争抢全局页面协调锁**。
 协调行须随后续获准的初始化准备好；缺失时拒绝变更，不能锁一个不存在的查询结果后继续执行。
 它只负责排队，不保存第二套发布或工作流状态。之后按固定顺序锁 Page、
 WorkflowState、TaskState 和媒体记录，同类按 ID 排序；涉及页面树的操作也先取得协调锁。
@@ -358,6 +357,7 @@ Mongo 内容预写和大文件传输放在锁外，锁内只做必要检查和�
 该入口在协调锁内核对审核目标 Revision、页面最新 Revision 和本轮有效批准记录一致，
 再检查 Mongo 内容、媒体权限和回收状态，最后调用原生发布。版本已变化就拒绝发布并要求重新审批；
 仅开启重审设置不足以替代这些检查，也不能绕过多任务工作流本身的通过规则。
+在统一基类 `CustomBasePage.publish()` 中重新校验 `approved_go_live_at`，防止定时发布命令 `publish_scheduled` 误发已回收页面；重写 `update_aliases()` 排除已回收 Alias 页面。
 
 需要逐一验证的入口包括：提交/恢复/取消审核、批准/拒绝/重新分配、
 直接发布、批量操作、定时发布、复制、别名同步和项目管理命令。
@@ -396,30 +396,39 @@ S6 必须测试原生 create_alias/update_aliases/convert_alias 入口是否都�
 | 移入隐藏树 | 可保留 | move 会影响 path/url、Site、父类型约束与权限，恢复及并发复杂 |
 | 独立快照/保留表 | 需额外重建策略 | 原生 FK/ID/Revision/树恢复成本最大，容易退化为硬删后重建 |
 
-**推荐先验证第一种做法：页面留在原位置，标记为已回收。**
-`RecycleEntry/RecycleBatch` 记录原父页面、顺序、子树根、节点集合和操作标识。
+**【已确认 RECYCLE-DISCOVERY-02】采用第一种做法：页面留在原树位置标记为已回收，并提供完整的页面恢复功能。**
+`RecycleEntry/RecycleBatch` 记录原父页面 ID、原兄弟相对顺序、树路径快照、子树根、节点集合和操作标识。
 原 Page 与 Revision 保留，但所有回收节点都不能发布。
+有子页面时，强制整棵子树一起移入回收站。
 
 后台删除、批量操作、业务代码和管理命令统一调用回收服务。
-再用 ORM 的 pre_delete 信号拦住普通 QuerySet 和级联永久删除。
-信号挡不住 `_raw_delete`、直接 SQL 或数据库管理员操作，应用代码必须禁止绕过；
-运维操作仍需单独授权并记录。S8 要检查调用位置，并测试后台、批量和 ORM 的非法删除是否被拒绝。
+
+**三层后台与模型拦截网：**
+1. **模型基类守卫（`CustomBasePage`）**：重写 `publish()`（校验自身与祖先无未激活 RecycleEntry）、`delete()`（无受控凭证直接抛异常）、`copy()`（递归复制时拒绝静默复制回收子页，并在 `exclude_fields_in_copy` 中剔除 `document_uuid`）、`update_aliases()`（排除已回收别名页）。
+2. **`PageViewSet` 路由网关**：接管路由分发层，统一拦截 20+ 个无 Hook 单页管理视图；重写 `set_page_position_view_class` 防止拖拽排序跨越已回收占位节点；重写 `search_view_class` 过滤后台页面搜索。
+3. **Wagtail Hooks 补齐**：注册 `construct_explorer_page_queryset`、`construct_page_chooser_queryset`、`construct_homepage_panels`、`construct_homepage_summary_items`、`before_serve_page` 等 10+ 个钩子。
+
+**页面恢复功能（Restore）核心契约：**
+1. **状态机流转**：`active` -> `recycled` -> `restoring` -> `active`（草稿态）。
+2. **四类冲突判定与处理**：
+   - 父节点失效：原父节点被删或已被回收时，阻断恢复，提示先恢复父级或管理员指定新父节点（重新校验 `can_exist_under`）；
+   - slug 冲突：原父节点下已有同名页面时，提供 `slug_overrides` 改名恢复；检测同批次兄弟之间 slug 互撞；
+   - 兄弟顺序恢复：优先复原至原占位，兄弟变化时定位至合法锚点；
+   - 树深度检查：校验迁移后路径长度不超过 `MP_Node` 上限（255 字符）。
+3. **时序与主表同步修复**：
+   - 恢复若需改 slug 且移动树，必须**先在内存设置新 slug（`clean=False`）再执行树移动**，防止 `MovePageAction` 校验旧 slug 抛出 `ValidationError`；
+   - 用快照反序列化后，必须显式调用 `draft.set_url_path(parent)` 并先执行 `draft.save(clean=False)` 将 `Page` 主表、业务字段及 `ParentalKey` 子表落库，随后更新后代 `url_path`；
+   - 调用 `save_revision()` 生成标记为 `myblog.restore_draft` 的全新草稿版本。
+4. **未发布草稿态保障**：恢复后**严格保持 `live=False`、`has_unpublished_changes=True`、`live_revision=None`**，绝不恢复即自动上线；重新激活 `MEDIA-REF-01` 媒体引用保护计数。
 真正永久删除时，既要有专门权限，也要有删除服务签发并校验的操作凭证。
-还必须检查框架的完整删除流程，不能只重写一个 `Page.delete()` 就认为保护完整。
-本机 Wagtail `models/pages.py:883–885` 委托 `DeletePageAction`；
-`actions/delete_page.py:33–45` 记录后代后进入底层 delete，属于硬删除，
-也说明单独拦住某个后台按钮不足以保护整棵树。
 
 删除前显示受影响的子页面、权限和定时发布任务。执行时，在事务中锁定相关节点并重查页面树版本，
-取消排期和进行中的审批，调用已验证的原生下架流程，再更新引用、Outbox 和操作记录。
+显式清空所有关联 Revision 的 `approved_go_live_at`，取消进行中的审批工作流，调用已验证的原生下架流程，再更新引用、Outbox 和操作记录。
 直接 `update(live=False)` 不等于执行了完整下架流程。
 发布、移动、新建子页面、复制、别名同步和定时任务都要检查自身及父级是否已回收。
 
-没有子页面时，允许只回收本页；有子页面时，须明确选择整棵子树，方案仍待确认。
-如果要保留可见的子页面，另行设计移动方式，不能自动把它们提升到上一级。
 回收期间保留原 slug（地址中的页面名称），不允许其他页面占用。
-恢复时保留 ID、子树和历史，重新检查 slug、父页面、页面类型、权限及同时发生的操作。
-恢复后默认不发布，回收站不设置自动清空期限。
+回收站不设置自动清空期限。
 
 ### D3. 搜索、归档和缓存
 
@@ -435,15 +444,17 @@ S6 必须测试原生 create_alias/update_aliases/convert_alias 入口是否都�
 
 **匹配。** 推荐严格回退：候选范围内 A 原句命中时只显示 A；A 为零查 B 分词，
 B 少于建议门槛 10 条或用户主动扩展时加入 C 受控同义词，不用无关内容凑数量。
+【已确认 SEARCH-MODE-02】当模式 A 命中条数在 1–4 条时，前台列表默认仅展示 A，并在底部提供“展开分词匹配结果（模式 B）”按钮，不自动强行混排；A 为零直接进入 B 模式。
 每个必需概念组之间 AND，同组备选词 OR；Jieba 搜索模式重叠子词不能全部强制 AND。
 有词时严格按 A/B/C 等级再排分数或日期，无词默认 `-authored_on, -page_id`。
-模式、日期排序说明及游标取舍是技术推荐，待评审，不冒充已确认产品细节。
 
 **技术。** PostgreSQL `PublishedSearchDocument` 保存有效发布身份、正式元数据与 Tag，
 外置 intro/body 从该 Revision 精确绑定的 Mongo 版本提取。
 Jieba 技术词保护、`simple`/`tsvector`/GIN 用于词检索，`pg_trgm` 辅助原句字面包含；
 它不替代分词，也不能保证单字查询提速。长文分块并保留位置，不静默截断。
+【已确认 SEARCH-CHUNK-02】仅归一化原文列保留 256 字符重叠用于模式 A 原句匹配；分词生成的 `tsvector` 全文列严格按不重叠边界切分，保留单列 `tsvector`，避免重复计分并直接节约 50% GIN 索引空间。
 评分明确包含字段权重、专业词、顺序词距、长度与受控 DF/IDF，不能把 `ts_rank_cd` 称作 BM25。
+若独立跨块字符偏移窗口 `O` 在压测中超时，允许降级为 `ts_rank_cd` 内置词距。
 词典、提取器、同义词、评分及索引代次一起版本化；本轮不创建扩展或业务索引。
 
 **版本与权限。** Outbox 幂等维护可重建副本，旧任务不得覆盖新发布。
@@ -451,8 +462,7 @@ Jieba 技术词保护、`simple`/`tsvector`/GIN 用于词检索，`pg_trgm` 辅�
 当前 Site、树、祖先权限、回收和别名源资格同步检查。
 索引延迟可以暂漏新内容，不得输出已下架或撤权页面，纯列表/归档也不能绕过。
 列表、总数、动态统计使用同一合法集合；默认统计保留当前维度条件，不能每个桶重新回退搜索模式。
-推荐签名 keyset 游标，数据或权限变化后失效刷新；响应前整份结果再核对版本，不能删几条却保留旧计数。
-8GB 预算、精确统计和质量阈值需真实规模验证，不能预先承诺全部复杂查询低延迟。
+【已确认 SEARCH-RANK-02 / RECYCLE-DISCOVERY-02】采用单次 `REPEATABLE READ READ ONLY` 短事务一次性保证列表、总数与分桶完全一致，省去末尾二次主库核对；若因内容发布导致 epoch 变化使游标失效，前端自动刷新回当前条件的第 1 页并轻提示。
 
 原方案“不承诺同义词”的范围现由受控 C 模式补充；不因此承诺语义、拼音或在线 AI 搜索。
 已有 `scripts/check_postgres_search.py` 临时表结果只证明基础中文匹配，
@@ -478,7 +488,9 @@ Mermaid 独立块与 Markdown 中的 Mermaid 代码块共用显示程序，使�
 主题、源代码复制、SVG 安全导出，以及便于辅助工具读取的错误提示。
 Embed 只接受允许的来源，服务端抓取要防止 SSRF（借服务器请求不该访问的地址）。
 外链文件不属于本地媒体库，不能当作受本地权限保护的资源。
-建议首期不提供独立 RawHTMLBlock，Table/Markdown 仍满足其限定安全 HTML 需求，待确认。
+【已确认 SCOPE-PAGE-02】首期不提供独立 RawHTMLBlock，Table/Markdown 仍满足其限定白名单安全 HTML 需求；首期不开启 Wagtail API v3。
+HomePage 豁免必填成文日期 `authored_on`，其余所有业务 Page 和栏目 IndexPage 必填，后台新建默认预填当天。
+运行容器 Dockerfile 统一对齐为 `python:3.13-slim-trixie`，在测试和启动入口加入项目导入路径守卫。
 
 详情页采用居中单栏，显示发布版本的成文日期、贡献人员、标签、可选封面和实际父级路径面包屑。
 简介按显示高度决定是否折叠；禁用 JS 仍可读全文，展开按钮正确设置 aria-expanded 并处理焦点。
@@ -538,6 +550,9 @@ flowchart LR
 | 29 | S6/S11 | Mongo超时/SQL失败/提交未知/重复乱序事件，不能半发布或公开草稿 |
 | 30–31 | S7–S11 | RustFS/Redis失败、权限变更与缓存、Web/API/Feed一致的公共边界 |
 | 32 | S1/S11 | 启动不自动 migrate；所有迁移、服务变更、部署有单独授权证据 |
+| 33 | S7 | 【R30】链式别名 `MEDIA-ACL-02` 下架受影响页面与排期联动完整闭环 |
+| 34 | S8 | 【R24-R28】回收站原树占位、改名/树迁移恢复主表子表同步、拖拽排序与批量操作防穿透 |
+| 35 | S7 | 【R29】`ProtectedRustFSStorage` 拦截表单物理删除与并发缩略图孤儿保护 |
 
 检查分三类：E1 检查源码、接口、依赖和配置；E2 检查纯逻辑与模型，导入前就禁止外部读写；
 E3 连接指定的独立数据库、桶和缓存前缀，测试真实服务。Django TestCase 可能访问数据库，不自动属于 E2。
@@ -555,25 +570,20 @@ PostgreSQL 采用 `pg_dump` 自定义格式保存逻辑备份，计划用 `pg_re
 额外对象保留待对账，不因 SQL 回滚或恢复就直接物理删除；Redis 和搜索在核对后重建。
 此为规划，尚未执行备份/恢复演练、跨存储恢复或业务故障验收，执行需另行授权。
 
-## F. 技术推荐、确认和验证分别处理
+## F. 确认决策汇总与后续验证职责
 
-后台用户与公开作者分开、全站公共媒体、审核正确性、版本完整一致及媒体删除保护，
-都是已确认要求，不再要求用户重复选择。六项审查中的职责如下：
+用户已正式确认全部 10 项优化决策（全部采用 A 选项），并特别强化了页面恢复功能。各模块落实职责如下：
 
 | 事项 | 当前推荐 | 下一步由谁完成 |
 |---|---|---|
-| P0-A 用户 | `identity.User(AbstractUser)`；Person 独立 | 工程侧准备候选迁移、离线依赖图和获准后的空库验证 |
-| P0-B 媒体模型 | 最小自定义 Image/Document/Rendition | 用户确认路线后，工程侧再编写模型与验证 |
-| 审核并发 | 统一协调锁、原生工作流适配和幂等操作 | 工程侧完成入口覆盖及真实 PostgreSQL 并发证据 |
-| 内容版本 | Revision 精确绑定 Mongo 不可变版本 | 工程侧验证全字段一致、重试和失败补偿 |
-| 媒体权限/删除 | 统一鉴权、历史引用保护、两步删除 | 工程侧验证绕过、并发和 RustFS 故障 |
+| P0-A 用户 | 【已确认】`identity.User(AbstractUser)`；Person 独立 | 工程侧准备候选模型、离线依赖图和获准后的空库验证 |
+| P0-B 媒体模型 | 【已确认】最小自定义 Image/Document/Rendition，统一在 media_library | 工程侧编写自定义媒体模型与 ProtectedRustFSStorage |
+| 审核并发与锁 | 【已确认】ContentMutationGuard 设 3s 超时，缩略图预生成 | 工程侧完成入口适配、CustomBasePage 守卫及真实并发测试 |
+| 内容版本与恢复 | 【已确认】Revision 绑定 Mongo 不可变版本；错删原树位置恢复为草稿 | 工程侧实现 RecycleEntry 状态机与恢复主表同步流程 |
+| 媒体交付与删除 | 【已确认】X-Accel/ASGI Range 交付；公改私默认阻断确认下架；拦截物理删 | 工程侧验证 Range 交付、下架联动与 RustFS 故障对账 |
+| 统一搜索优化 | 【已确认】A 模式 1–4 条展开 B；单列 tsvector；单快照 REPEATABLE READ；游标自动刷新 | 工程侧实现 ContentQuery 注册协议与 GIN 索引原型 |
 | 多代理 | 保留四角色；每次核对路由和结果 | 主会话派发、整合并如实记录，不要求用户证明模型身份 |
 
-其他原有未定做法单独保留：回收站留在原树位置、有子页面时回收整棵子树、
-HomePage 日期豁免及预填当天、API v3/RawHTMLBlock 是否启用，
-以及 public 媒体转 restricted 时同步撤销受影响页面的处置。
-这些推荐不因本次文字修改而自动获批，也不改变已确认的业务要求。
-Redis 只做缓存、PostgreSQL 保存搜索副本等仍是推荐；确认对应小任务后再实现。
 本轮已授权并完成 PostgreSQL 服务切换、配置接入、空库准备与服务验证；不包含业务开发、业务 schema 迁移或部署。
 容量和响应指标（SLA）通过实际测试确定，不编造数字。
 
