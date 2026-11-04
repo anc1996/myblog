@@ -27,6 +27,8 @@ BASE_DIR = PROJECT_DIR.parent
 # Application definition
 
 INSTALLED_APPS = [
+    "identity.apps.IdentityConfig",
+    "media_library.apps.MediaLibraryConfig",
     "home",
     "search",
     "wagtail.contrib.forms",
@@ -51,6 +53,8 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     # Wagtail's PostgreSQL search fields and GIN indexes require this app.
     "django.contrib.postgres",
+    # S3 / RustFS Storage integration
+    "storages",
 ]
 
 MIDDLEWARE = [
@@ -164,14 +168,37 @@ MEDIA_URL = "/media/"
 
 # Default storage settings
 # See https://docs.djangoproject.com/en/6.1/ref/settings/#std-setting-STORAGES
-STORAGES = {
-    "default": {
-        "BACKEND": "django.core.files.storage.FileSystemStorage",
-    },
-    "staticfiles": {
-        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
-    },
-}
+_s3_bucket = _database_env.get("S3_BUCKET")
+if _s3_bucket:
+    STORAGES = {
+        "default": {
+            "BACKEND": "media_library.storage.ProtectedRustFSStorage",
+            "OPTIONS": {
+                "bucket_name": _s3_bucket,
+                "endpoint_url": _database_env.get("S3_ENDPOINT_URL", "http://127.0.0.1:9000"),
+                "access_key": _database_env.get("S3_ACCESS_KEY_ID"),
+                "secret_key": _database_env.get("S3_SECRET_ACCESS_KEY"),
+                "region_name": _database_env.get("S3_REGION", "us-east-1"),
+                "file_overwrite": False,
+                "default_acl": None,
+                "querystring_auth": False,
+                "signature_version": "s3v4",
+                "addressing_style": "path",
+            },
+        },
+        "staticfiles": {
+            "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+        },
+    }
+else:
+    STORAGES = {
+        "default": {
+            "BACKEND": "django.core.files.storage.FileSystemStorage",
+        },
+        "staticfiles": {
+            "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+        },
+    }
 
 # Django sets a maximum of 1000 fields per form by default, but particularly complex page models
 # can exceed this limit within Wagtail's page editor.
@@ -181,6 +208,13 @@ DATA_UPLOAD_MAX_NUMBER_FIELDS = 10_000
 # Wagtail settings
 
 WAGTAIL_SITE_NAME = "myblog"
+
+# Custom user model
+AUTH_USER_MODEL = "identity.User"
+
+# Custom Wagtail image and document models
+WAGTAILIMAGES_IMAGE_MODEL = "media_library.CustomImage"
+WAGTAILDOCS_DOCUMENT_MODEL = "media_library.CustomDocument"
 
 # Search
 # https://docs.wagtail.org/en/stable/topics/search/backends.html

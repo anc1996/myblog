@@ -4,5 +4,7 @@ psycopg[binary]==3.3.7
 pymongo==4.19.0
 redis==8.1.0
 boto3==1.37.28
+django-storages==1.14.6
 python-dotenv==1.2.4
 jieba==0.42.1
+django-storages[s3]==1.14.6
