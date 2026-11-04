@@ -70,6 +70,17 @@ class CustomBasePage(Page):
             kwargs["exclude_fields"] = exclude_fields
         return super().copy(*args, **kwargs)
 
+    def serve(self, request, *args, **kwargs):
+        """前台交付守卫：未发布草稿（非带权预览）与已回收页面统一返回 404"""
+        is_preview = getattr(request, "is_preview", False) or getattr(request, "in_preview_panel", False)
+        if (not self.live) and (not is_preview):
+            from django.http import Http404
+            raise Http404(f"页面 '{self.title}' 尚未发布或已被下架")
+        if self.is_recycled:
+            from django.http import Http404
+            raise Http404(f"页面 '{self.title}' 当前处于回收站中")
+        return super().serve(request, *args, **kwargs)
+
 
 class ContentMutationGuard(models.Model):
     """

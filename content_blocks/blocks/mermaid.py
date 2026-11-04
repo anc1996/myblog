@@ -7,6 +7,7 @@
 
 import html
 from typing import Any
+from django.utils.safestring import mark_safe
 from wagtail import blocks
 
 from content_blocks.contracts import (
@@ -68,6 +69,11 @@ class CustomMermaidBlock(blocks.StructBlock):
         </div>
         """
         return BlockRenderResult(html=sanitize_html(html_output), is_safe=True)
+
+    def render_basic(self, value: Any, context: Any = None):
+        """Wagtail 模板原生渲染集成入口"""
+        res = self.render_clean(value, context)
+        return mark_safe(res.html)
 
     def extract_text(self, value: Any) -> BlockTextExtraction:
         if not value:

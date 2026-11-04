@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% load static wagtailcore_tags %}
+
+{% block extra_css %}
+<link rel="stylesheet" type="text/css" href="{% static 'blog/css/article.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="blog-article-container">
+    {# 面包屑导航 #}
+    {% if breadcrumbs %}
+    <nav class="blog-breadcrumbs" aria-label="面包屑导航">
+        <a href="/">首页</a>
+        {% for ancestor in breadcrumbs %}
+            <span class="breadcrumb-separator">/</span>
+            <a href="{% pageurl ancestor %}">{{ ancestor.title }}</a>
+        {% endfor %}
+        <span class="breadcrumb-separator">/</span>
+        <span class="current-crumb" aria-current="page">{{ page.title }}</span>
+    </nav>
+    {% endif %}
+
+    <header class="blog-header">
+        <h1 class="blog-title">{{ page.title }}</h1>
+        {% if page.intro %}
+        <div class="blog-intro-card">
+            <div class="intro-content">
+                <p style="margin: 0; color: #475569;">{{ page.intro }}</p>
+            </div>
+        </div>
+        {% endif %}
+    </header>
+
+    <section class="blog-body-section">
+        <h2 style="font-size: 1.25rem; margin-bottom: 20px; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px;">
+            下属文章与子栏目
+        </h2>
+
+        {% if children_pages %}
+        <ul style="list-style: none; padding: 0; margin: 0;">
+            {% for child in children_pages %}
+            <li style="margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid #f1f5f9;">
+                <h3 style="margin: 0 0 6px 0; font-size: 1.2rem;">
+                    <a href="{% pageurl child %}" style="color: #0f172a; text-decoration: none;">
+                        {{ child.title }}
+                    </a>
+                </h3>
+                <div style="font-size: 13px; color: #64748b; margin-bottom: 6px;">
+                    {% if child.authored_on %}
+                        成文日期：{{ child.authored_on|date:"Y年m月d日" }}
+                    {% endif %}
+                </div>
+                {% if child.intro %}
+                    <p style="margin: 0; font-size: 14px; color: #475569;">
+                        {% if child.intro.raw_text %}
+                            {{ child.intro.raw_text|truncatechars:140 }}
+                        {% else %}
+                            {{ child.intro|truncatechars:140 }}
+                        {% endif %}
+                    </p>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p style="color: #94a3b8;">当前栏目下暂无已发布的文章。</p>
+        {% endif %}
+    </section>
+</div>
+{% endblock %}

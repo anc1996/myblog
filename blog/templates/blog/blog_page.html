@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% load static wagtailcore_tags wagtailimages_tags %}
+
+{% block extra_css %}
+<link rel="stylesheet" type="text/css" href="{% static 'content_blocks/css/table.css' %}">
+<link rel="stylesheet" type="text/css" href="{% static 'blog/css/article.css' %}">
+{% endblock %}
+
+{% block content %}
+<article class="blog-article-container" itemscope itemtype="https://schema.org/BlogPosting">
+    {# 1. 真实有效祖先链面包屑导航 #}
+    {% if breadcrumbs %}
+    <nav class="blog-breadcrumbs" aria-label="面包屑导航">
+        <a href="/">首页</a>
+        {% for ancestor in breadcrumbs %}
+            <span class="breadcrumb-separator">/</span>
+            <a href="{% pageurl ancestor %}">{{ ancestor.title }}</a>
+        {% endfor %}
+        <span class="breadcrumb-separator">/</span>
+        <span class="current-crumb" aria-current="page">{{ page.title }}</span>
+    </nav>
+    {% endif %}
+
+    {# 2. 封面大图：有封面居中展示，无封面不留空白 #}
+    {% if page.featured_image %}
+    <div class="blog-featured-image">
+        <img src="/media-gateway/image/{{ page.featured_image.public_id }}/" alt="{{ page.title }}" loading="lazy" itemprop="image">
+    </div>
+    {% endif %}
+
+    {# 3. 头部信息区：标题、成文日期、作者团队、标签 #}
+    <header class="blog-header">
+        <h1 class="blog-title" itemprop="headline">{{ page.title }}</h1>
+        <div class="blog-meta">
+            <time datetime="{{ page.authored_on|date:'Y-m-d' }}" itemprop="datePublished">
+                成文于 {{ page.authored_on|date:"Y年m月d日" }}
+            </time>
+
+            {% if authors %}
+            <div class="blog-authors">
+                {% for author_rel in authors %}
+                <span class="author-badge" itemprop="author" itemscope itemtype="https://schema.org/Person">
+                    {% if author_rel.person.avatar %}
+                        <img src="/media-gateway/image/{{ author_rel.person.avatar.public_id }}/" alt="{{ author_rel.person.name }}" class="author-avatar">
+                    {% endif %}
+                    <span itemprop="name">{{ author_rel.person.name }}</span>
+                    <span class="author-role">({{ author_rel.get_role_display }})</span>
+                </span>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            {% if tags %}
+            <div class="blog-tags">
+                {% for tag in tags %}
+                <a href="{% url 'search' %}?tag={{ tag.id }}" class="tag-pill">#{{ tag.name }}</a>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+    </header>
+
+    {# 4. 简介区域：渐进增强折叠 #}
+    {% if page.intro %}
+    <section class="blog-intro-card" aria-label="文章简介">
+        <div class="intro-header">引言 / 简介</div>
+        <div class="intro-content">
+            {% for block in page.intro %}
+                {{ block }}
+            {% endfor %}
+        </div>
+    </section>
+    {% endif %}
+
+    {# 5. 正文积木流式排版 #}
+    <section class="blog-body-section" itemprop="articleBody">
+        {% for block in page.body %}
+            {{ block }}
+        {% endfor %}
+    </section>
+
+    {# 6. 页面独立图集（文末展示） #}
+    {% if gallery_images %}
+    <section class="blog-gallery-section" aria-label="文章独立图集画廊">
+        <h2 class="gallery-title">文章图集 (共 {{ gallery_images|length }} 张)</h2>
+        <div class="gallery-grid">
+            {% for item in gallery_images %}
+            <div class="gallery-card" data-full-src="/media-gateway/image/{{ item.image.public_id }}/" data-caption="{{ item.caption }}">
+                <img src="/media-gateway/image/{{ item.image.public_id }}/" alt="{{ item.caption|default:page.title }}" class="gallery-thumb" loading="lazy">
+                {% if item.caption %}
+                <div class="gallery-caption">{{ item.caption }}</div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </section>
+    {% endif %}
+</article>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'blog/js/article.js' %}"></script>
+{% endblock %}

@@ -12,6 +12,7 @@
 
 import html
 from typing import Any
+from django.utils.safestring import mark_safe
 from wagtail import blocks
 from wagtail.images.blocks import ImageChooserBlock
 from wagtail.documents.blocks import DocumentChooserBlock
@@ -84,6 +85,11 @@ class CustomImageBlock(blocks.StructBlock):
         """
         return BlockRenderResult(html=sanitize_html(html_output), is_safe=True)
 
+    def render_basic(self, value: Any, context: Any = None):
+        """Wagtail 模板原生渲染集成入口"""
+        res = self.render_clean(value, context)
+        return mark_safe(res.html)
+
     def extract_text(self, value: Any) -> BlockTextExtraction:
         if not value:
             return BlockTextExtraction(plain_text="", logical_segments=[])
@@ -141,6 +147,11 @@ class CustomDocumentBlock(blocks.StructBlock):
         """
         return BlockRenderResult(html=sanitize_html(html_output), is_safe=True)
 
+    def render_basic(self, value: Any, context: Any = None):
+        """Wagtail 模板原生渲染集成入口"""
+        res = self.render_clean(value, context)
+        return mark_safe(res.html)
+
     def extract_text(self, value: Any) -> BlockTextExtraction:
         if not value:
             return BlockTextExtraction(plain_text="", logical_segments=[])
@@ -192,6 +203,11 @@ class CustomAudioBlock(blocks.StructBlock):
         </div>
         """
         return BlockRenderResult(html=sanitize_html(html_output), is_safe=True)
+
+    def render_basic(self, value: Any, context: Any = None):
+        """Wagtail 模板原生渲染集成入口"""
+        res = self.render_clean(value, context)
+        return mark_safe(res.html)
 
     def extract_text(self, value: Any) -> BlockTextExtraction:
         if not value:
@@ -247,6 +263,11 @@ class CustomVideoBlock(blocks.StructBlock):
         </div>
         """
         return BlockRenderResult(html=sanitize_html(html_output), is_safe=True)
+
+    def render_basic(self, value: Any, context: Any = None):
+        """Wagtail 模板原生渲染集成入口"""
+        res = self.render_clean(value, context)
+        return mark_safe(res.html)
 
     def extract_text(self, value: Any) -> BlockTextExtraction:
         if not value:

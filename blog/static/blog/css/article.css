@@ -1,0 +1,484 @@
+/* ==========================================================================
+   S10 居中单栏文章详情页与全套排版样式 (article.css)
+   ========================================================================== */
+
+/* 1. 居中单栏流式容器 */
+.blog-article-container {
+    max-width: 768px;
+    margin: 0 auto;
+    padding: 32px 20px 64px 20px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    color: #24292f;
+    line-height: 1.8;
+    font-size: 16px;
+    box-sizing: border-box;
+}
+
+@media (max-width: 640px) {
+    .blog-article-container {
+        padding: 16px 14px 48px 14px;
+        font-size: 15px;
+    }
+}
+
+/* 2. 真实祖先链面包屑导航 */
+.blog-breadcrumbs {
+    font-size: 13px;
+    color: #64748b;
+    margin-bottom: 20px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+}
+
+.blog-breadcrumbs a {
+    color: #2563eb;
+    text-decoration: none;
+}
+
+.blog-breadcrumbs a:hover {
+    text-decoration: underline;
+}
+
+.breadcrumb-separator {
+    color: #cbd5e1;
+    user-select: none;
+}
+
+/* 3. 封面大图（有封面居中置顶，无封面不留空白） */
+.blog-featured-image {
+    margin-bottom: 28px;
+    text-align: center;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.blog-featured-image img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 8px;
+    display: block;
+    margin: 0 auto;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+}
+
+/* 4. 文章标题与元数据 */
+.blog-header {
+    margin-bottom: 28px;
+}
+
+.blog-title {
+    font-size: 2.25rem;
+    font-weight: 700;
+    line-height: 1.3;
+    margin: 0 0 16px 0;
+    color: #0f172a;
+    word-break: break-word;
+}
+
+@media (max-width: 640px) {
+    .blog-title {
+        font-size: 1.75rem;
+    }
+}
+
+.blog-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    align-items: center;
+    font-size: 14px;
+    color: #64748b;
+    padding-bottom: 16px;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.blog-authors {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+}
+
+.author-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #f1f5f9;
+    padding: 3px 10px;
+    border-radius: 16px;
+    font-size: 13px;
+    color: #334155;
+}
+
+.author-avatar {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+.author-role {
+    color: #94a3b8;
+    font-size: 12px;
+    margin-left: 2px;
+}
+
+.blog-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.tag-pill {
+    background: #e2e8f0;
+    color: #334155;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    text-decoration: none;
+    transition: all 0.2s ease;
+}
+
+.tag-pill:hover {
+    background: #2563eb;
+    color: #ffffff;
+}
+
+/* 5. 简介区渐进增强折叠 (Intro) */
+.blog-intro-card {
+    background: #f8fafc;
+    border-left: 4px solid #3b82f6;
+    border-radius: 6px;
+    padding: 16px 20px;
+    margin-bottom: 32px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.intro-header {
+    font-weight: 600;
+    font-size: 13px;
+    color: #475569;
+    margin-bottom: 8px;
+    letter-spacing: 0.5px;
+}
+
+.intro-content {
+    position: relative;
+    transition: max-height 0.3s ease;
+}
+
+/* 仅在 JS 初始化且检测到超长时添加 is-collapsed */
+.intro-content.is-collapsed {
+    max-height: 120px;
+    overflow: hidden;
+}
+
+.intro-content.is-collapsed::after {
+    content: "";
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 48px;
+    background: linear-gradient(to bottom, transparent, #f8fafc);
+    pointer-events: none;
+}
+
+.intro-toggle-btn {
+    display: none;
+    margin-top: 8px;
+    background: none;
+    border: none;
+    color: #2563eb;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    padding: 0;
+}
+
+.blog-intro-card.has-toggle .intro-toggle-btn {
+    display: inline-block;
+}
+
+/* 6. 正文排版与内容积木 */
+.blog-body-section {
+    margin-bottom: 48px;
+    word-break: break-word;
+}
+
+.blog-body-section h2 {
+    font-size: 1.6rem;
+    margin: 36px 0 16px 0;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #f1f5f9;
+    color: #0f172a;
+}
+
+.blog-body-section h3 {
+    font-size: 1.3rem;
+    margin: 28px 0 12px 0;
+    color: #1e293b;
+}
+
+.blog-body-section p {
+    margin: 16px 0;
+}
+
+/* 7. 代码块 (CodeBlock) 样式 */
+.code-block {
+    background: #1e1e1e;
+    color: #d4d4d4;
+    border-radius: 6px;
+    overflow: hidden;
+    margin: 24px 0;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+}
+
+.code-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #2d2d2d;
+    padding: 8px 16px;
+    font-size: 12px;
+    color: #9cdcfe;
+}
+
+.copy-code-btn {
+    background: transparent;
+    border: 1px solid #555;
+    color: #bbb;
+    border-radius: 4px;
+    padding: 3px 8px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.copy-code-btn:hover {
+    background: #3e3e42;
+    color: #fff;
+}
+
+.code-body {
+    padding: 14px 16px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.code-content {
+    margin: 0;
+    font-family: "Fira Code", Consolas, "Courier New", monospace;
+    font-size: 13.5px;
+    line-height: 1.5;
+}
+
+/* Pygments 语法高亮基调 */
+.hl-k { color: #569cd6; font-weight: bold; }
+.hl-s, .hl-s1, .hl-s2 { color: #ce9178; }
+.hl-nb { color: #dcdcaa; }
+.hl-nf { color: #dcdcaa; }
+.hl-c, .hl-c1 { color: #6a9955; font-style: italic; }
+.hl-mi, .hl-mf { color: #b5cea8; }
+
+/* 8. 复杂表格自适应容器 */
+.custom-table-container {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    margin: 24px 0;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+}
+
+.custom-table-container table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 480px;
+}
+
+.custom-table-container th,
+.custom-table-container td {
+    padding: 10px 14px;
+    border: 1px solid #e2e8f0;
+}
+
+.custom-table-container thead {
+    background: #f8fafc;
+    font-weight: 600;
+}
+
+/* 9. 媒体流与卡片 */
+.media-image-wrapper {
+    margin: 24px 0;
+    text-align: center;
+}
+
+.media-image-wrapper img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 6px;
+}
+
+.media-caption {
+    font-size: 13px;
+    color: #64748b;
+    margin-top: 8px;
+}
+
+.media-document-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 18px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #f8fafc;
+    margin: 20px 0;
+}
+
+.media-document-card .doc-icon {
+    font-size: 26px;
+}
+
+.media-document-card .doc-download-link {
+    font-weight: 600;
+    color: #2563eb;
+    text-decoration: none;
+}
+
+.media-audio-player,
+.media-video-player {
+    margin: 24px 0;
+    width: 100%;
+}
+
+.media-audio-player audio,
+.media-video-player video {
+    width: 100%;
+    border-radius: 6px;
+}
+
+/* 10. 文末独立图集与灯箱 */
+.blog-gallery-section {
+    margin-top: 48px;
+    padding-top: 24px;
+    border-top: 2px solid #edf2f7;
+}
+
+.gallery-title {
+    font-size: 1.3rem;
+    font-weight: 600;
+    color: #1e293b;
+    margin-bottom: 16px;
+}
+
+.gallery-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 16px;
+}
+
+.gallery-card {
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    overflow: hidden;
+    background: #ffffff;
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.gallery-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.gallery-thumb {
+    width: 100%;
+    height: 150px;
+    object-fit: cover;
+    display: block;
+}
+
+.gallery-caption {
+    padding: 8px 10px;
+    font-size: 12px;
+    color: #64748b;
+    text-align: center;
+    background: #fafafa;
+}
+
+/* 灯箱弹出层 (Lightbox) */
+.lightbox-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(15, 23, 42, 0.92);
+    z-index: 99999;
+    justify-content: center;
+    align-items: center;
+}
+
+.lightbox-overlay.is-active {
+    display: flex;
+}
+
+.lightbox-img {
+    max-width: 90vw;
+    max-height: 82vh;
+    object-fit: contain;
+    border-radius: 4px;
+}
+
+.lightbox-caption {
+    position: absolute;
+    bottom: 24px;
+    color: #f8fafc;
+    font-size: 14px;
+    text-align: center;
+    width: 100%;
+    padding: 0 20px;
+    box-sizing: border-box;
+}
+
+.lightbox-btn {
+    position: absolute;
+    background: rgba(255, 255, 255, 0.15);
+    border: none;
+    color: #ffffff;
+    font-size: 24px;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s;
+}
+
+.lightbox-btn:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+.lightbox-close {
+    top: 24px;
+    right: 24px;
+}
+
+.lightbox-prev {
+    left: 24px;
+    top: 50%;
+    transform: translateY(-50%);
+}
+
+.lightbox-next {
+    right: 24px;
+    top: 50%;
+    transform: translateY(-50%);
+}

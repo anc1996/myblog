@@ -106,6 +106,25 @@ class BlogIndexPage(CustomBasePage):
         verbose_name = "博客栏目"
         verbose_name_plural = "博客栏目"
 
+    def get_context(self, request, *args, **kwargs):
+        context = super().get_context(request, *args, **kwargs)
+        # 真实有效面包屑导航 (过滤回收节点与根节点)
+        ancestors = []
+        for ancestor in self.get_ancestors():
+            if ancestor.is_root():
+                continue
+            if getattr(ancestor, "is_recycled", False):
+                continue
+            ancestors.append(ancestor)
+        context["breadcrumbs"] = ancestors
+
+        # 下属已发布且未回收的直接子栏目与文章
+        raw_children = self.get_children().live().specific()
+        context["children_pages"] = [
+            p for p in raw_children if not getattr(p, "is_recycled", False)
+        ]
+        return context
+
 
 class BlogPage(CustomBasePage):
     """核心博客文章页面"""
@@ -144,3 +163,29 @@ class BlogPage(CustomBasePage):
     class Meta:
         verbose_name = "博客文章"
         verbose_name_plural = "博客文章"
+
+    def get_context(self, request, *args, **kwargs):
+        context = super().get_context(request, *args, **kwargs)
+        # 1. 真实有效面包屑导航 (过滤回收节点与根节点)
+        ancestors = []
+        for ancestor in self.get_ancestors():
+            if ancestor.is_root():
+                continue
+            if getattr(ancestor, "is_recycled", False):
+                continue
+            ancestors.append(ancestor)
+        context["breadcrumbs"] = ancestors
+
+        # 2. 贡献人员列表 (按 sort_order 排序并加载关联 person)
+        context["authors"] = self.authors.select_related("person").all()
+
+        # 3. 独立图集 (文末展示，按 sort_order 排序并加载关联 image)
+        context["gallery_images"] = self.gallery_images.select_related("image").all()
+
+        # 4. 标签列表
+        context["tags"] = self.tags.all()
+
+        # 5. 草稿预览与版本判定
+        in_preview = getattr(request, "is_preview", False) or getattr(request, "in_preview_panel", False)
+        context["is_preview"] = in_preview
+        return context

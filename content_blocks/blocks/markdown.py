@@ -9,6 +9,7 @@
 import html
 import re
 from typing import Any
+from django.utils.safestring import mark_safe
 import markdown
 from wagtail import blocks
 
@@ -69,6 +70,11 @@ class CustomMarkdownBlock(blocks.TextBlock):
         # 4. 执行白名单安全净化
         cleaned_html = sanitize_html(rendered_html)
         return BlockRenderResult(html=cleaned_html, is_safe=True)
+
+    def render_basic(self, value: Any, context: Any = None):
+        """Wagtail 模板原生渲染集成入口"""
+        res = self.render_clean(value, context)
+        return mark_safe(res.html)
 
     def extract_text(self, value: Any) -> BlockTextExtraction:
         if not value:

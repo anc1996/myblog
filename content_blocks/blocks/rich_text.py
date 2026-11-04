@@ -7,6 +7,7 @@
 
 import re
 from typing import Any
+from django.utils.safestring import mark_safe
 from wagtail import blocks
 from wagtail.rich_text import RichText
 
@@ -44,6 +45,11 @@ class CustomRichTextBlock(blocks.RichTextBlock):
         raw_html = str(value)
         cleaned_html = sanitize_html(raw_html)
         return BlockRenderResult(html=cleaned_html, is_safe=True)
+
+    def render_basic(self, value: Any, context: Any = None):
+        """Wagtail 模板原生渲染集成入口"""
+        res = self.render_clean(value, context)
+        return mark_safe(res.html)
 
     def extract_text(self, value: Any) -> BlockTextExtraction:
         """提取供搜索引擎索引的纯文本内容"""

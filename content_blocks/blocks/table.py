@@ -14,6 +14,7 @@ import html
 import json
 import re
 from typing import Any
+from django.utils.safestring import mark_safe
 from wagtail import blocks
 
 from content_blocks.contracts import (
@@ -134,6 +135,11 @@ class CustomTableBlock(blocks.StructBlock):
         # 经 nh3 安全净化，保留合法 colspan/rowspan 与单元格标签，剥离恶意 XSS
         cleaned_html = sanitize_html(raw_html)
         return BlockRenderResult(html=cleaned_html, is_safe=True)
+
+    def render_basic(self, value: Any, context: Any = None):
+        """Wagtail 模板原生渲染集成入口"""
+        res = self.render_clean(value, context)
+        return mark_safe(res.html)
 
     def _render_cell(self, cell: Any, default_tag: str = "td") -> str:
         """渲染单个单元格属性与内容"""

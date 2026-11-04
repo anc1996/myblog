@@ -12,6 +12,7 @@
 import ipaddress
 from urllib.parse import urlparse
 from typing import Any
+from django.utils.safestring import mark_safe
 from wagtail.embeds.blocks import EmbedBlock, EmbedValue
 
 from content_blocks.contracts import (
@@ -116,6 +117,11 @@ class CustomEmbedBlock(EmbedBlock):
         # 渲染受限 iframe 容器
         raw_html = f'<div class="media-embed-wrapper" data-embed-url="{url}"></div>'
         return BlockRenderResult(html=sanitize_html(raw_html), is_safe=True)
+
+    def render_basic(self, value: Any, context: Any = None):
+        """Wagtail 模板原生渲染集成入口"""
+        res = self.render_clean(value, context)
+        return mark_safe(res.html)
 
     def extract_text(self, value: Any) -> BlockTextExtraction:
         if not value:
