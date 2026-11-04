@@ -100,3 +100,69 @@ class AliasPublicationBinding(models.Model):
     class Meta:
         verbose_name = "别名发布绑定"
         verbose_name_plural = "别名发布绑定"
+
+
+class RecycleBatch(models.Model):
+    """
+    回收操作批次记录表。
+    当删除一个单页或整棵子树时，作为一个原子批次记录操作人、回收时间与批次状态。
+    """
+    batch_id = models.UUIDField(default=uuid.uuid4, unique=True, db_index=True, verbose_name="批次ID")
+    actor_id = models.IntegerField(null=True, blank=True, verbose_name="操作人ID")
+    actor_username = models.CharField(max_length=150, blank=True, verbose_name="操作人账号")
+    recycled_at = models.DateTimeField(auto_now_add=True, verbose_name="回收时间")
+    root_page_id = models.IntegerField(db_index=True, verbose_name="回收子树根页面ID")
+    root_page_title = models.CharField(max_length=255, verbose_name="根页面标题")
+    total_pages = models.IntegerField(default=1, verbose_name="包含页面总数")
+    status = models.CharField(
+        max_length=16,
+        choices=[("recycled", "已回收"), ("restored", "已恢复"), ("purged", "已永久删除")],
+        default="recycled",
+        db_index=True,
+        verbose_name="批次状态",
+    )
+
+    class Meta:
+        verbose_name = "回收批次"
+        verbose_name_plural = "回收批次"
+        ordering = ["-recycled_at"]
+
+    def __str__(self):
+        return f"RecycleBatch {self.batch_id} (root: {self.root_page_title}, count: {self.total_pages})"
+
+
+class RecycleEntry(models.Model):
+    """
+    单页面回收快照记录表 (RecycleEntry)。
+    记录被回收页面当时的父节点、原兄弟顺序、原路径快照，为原树位置精准恢复提供数据支撑。
+    """
+    batch = models.ForeignKey(RecycleBatch, on_delete=models.CASCADE, related_name="entries", verbose_name="所属回收批次")
+    page_id = models.IntegerField(db_index=True, verbose_name="页面ID")
+    parent_id = models.IntegerField(db_index=True, verbose_name="原父页面ID")
+    original_slug = models.CharField(max_length=255, verbose_name="原Slug")
+    original_path = models.CharField(max_length=255, verbose_name="原树路径path")
+    original_depth = models.IntegerField(verbose_name="原树深度depth")
+    original_url_path = models.TextField(verbose_name="原URL路径")
+    sibling_order = models.IntegerField(default=0, verbose_name="原同级顺序")
+    was_live = models.BooleanField(default=False, verbose_name="回收前是否已发布")
+    had_unpublished_changes = models.BooleanField(default=False, verbose_name="回收前是否有未发布草稿")
+    snapshot_revision_id = models.IntegerField(null=True, blank=True, verbose_name="回收快照Revision ID")
+    is_batch_root = models.BooleanField(default=False, verbose_name="是否为批次根节点")
+    status = models.CharField(
+        max_length=16,
+        choices=[("recycled", "已回收"), ("restoring", "恢复中"), ("active", "正常活动")],
+        default="recycled",
+        db_index=True,
+        verbose_name="条目状态",
+    )
+
+    class Meta:
+        verbose_name = "回收页面条目"
+        verbose_name_plural = "回收页面条目"
+        indexes = [
+            models.Index(fields=["page_id", "status"]),
+            models.Index(fields=["parent_id", "status"]),
+        ]
+
+    def __str__(self):
+        return f"RecycleEntry page={self.page_id} parent={self.parent_id} slug={self.original_slug}"
