@@ -2,6 +2,7 @@ import uuid
 from django.db import models
 from wagtail.images.models import AbstractImage, AbstractRendition, Image
 from wagtail.documents.models import AbstractDocument, Document
+from wagtail.snippets.models import register_snippet
 
 
 class VisibilityChoices(models.TextChoices):
@@ -100,6 +101,7 @@ class CustomDocument(AbstractDocument):
         verbose_name_plural = "文档"
 
 
+@register_snippet
 class Audio(models.Model):
     """
     全站公共音频模型。
@@ -143,6 +145,7 @@ class Audio(models.Model):
         return self.title
 
 
+@register_snippet
 class Video(models.Model):
     """
     全站公共视频模型。
