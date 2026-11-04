@@ -29,6 +29,10 @@ BASE_DIR = PROJECT_DIR.parent
 INSTALLED_APPS = [
     "identity.apps.IdentityConfig",
     "media_library.apps.MediaLibraryConfig",
+    "content_blocks.apps.ContentBlocksConfig",
+    "external_content.apps.ExternalContentConfig",
+    "content_lifecycle.apps.ContentLifecycleConfig",
+    "discovery.apps.DiscoveryConfig",
     "home",
     "search",
     "wagtail.contrib.forms",
