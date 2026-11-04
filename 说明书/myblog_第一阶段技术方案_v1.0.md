@@ -1,9 +1,9 @@
 # myblog 第一阶段技术方案与实施顺序
 
-日期：2026-11-04。状态：基础服务已准备，业务代码和数据库表迁移尚未开始。
-依据：两份 v1.0 需求文档、当前代码和环境检查，以及已完成的代理审查。
-初次方案中，Sol 完成用户模型检查和代理配置；Terra 当时未完成媒体审查。
-本轮另完成 RustFS 文档与依赖方案的只读复核，不代替业务实现和运行验收。
+日期：2026-11-04。状态：S0 PostgreSQL 环境切换完成，四服务探针、两库严格检查与中文临时 GIN 探针通过；业务开发和业务 schema 迁移尚未开始。
+依据：两份 v1.0 需求文档、当前代码、已安装框架源码和技术审查。
+通俗说明先看[六项技术审查与推荐方案](myblog_六项技术审查与推荐方案_2026-11-04.md)；
+本文保留实现约定、任务顺序和验收条件。审查结论不代表业务功能已经通过测试。
 
 第一阶段要完成：文章编辑和发布、公共媒体库、回收站、搜索及文章详情页。
 先准备环境和基础模型，再逐项实现。本文给出设计和顺序，不代表功能已经完成，
@@ -11,7 +11,7 @@
 
 阅读时记住四点：
 
-- MySQL 保存页面信息、权限和 Wagtail 的页面版本；MongoDB 保存简介、正文的内容版本。
+- PostgreSQL 保存页面信息、权限和 Wagtail 的页面版本；MongoDB 保存简介、正文的不可变内容版本。
 - Revision 是 Wagtail 保存的页面历史版本。读者只能看到已发布版本，不能看到更新中的草稿。
 - 图片、附件和音视频由全站共用；读取和删除都要检查权限及页面引用。
 - 每个小任务单独检查。测试失败先修复，再继续下一步。
@@ -20,10 +20,15 @@
 
 最初的任务书要求只读检查。用户随后允许参考旧站配置、准备代理角色、
 读取指定 `.env.test`，并为新项目创建数据库、缓存分区和存储桶。
-用户已授权在 WSL2 准备本项目独立的 MySQL、Redis、MongoDB 和 RustFS，
+此前用户已授权在 WSL2 准备本项目独立的 MySQL、Redis、MongoDB 和 RustFS，
 并进行服务级连接、建库、建桶和集成探针验证。该授权不包含业务表迁移、
 修改旧站、部署应用或 Git 提交/推送。
-2026-11-04 用户另行授权将本次方案和相关准备文件提交并推送至 Git，供工程和架构审核；该授权不包含应用部署或业务表迁移。
+2026-11-04 曾获授权提交推送上一版方案；数据库切换阶段未包含 Git 提交/推送授权。
+当前用户另行明确授权本次将说明书及需求附件提交、推送用于网页评审；该授权不包含代码、配置、迁移或部署。
+用户现明确要求关系数据库全面切换 PostgreSQL，沿用本地密码、优先默认管理员；
+本轮已授权并完成服务切换、依赖和本地配置接入、空库准备及服务探针。
+旧 MySQL 确认归属后已停止并设 `restart=no`，容器、卷与回退备份保留。
+授权不包含业务 schema 迁移、旧站修改、业务开发或部署。
 本项目当前对象存储统一使用 RustFS 1.0.4，客户端使用 boto3 和 S3 协议；
 MinIO 不再是当前产品，也不再作为应用对接方案。旧 MinIO 只在环境记录中
 作为切换前的历史备份和回退来源。
@@ -32,54 +37,71 @@ MinIO 不再是当前产品，也不再作为应用对接方案。旧 MinIO 只�
 
 | 服务 | 版本 | Windows/WSL2 地址 | 用户 | 数据范围 |
 |---|---|---|---|---|
-| MySQL | 26.10.0 | `192.168.20.5:3306` | `root` | `myblog_dev`、`myblog_test` |
+| PostgreSQL | 18.6（Debian `18.6-1.pgdg13+2`） | `192.168.20.5:5432` | 默认管理员 `postgres`，superuser 认证成功 | `myblog_dev`、`myblog_test`，UTF8；用户表/序列/物化视图均为零 |
 | Redis | 8.10.3 | `192.168.20.5:6379` | `default` | DB9/DB11，分别对应 dev/test |
 | MongoDB | 9.0.4 | `192.168.20.5:27017` | `root`，`authSource=admin` | `myblog_dev`、`myblog_test` |
 | RustFS S3 API | 1.0.4 | `http://192.168.20.5:9000` | `root` | `myblog-dev`、`myblog-test` |
 | RustFS 控制台 | 1.0.4 | `http://192.168.20.5:9001` | `root` | 与 S3 API 共用管理员 |
 
-服务端口均发布到 WSL2 的 `0.0.0.0`，Windows 主机通过
+PostgreSQL 镜像为 `postgres:18.6-trixie`，已核查官方标签/摘要、导入校验并启动。
+默认管理员认证、两个 UTF8 空库与 Windows TCP `192.168.20.5:5432` 已检查通过；
+settings 3 项及服务脚本 8 项离线测试通过，修复隔离后 6 个真实凭据文件与 2 个客户端 env 测试前后哈希不变。
+`local_services.py verify` / `activate` 通过 PostgreSQL 临时 CRUD、回滚、条件唯一索引，
+Mongo 认证读写、Redis DB9/11 读写及 RustFS 私有上传、Range、读取、删除。
+两库严格 Django/Wagtail 检查与中文临时 GIN 探针通过；这些结果不代表业务并发验收。
+镜像摘要、测试覆盖凭据事件及修复经过见[PostgreSQL 切换记录](myblog_PostgreSQL切换记录_2026-11-04.md)。
+MongoDB 9.0.4、Redis 和 RustFS 保持，MongoDB 管理员仍为 `root`，不能随 SQL 用户改成 `postgres`。
+服务端口按合同发布到 WSL2 的 `0.0.0.0`，Windows 主机通过
 `192.168.20.5` 访问。RustFS 桶保持私有，应用必须通过统一文件访问入口
 完成权限检查，不能把管理员密钥或永久对象地址交给浏览器。
 
-明文密码不放入可提交方案。当前本地密码表位于被 Git 忽略的
-`说明书/myblog_本地服务凭据_不提交.md`，其中记录 MySQL、Redis、MongoDB
-和 RustFS 的管理员密码。方案只引用用户名、版本、端口、桶和数据库名称。
+密码只在本地 env 中沿用，不写入追踪文档，不复制到命令、示例或检查输出。
+方案只引用用户名、版本、端口、桶和数据库名称；本次不读取本地凭据附页。
+项目用 `psycopg[binary]==3.3.7` 替代 mysqlclient 依赖声明，不卸载旧站共享 Conda 中的 MySQL 包或系统库。
+settings 加载 `.env.local`，可用 `MYBLOG_ENV_FILE=.env.test` 切换，进程环境覆盖文件值。
+数据库键为 `POSTGRES_DB/HOST/PORT/USER/PASSWORD`，Django 后端为 `django.db.backends.postgresql`。
+Django 自动测试库由 `POSTGRES_TEST_DB` 指定，默认 `test_myblog`，与手工服务探针库 `myblog_test` 分开。
+客户端 env 已删除旧 `MYSQL_*` / `MINIO_*` 键。
+`scripts/check_local_postgres.py` 最初报告 `postgres.E005`，注册 `django.contrib.postgres` 后，
+两库严格重跑为 0 issues / 0 silenced；dev 与 `MYBLOG_ENV_FILE=.env.test` 的
+`manage.py check --database default --fail-level WARNING` 均为 0 issues。
 
 | 项目 | 已记录的情况 |
 |---|---|
 | 工作目录 | Windows `F:\openclaw\workspace\wagtail\myblog`；WSL `/mnt/f/openclaw/workspace/wagtail/myblog` |
-| Git | main；origin 为 `anc1996/myblog`；基线 `e3b5a82c21f9a9e6919c99343065d61d21d7411c`，两份暂存需求文档保留 |
+| Git | main；origin 为 `anc1996/myblog`；上一版方案已提交并推送，提交为 `b76aa0b1fe7d050216eff54e42d1a599b660249c` |
 | Python/框架 | 指定 Conda 环境：Python 3.13.2、Django 6.1.2、Wagtail 8.1 |
-| 应用设置 | 仍用 SQLite 和本地文件存储设置，尚未配置 AUTH_USER_MODEL；新 env 尚未接入 settings |
-| 数据库 | 新 MySQL 的 myblog_dev/myblog_test 已创建、零业务表；未发现本项目 SQLite 文件，旧库迁移史未查 |
+| 应用设置 | 已接入本地 POSTGRES_*，settings 3 项单测、dev/test 严格检查通过；AUTH_USER_MODEL 和媒体业务尚未接入 |
+| 数据库 | PostgreSQL myblog_dev/myblog_test 已建、UTF8，认证通过，用户表/序列/物化视图均为零；旧站迁移史未查 |
 | 现有功能 | 搜索仍是 `Page.objects.live().search()`，不查 Mongo；默认 documents 和 DEBUG 媒体地址仍需改造 |
-| 启动风险 | 应用 Dockerfile 含自动 migrate，尚未运行；home.0001/0002 文件存在不代表已执行 |
+| 启动风险 | Dockerfile 已移除自动 migrate；未构建或运行应用启动流程；home.0001/0002 文件存在不代表已执行 |
 | 依赖风险 | Conda 中有旧站 editable 包；须检查导入路径，禁止复用旧 app |
 
-各项检查命令和结果集中保留在《环境与代理准备记录》，这里不重复列出。
+旧检查命令和结果集中保留在《环境与代理准备记录》。以下三段是切换前 MySQL 历史证据，
+不能证明 PostgreSQL 已安装或通过检查；当前目标以本节 PostgreSQL 合同为准。
 
-**已解决：数据库版本太旧。** 原共享服务是 MySQL 8.0.41；本机 Django 6.1.2 的
+**历史：旧数据库版本太旧。** 原共享服务是 MySQL 8.0.41；本机 Django 6.1.2 的
 `django/db/backends/mysql/features.py:65–70` 要求 MySQL ≥8.4，MariaDB ≥10.11。
 创建数据库成功，不代表版本符合 Django 要求。
 经用户授权，WSL2 已安装独立 MySQL 26.10.0，Django 已成功连接开发、测试空库并通过版本检查。
 旧共享服务和先前创建的 8.0 空库保留，未升级或删除。
 
-**已解决：MySQL 驱动缺少系统库。** mysqlclient 2.2.7 的 MySQLdb 原先缺少
+**历史：MySQL 驱动缺少系统库。** mysqlclient 2.2.7 的 MySQLdb 原先缺少
 `libmariadb.so.3`，Conda lib 与系统标准 lib 目录均未发现该文件。
 最初用已有的 PyMySQL 1.1.1 准备资源，没有替换 Django 的数据库驱动。
 后来安装 `libmariadb3`（11.8.6），MySQLdb 已能导入，Django/MySQL 连接也已通过。
-客户端依赖已写入 requirements.txt。
+当时客户端依赖已写入 requirements.txt；当前项目声明改用 psycopg 3，共享环境旧包保留。
 
-**仍待解决：审批中的唯一性限制。** 对两个空库执行 Django 数据库检查时，
+**历史：MySQL 审批中的唯一性限制。** 当时对两个空库执行 Django 数据库检查时，
 `wagtailcore.WorkflowState` 各报告一次 `models.W036`：
 MySQL 无法建立 `unique_in_progress_workflow` 条件唯一约束。
 `scripts/check_local_mysql.py` 以 `fail_level="WARNING"` 保留失败，不静默屏蔽。
-也就是说，数据库能连接，但严格检查仍未通过。
-启用审批前，还要验证多人同时操作时如何防止重复的进行中工作流。升级数据库没有自动解决此问题。
+当时数据库能连接，但严格检查未通过。PostgreSQL 支持这里需要的条件唯一索引，
+不能把旧 MySQL `models.W036` 写成 PostgreSQL 不支持；获准建表后仍需核查约束实际建立。
+启用审批前，还要验证统一锁、幂等及批准 Revision 一致性，切换数据库不等于业务并发已经安全。
 
 Conda 内旧 editable `wagtailblog2` 要求 `wagtail==8.0.1`，与新项目8.1冲突；
-保留旧包未卸载，因此整个共享 Conda 的 `pip check` 仍不通过。
+保留旧包未卸载，最新 `pip check` 仍失败，且仅报告这一条冲突。
 新项目的导入路径和服务读写单独检查；不能因此声称整个 Conda 环境没有依赖冲突。
 
 ### A.2 第三方依赖准备
@@ -89,7 +111,8 @@ Conda 内旧 editable `wagtailblog2` 要求 `wagtail==8.0.1`，与新项目8.1�
 建议先确定独立环境，再更新 Django 6.1 补丁及网络、图片和内容渲染依赖；
 Wagtail 保持 8.1，Taggit / Treebeard 等遵守它的版本上限。
 RustFS 采用 boto3；Django 文件字段接入时声明 django-storages，
-权限入口、历史引用和受控删除仍由应用实现。本轮未实际升级依赖。
+权限入口、历史引用和受控删除仍由应用实现。本轮已安装 psycopg 3.3.7，
+将原环境已有的 jieba 0.42.1 列为直接依赖，项目声明共 8 项；其余升级建议尚未执行。
 
 ## B. 用户模型和第一次数据库迁移
 
@@ -115,16 +138,22 @@ flowchart TD
   H2 --> C53
 ```
 
-获准迁移后，用 MigrationLoader（Django 的迁移依赖读取工具）核对实际顺序；
-上图省略了 taggit、合并迁移等辅助项。
+获准编写候选迁移后，先用 `MigrationLoader(connection=None)` 离线检查依赖，
+不必连接数据库。上图省略了 taggit、媒体自定义迁移及合并迁移等分支，不能当成完整迁移图。
 Wagtail 的用户外键会根据 `AUTH_USER_MODEL` 依赖 identity 的第一次迁移。
 调整 `INSTALLED_APPS` 顺序不能替代迁移依赖。
 
+`media_library` 首迁移还需依赖 User、taggit 和 Wagtail Collection（媒体集合）相关迁移；
+Collection 表和根集合分别涉及 core.0024/0025。最终节点以候选迁移的离线依赖图为准，
+不让 `identity.0001` 反向依赖媒体、Person 或 Page，避免循环。
+自定义媒体不会自动移除 `wagtailimages/wagtaildocs` 的原生迁移分支。
+本轮只核对现存源码，尚无 identity/media_library 候选迁移，不能报告“完整依赖图已通过”。
+
 `home/0002_create_homepage.py:13–38` 删除默认首页、写固定树路径并创建 localhost Site；
 `:56–58` 的 run_before 安排其在 Locale 模型引入前执行。
-该文件与安装包模板相符，没有证据证明空白 MySQL 必然失败。
+该文件与安装包模板相符，没有证据证明空白 PostgreSQL 必然失败；当前尚无 PostgreSQL 初始化测试。
 它依赖初始页面树，撤销迁移也会删除首页和站点，所以不能对已有内容的库重新执行。
-新库目前没有业务表，适合后续初始化；版本和驱动问题已解决，仍需先确定媒体模型并获准迁移。
+新 PostgreSQL 库已通过空库、版本及认证检查；后续初始化前仍需确定媒体模型并获准迁移。
 如果发现数据库已经迁移过，应另写迁移方案，不能直接换 `AUTH_USER_MODEL` 后执行 migrate。
 
 ## C. 全站共用的媒体库
@@ -140,8 +169,11 @@ AbstractDocument、AbstractRendition 的原生能力；Audio/Video 是全站公�
 `related_name="renditions"`，并对 `(image, filter_spec, focal_point_key)` 设置唯一约束；
 Rendition 是按尺寸等规则生成的图片版本。S1 要检查 `wagtailimages.E001`、
 图片选择器、派生图生成和复用，不能只填写模型设置。
-推荐自定义模型，是因为新库还没有业务表，而资源标识、权限和历史保留是首期重点。
-如果更重视减少维护，也可选择第一条路线；必须在第一次迁移前确定。
+推荐自定义模型，是因为前次服务检查中新库没有业务表，而资源标识、权限和历史保留是首期重点；
+代价是要维护模型迁移、后台表单和升级回归。这里的“自定义”指继承框架的 Abstract 基类，
+不是重写上传、选择器或图片处理。Image/Document 表单保留原生 `admin_form_fields`。
+两种路线都能做公共媒体，也都需要独立实现权限和删除保护；自定义模型本身不会自动提供这些能力。
+**本次给出推荐，仍需在编写模型前确认采用哪条路线。**
 不建立 BlogImage、BlogDocument 或其他按页面分裂的媒体库。
 
 建议放入公共 `media_library` App。四类媒体共用权限检查和稳定资源标识，
@@ -160,8 +192,12 @@ Rendition 是按尺寸等规则生成的图片版本。S1 要检查 `wagtailimag
    前台仅使用安全交付地址，后台预览仍须检查权限。API v3 首期建议不注册。
 6. 资源从 public 改为 restricted 时，在同一个数据库事务中撤销相关页面的发布，
    更新发布序号，并写入待处理任务表（Outbox）和操作记录；文件入口立即拒绝无权访问。
-   同时发生的发布操作也要锁定同一资源并重新检查。这项下线规则仍待设计决策记录（ADR）确认，
+   同时发生的发布操作也要锁定同一资源并重新检查。此为推荐的撤权处置，仍待确认，
    不能先改权限，再等后台任务处理页面暴露问题。
+
+文件交付先验证当前权限，再读取缓存或对象；首期使用 `Cache-Control: private, no-store`，
+不配置可跳过鉴权的公共 CDN 缓存。已发送给浏览器的字节无法召回；
+撤权保证之后的新请求和续传请求被重新检查，不宣称中途收回用户已下载的文件。
 
 这里的事务指一组数据库操作一起成功或一起回退；锁用于协调同时发生的操作，避免相互冲突。
 
@@ -175,10 +211,22 @@ Rendition 是按尺寸等规则生成的图片版本。S1 要检查 `wagtailimag
   引用数据不完整、提取程序不支持或核对结果异常时，禁止真正删除文件，不能只依赖 Wagtail 默认引用索引。
 - 后台、QuerySet 批量删除和级联删除都必须经过统一检查。
   管理员永久删除前，检查所有保留的 Revision 和回收站引用，并锁住资源，防止同时新增引用。
+  文件替换必须生成新资源或不可变文件版本及新对象 key，旧 Revision 继续指向原文件，
+  不能在同一 key 上覆盖。新建、历史恢复、复制和派生图生成均拒绝引用正在删除的资源。
+  新增引用、恢复、复制、派生图登记和删除申请都先取得 D1.1 的同一协调锁，
+  锁内再检查资源状态及完整引用；不能让“新增引用”和“零引用检查”分别加锁。
 - Page 永久删除只移除其自己的引用；不会自动删除公共媒体或其他 Page 的引用。
   先在 SQL 中保存删除审批结果，再由后台任务删除 RustFS 对象并核对结果。
   SQL 操作失败时，不能把删除文件当作补救办法。
-- 原生 Image 的 post_delete 文件清理也必须经过上述检查。
+- 删除采用两步：先在 SQL 事务中确认零引用、标记 `deleting` 并写 Outbox；
+  后台任务再核对操作 ID、资源状态和对象 key，删除原文件及受管派生文件，成功后记录完成。
+  RustFS 超时或删除失败时保留删除记录，查询结果后重试；同一任务重复执行不能删除后来上传的文件。
+  标记 `deleting` 后不允许重新引用，文件没有删除前也不能把该资源当成可恢复使用状态。
+- 需要接管 Image、Rendition、Document 原生 `post_delete` 文件清理，
+  统一走上述 Outbox；不能让默认清理任务与自建删除任务同时运行。
+  只在无引用和受控流程允许时清理元数据，不先删除 SQL 记录而丢失核对依据。
+- RustFS 管理员、控制台和直接 S3 删除可以绕过 Django 保护；这里保证的是应用受控路径。
+  管理员运维删除仍须人工核对及备份，不把 root 身份误当成网站业务权限。
 
 ## D. 模块分工和内容处理流程
 
@@ -219,18 +267,29 @@ content_hash, payload, created_at, operation_id`。
 这就是幂等处理，目的是避免超时重试造成重复或覆盖。
 首次保存草稿时生成稳定的 document_uuid，并同时保存到 SQL 和 Revision。
 intro（简介）或 body（正文）没有变化时，可以复用原版本。
+幂等键至少区分 `(operation_id, field_name)`，简介和正文可在一次保存中各生成一个版本；
+同键重试必须核对 document_uuid、字段、内容摘要及数据格式，不能只比较一个版本 ID。
 
 Wagtail Revision JSON 记录完整元数据/关系及
 `intro_version_id/body_version_id`、摘要、schema 和 document_uuid。
 页面是否发布、发布了哪个版本，由 Wagtail 的 `live/live_revision_id` 决定。
-如另建 MySQL 发布关联记录（envelope），它只能在同一事务内记录对应 Revision 和发布序号，
+如另建 PostgreSQL 发布关联记录（envelope），它只能在同一事务内记录对应 Revision 和发布序号，
 不能另行决定发布状态。
+已保留的 Revision 内容不能原位覆盖；保存修改应创建新 Revision。
+原生 `save_revision(overwrite_revision=...)` 可以改写已有 JSON，需在保存及自动保存适配中拦住，
+并验证不会改掉正在审核、已发布或历史保留版本的内容和引用。
 
 普通页面的读取顺序：
 
 1. 检查页面、Site、父级页面的访问限制，以及页面是否在回收站。
 2. 根据 `live_revision_id` 取得发布版本，恢复该版本的字段和关联。
 3. 按版本 ID 读取 Mongo 内容，核对所属页面、字段和摘要，再显示。
+
+读取开始时记录发布 Revision、发布序号和权限版本，取得 Mongo 内容后、发送响应前再核对；
+中途发生发布、撤权或回收时，丢弃旧结果并有限重试或拒绝。
+这里以响应提交前最后一次 SQL 权限和有效发布版本核对为准，缓存命中也要执行。
+最后核对与网络发送无法原子完成；其后发生的撤权不承诺撤回已发送或在途字节。
+各入口复用这一读取服务，不能详情页查正式版，而列表、封面或 SEO 偷读最新草稿。
 
 例如：发布文章 A 后又保存草稿 B，读者仍应看到 A 的正文、日期、封面、标签、作者和 SEO。
 Page 表里可能已经有 B 的字段，所以只筛选 `live=True` 不够。
@@ -241,7 +300,7 @@ Page 表里可能已经有 B 的字段，所以只筛选 `live=True` 不够。
 sequenceDiagram
   participant E as 编辑/工作流
   participant M as Mongo
-  participant S as MySQL/Wagtail
+  participant S as PostgreSQL/Wagtail
   participant O as Outbox后台任务
   E->>M: 新增已修改字段的内容版本
   M-->>E: 返回版本ID与摘要
@@ -258,7 +317,12 @@ sequenceDiagram
 Mongo 保存成功但 SQL 失败时，会留下暂未被引用的版本，标为 orphan 待核对，本阶段不直接删除。
 Mongo 写入超时时，先按原版本 ID 核对摘要，再决定是否重试，不能换 ID 盲目重写。
 发布只能引用已经确认保存的内容版本。
-Outbox 是待处理任务表，必须与业务数据在同一个 MySQL 事务里保存。
+SQL 增加操作结果记录 `OperationResult`：以唯一 operation_id 绑定操作者、动作、页面及输入摘要，
+和 Revision、媒体引用、Outbox 一起提交。重复请求返回已有结果；同 ID 不同输入则拒绝。
+提交结果未知时，先按原 operation_id 查询主库；仍无法判定就返回“状态待确认”，
+不声称成功或失败，也不删除 Mongo 版本或另起一次发布。重试要再次取得变更锁并查询结果。
+保存和审核还携带预期 Revision/任务 ID，锁内检查后再操作，防止旧表单覆盖新内容。
+Outbox 是待处理任务表，必须与业务数据在同一个 PostgreSQL 事务里保存。
 `on_commit` 只负责唤醒后台任务；定时扫描负责补处理。用唯一事件 ID 和发布序号防止重复、旧任务覆盖新结果。
 后台任务失败不改变已经发布的文章。
 
@@ -267,6 +331,44 @@ Outbox 是待处理任务表，必须与业务数据在同一个 MySQL 事务里
 公共媒体、Person、Tag 继续共用。翻译和子树复制单独测试，不能照搬源页面的 owner。
 恢复历史版本只生成草稿，保留旧关联和内容版本 ID，不恢复公共 Person/Tag 自身的旧数据，也不自动发布。
 实现时还要测试多项操作同时发生的情况，并确定页面树锁、页面锁和资源锁的获取顺序。
+
+### D1.1 PostgreSQL 上的审核并发
+
+`WorkflowState` 的条件唯一约束按内容对象限制“进行中/需修改”的工作流数量；
+PostgreSQL 支持用条件唯一索引建立该约束。旧 MySQL 的 `models.W036` 是历史后端限制，
+不是 PostgreSQL 限制；未来获准迁移后应检查实际索引及重复写入负例，不能在空库探针阶段声称索引已建好。
+该索引只限制工作流数量，不保证批准版本正确、请求幂等或媒体权限不冲突。
+事务用于一起提交或回退，行锁才用于让相同对象的冲突操作依次执行；两者不能互相替代。
+
+首期推荐先保证正确性：增加一条固定的 SQL 协调记录 `ContentMutationGuard`，
+所有页面生命周期、媒体引用和权限/删除变更先在事务中锁住它，再处理具体对象。
+协调行须随后续获准的初始化准备好；缺失时拒绝变更，不能锁一个不存在的查询结果后继续执行。
+它只负责排队，不保存第二套发布或工作流状态。之后按固定顺序锁 Page、
+WorkflowState、TaskState 和媒体记录，同类按 ID 排序；涉及页面树的操作也先取得协调锁。
+Mongo 内容预写和大文件传输放在锁外，锁内只做必要检查和数据库变更。
+代价是后台变更串行；个人站首期先测实际等待时间，确有瓶颈再设计按对象拆锁。
+
+提交审核时，锁内重新查询该内容对象的所有有效工作流，已有则复用或拒绝，
+不只查相同 workflow_id。批准/拒绝时重新检查当前任务、目标 Revision、权限和状态，
+过期请求拒绝，重复请求通过操作 ID 返回已有结果；最终发布继续经过同一套内容和媒体检查。
+
+默认审核完成动作会调用 `get_latest_revision().publish()`，不能据此认定最新草稿已经获批。
+推荐启用 `WAGTAIL_WORKFLOW_REQUIRE_REAPPROVAL_ON_EDIT = True`，编辑后重新审批；
+同时通过 `WAGTAIL_FINISH_WORKFLOW_ACTION` 配置项目的审核完成入口。
+该入口在协调锁内核对审核目标 Revision、页面最新 Revision 和本轮有效批准记录一致，
+再检查 Mongo 内容、媒体权限和回收状态，最后调用原生发布。版本已变化就拒绝发布并要求重新审批；
+仅开启重审设置不足以替代这些检查，也不能绕过多任务工作流本身的通过规则。
+
+需要逐一验证的入口包括：提交/恢复/取消审核、批准/拒绝/重新分配、
+直接发布、批量操作、定时发布、复制、别名同步和项目管理命令。
+适配层须包住原生状态改变前的调用；只加后台按钮或一个 before hook 不足以覆盖模型层调用。
+Wagtail 原有审批与发布仍执行，不能用独立状态机替代。
+覆盖、锁顺序及真实 PostgreSQL 并发测试通过前，不开放相应业务入口。
+
+验收至少使用不同数据库连接同时提交两次审核、同时批准/拒绝、批准期间回收页面、
+同一操作重复请求以及死锁后重试，检查最多一个有效工作流、没有过期任务发布和重复副作用。
+另测“V1 获批期间保存 V2”和多级审核中途编辑，确认旧批准不能直接发布新草稿。
+SQLite 或 Mock 测试不能证明 PostgreSQL 行锁有效。当前尚未实现适配，也未执行这些并发测试。
 
 **别名页面（Alias）要单独处理。** 它使用源页面内容，没有自己的 Revision。
 建议 S6 增加 `AliasPublicationBinding`，记录 alias_page_id、最终源 Page ID、
@@ -321,21 +423,40 @@ S6 必须测试原生 create_alias/update_aliases/convert_alias 入口是否都�
 
 ### D3. 搜索、归档和缓存
 
-第一阶段不用 Elasticsearch。建议在 MySQL 建 `PublishedSearchDocument`，
-保存从发布 Revision 提取的 title/intro/body 文本，并记录 page_id、revision_id、
-generation（发布序号）、页面类型和成文日期。这份搜索副本也称投影。
-Outbox 负责更新它；丢失后可从发布内容重建。摘要不能直接输出 Markdown 中未经处理的 HTML。
-先用参数化的文本包含查询，多个词都须匹配（AND），支持中文子串。
-搜索的是正式正文的副本；原生 `.search()` 不会自动查询 Mongo。
-实测性能不足后，再考虑 MySQL 全文索引或第二阶段的 ES，不预先承诺吞吐量。
+按 SEARCH-V2-FILTER 补充需求，搜索、Tag、栏目、类型列表与 Archive 共用 `ContentQuery`；
+所有 Page 类型通过注册协议接入，公共模块不导入 Blog/Guide 业务模型。
+详细接口、算法、索引、统计和验收集中在
+[统一搜索与组合筛选方案](myblog_统一搜索与组合筛选方案_SEARCH-V2-FILTER_2026-11-04.md)，避免不同文档各写一套规则。
+本轮只完善文档，没有实现该服务或改动现有搜索代码。
 
-统一 `ContentQuery` 参数：关键词、允许的类型标识、Tag、Site、root_page、
-直属/后代、authored_on 范围、排序和分页；结果包含稳定 page_id、正式 revision_id。
-先检查搜索副本是否对应当前发布 Revision，再检查 Page/Site 权限和回收状态，
-最后计算数量、摘要、年月分组和地址。过期副本不能显示；更新延迟可以暂时漏掉新内容，但不能泄露内容。
-标签和日期也读取正式副本。默认按 `-authored_on, -page_id` 排序，其他排序只允许预先列出的选项。
-栏目默认显示所有后代页面，并提供直属子栏目导航；也可切为仅直属页面。
-按类型查询全站内容时，不要求页面位于 BlogIndex 下。
+**查询。** Site、类型、当前树范围、Tag、正式成文日期、指定 Page 和权限共同限制候选；
+维度之间 AND、类型多选 OR、Tag 支持 ANY/ALL。类型与树位置独立，不要求 BlogPage 位于 BlogIndex 下。
+无关键词可纯筛选；日期闭区间，来自正式 Revision，不从当前草稿读取。
+
+**匹配。** 推荐严格回退：候选范围内 A 原句命中时只显示 A；A 为零查 B 分词，
+B 少于建议门槛 10 条或用户主动扩展时加入 C 受控同义词，不用无关内容凑数量。
+每个必需概念组之间 AND，同组备选词 OR；Jieba 搜索模式重叠子词不能全部强制 AND。
+有词时严格按 A/B/C 等级再排分数或日期，无词默认 `-authored_on, -page_id`。
+模式、日期排序说明及游标取舍是技术推荐，待评审，不冒充已确认产品细节。
+
+**技术。** PostgreSQL `PublishedSearchDocument` 保存有效发布身份、正式元数据与 Tag，
+外置 intro/body 从该 Revision 精确绑定的 Mongo 版本提取。
+Jieba 技术词保护、`simple`/`tsvector`/GIN 用于词检索，`pg_trgm` 辅助原句字面包含；
+它不替代分词，也不能保证单字查询提速。长文分块并保留位置，不静默截断。
+评分明确包含字段权重、专业词、顺序词距、长度与受控 DF/IDF，不能把 `ts_rank_cd` 称作 BM25。
+词典、提取器、同义词、评分及索引代次一起版本化；本轮不创建扩展或业务索引。
+
+**版本与权限。** Outbox 幂等维护可重建副本，旧任务不得覆盖新发布。
+正文、标题、日期、Tag 关系、摘要和高亮均对应同一正式版本；Person/Tag 共享资料使用当前有效值。
+当前 Site、树、祖先权限、回收和别名源资格同步检查。
+索引延迟可以暂漏新内容，不得输出已下架或撤权页面，纯列表/归档也不能绕过。
+列表、总数、动态统计使用同一合法集合；默认统计保留当前维度条件，不能每个桶重新回退搜索模式。
+推荐签名 keyset 游标，数据或权限变化后失效刷新；响应前整份结果再核对版本，不能删几条却保留旧计数。
+8GB 预算、精确统计和质量阈值需真实规模验证，不能预先承诺全部复杂查询低延迟。
+
+原方案“不承诺同义词”的范围现由受控 C 模式补充；不因此承诺语义、拼音或在线 AI 搜索。
+已有 `scripts/check_postgres_search.py` 临时表结果只证明基础中文匹配，
+不证明 A/B/C、业务索引、长文、权限、统计或相关度已验收。
 
 Redis 首期只做可选缓存，数据丢失后可重新生成；暂不引入 Celery。
 Outbox 先由专门的管理命令处理；定时发布使用 Wagtail 原生命令，调度方式需获批准。
@@ -367,23 +488,24 @@ Lightbox（点击图片后放大查看）支持键盘和手机操作。
 
 ## E. 分步实施和检查
 
-下表是计划，路径不代表文件已存在。S0、S1 等编号表示一个可单独检查的小任务。
+下表中 S0 已完成，S1 及以后为计划，计划路径不代表文件已存在。编号表示一个可单独检查的小任务。
 默认由 Gemini 实现、Sol 制定和复核接口约定；复杂框架问题按需交给 Argon。
 用户模型、跨数据库操作、删除和权限安排 Terra 独立审查。
-Gemini 路由尚未验证时，由实际可用的代理或主代理执行，并如实记录。
+本轮四个具名角色均已派发只读任务，宿主模型选择与配置一致，状态见 [.codex/README.md](../.codex/README.md)。
+后续仍逐次检查实际选择和结果；路由不符或失败时明确重新指派，不静默替换模型。
 
 | 小任务/前置任务 | 拟建或修改的路径 | 要完成和检查的内容 |
 |---|---|---|
-| S0 环境准备（已准备独立服务） | 环境依赖说明、requirements、infra | MySQL ≥8.4、MySQLdb 导入、连接指定新库、不导入旧 app；现存警告见 A 节 |
+| S0 PostgreSQL 环境切换（完成） | 环境依赖说明、requirements、infra、settings、scripts/check_local_postgres.py、scripts/check_postgres_search.py | 18.6 启动/认证、UTF8 两空库、Windows TCP、11 项离线测试、凭据文件哈希不变、四服务探针、两库严格检查与中文临时 GIN 探针通过；旧 MySQL 已停；无业务 schema 迁移 |
 | S1 用户/媒体模型；依赖 S0 | identity/*、media_library/models/*、settings、Dockerfile、对应 migrations/tests | 先确认 User/媒体设计；检查迁移依赖、移除自动 migrate、测试空库初始化；执行迁移另授权 |
 | S2 公共接口；依赖 S1 | content_blocks/contracts.py、external_content/contracts.py、content_lifecycle/access.py、discovery/contracts.py | 约定内容块格式、发布内容读取、媒体权限和查询参数；测试模块导入时不访问外部服务 |
 | S3 基本 Block；依赖 S2 | content_blocks/blocks/*、renderers/*、static/*、tests/* | 富文本、Markdown、Code、Mermaid、四类媒体、Embed；测试危险输入和无法提取的内容 |
 | S4 Table 编辑器；依赖 S2/S3 | content_blocks/table/*、static/content_blocks/table/*、浏览器测试 | 复杂表格全部确认功能；不能只靠 Python 单测 |
 | S5 Blog/公共关联；依赖 S2/S3 | people/*、taxonomy/*、blog/models/*、blog/blocks.py、tests/* | Page 树、日期、Person/Tag/封面/双图集，Revision 关系与 Tag 合并重定向 |
-| S6 内容版本/发布；依赖 S5 | external_content/store.py、revision.py、publication.py、outbox.py、tests/* | intro/body 独立保存且旧版本不修改；预览、审核、定时发布、复制、历史恢复；测试双库失败及同时操作 |
+| S6 内容版本/发布；依赖 S5 | external_content/store.py、revision.py、publication.py、outbox.py；content_lifecycle/协调与工作流适配；tests/* | intro/body 独立保存；接入协调锁和操作结果；覆盖预览、审核、排期、复制及恢复，测试双库故障与真实并发 |
 | S7 媒体读取/保护；依赖 S5/S6 | media_library/access.py、delivery.py、references.py、wagtail_hooks.py、urls/tests | RustFS 四类媒体、Range/Rendition、权限变更、历史引用、文件删除检查 |
 | S8 回收/恢复；依赖 S6/S7 | content_lifecycle/recycle.py、deletion.py、wagtail_hooks.py、tests/* | 单页/子树回收、终止排期、后台/批量/QuerySet 删除检查；恢复后不发布，冲突时拒绝 |
-| S9 搜索/栏目/归档；依赖 S6/S8 | discovery/models.py、query.py、projection.py；search/views.py、blog 列表模板 | Mongo 正式正文的搜索副本、条件组合、计数/分页/权限；副本重建及旧任务测试 |
+| S9 搜索/栏目/归档；依赖 S6/S8 | discovery/contracts.py、registry.py、models.py、query.py、projection.py 等；search/Tag/Archive/栏目入口 | 按 SEARCH-V2-FILTER 方案 Q1–Q8 实施统一公共查询、A/B/C、组合筛选、技术词/长文、等级及相关度、统计游标和安全展示；复核正式版本、权限、重建与8GB资源 |
 | S10 详情及整体 UI；依赖 S4/S7/S9 | blog/templates/*、blog/static/*、端到端测试 | 单栏/intro/面包屑/媒体/Lightbox/无脚本/键盘/移动证据 |
 | S11 整体验收；依赖前述任务 | tests/integration/*、验收报告 | 四服务故障、同时操作、HTTP/API绕过检查、数据核对和恢复演练；建库成功不等于功能通过 |
 
@@ -397,7 +519,7 @@ flowchart LR
 
 每次只实现一个可单独验收的目标，失败先修复，不把 S1–S11 整包交给一个代理。
 共享 settings、urls 和 migrations 由主代理逐项整合，避免互相覆盖。
-获准提交后，先检查和审查，再按 Conventional Commits 格式提交；当前不执行 commit/push。
+业务实现仍须按 Conventional Commits 流程先检查和审查后提交；本次提交仅依据用户对方案文档及需求附件的单独授权。
 回退可用功能开关、停用后台任务或恢复已验证的备份；用户模型、历史内容和媒体不能盲目反向迁移。
 
 | AC（需求验收编号） | 对应任务 | 必须检查的内容 |
@@ -419,30 +541,53 @@ flowchart LR
 
 检查分三类：E1 检查源码、接口、依赖和配置；E2 检查纯逻辑与模型，导入前就禁止外部读写；
 E3 连接指定的独立数据库、桶和缓存前缀，测试真实服务。Django TestCase 可能访问数据库，不自动属于 E2。
-目前完成的是环境准备和服务检查，具体结果见环境记录；业务表迁移、媒体播放、业务并发及整体验收尚未完成。
-新项目使用独立 MySQL；不能拿旧 MySQL 8.0 的测试结果证明 Django 6.1 兼容。
+目前完成的是 S0 环境切换和服务检查，具体结果见[PostgreSQL 切换记录](myblog_PostgreSQL切换记录_2026-11-04.md)；
+历史环境记录正文保持原样，业务表迁移、媒体播放、业务并发及整体验收尚未完成。
+新项目使用独立 PostgreSQL；不能拿旧 MySQL 的服务探针证明 PostgreSQL 兼容或并发通过。
 
-## F. 开始业务实现前需要确认的事项
+### E.1 备份、恢复和跨存储对账计划
 
-环境安装已获授权并完成独立服务准备，不再重复要求安装 MySQL 8.4。以下业务设计仍需确认：
+PostgreSQL 采用 `pg_dump` 自定义格式保存逻辑备份，计划用 `pg_restore` 恢复到另一个隔离库；
+先核对工具与服务器版本、角色/权限、扩展、编码、约束和数据完整性，不覆盖现库。
+备份须同时保存 Revision、Mongo 字段版本 ID/摘要、媒体引用和 RustFS 对象 key 的核对清单，
+并协调 Mongo、RustFS 的备份时间及写入暂停/一致性边界；单份 SQL 备份不是三种存储的原子快照。
+恢复后逐条核对正式 Revision 的外置版本、对象及引用，缺失时停止公开交付，
+额外对象保留待对账，不因 SQL 回滚或恢复就直接物理删除；Redis 和搜索在核对后重建。
+此为规划，尚未执行备份/恢复演练、跨存储恢复或业务故障验收，执行需另行授权。
 
-1. 保持 Django 6.1/Wagtail 8.1；启用审批前处理 A 节所列 MySQL 条件唯一约束问题。
-2. 首迁移使用 identity.User；选自定义 Image/Document/Rendition，或原生模型加外置策略。
-3. 回收站先让页面留在原位置并标记；有子页面时明确回收整棵子树；永久删除页面、文件分别要求专门权限。
-4. HomePage 日期豁免、业务创建预填当天、首期不启用 API v3 和独立 RawHTMLBlock。
-5. public 媒体改 restricted 时同步撤销受影响 Page 发布，保留草稿与历史的处置策略。
+## F. 技术推荐、确认和验证分别处理
 
-原需求 F01–F12 已确认的部分继续保留，不重复询问。
-Redis 只做缓存、MySQL 保存搜索副本等是推荐做法，确认对应任务后再实现。
+后台用户与公开作者分开、全站公共媒体、审核正确性、版本完整一致及媒体删除保护，
+都是已确认要求，不再要求用户重复选择。六项审查中的职责如下：
+
+| 事项 | 当前推荐 | 下一步由谁完成 |
+|---|---|---|
+| P0-A 用户 | `identity.User(AbstractUser)`；Person 独立 | 工程侧准备候选迁移、离线依赖图和获准后的空库验证 |
+| P0-B 媒体模型 | 最小自定义 Image/Document/Rendition | 用户确认路线后，工程侧再编写模型与验证 |
+| 审核并发 | 统一协调锁、原生工作流适配和幂等操作 | 工程侧完成入口覆盖及真实 PostgreSQL 并发证据 |
+| 内容版本 | Revision 精确绑定 Mongo 不可变版本 | 工程侧验证全字段一致、重试和失败补偿 |
+| 媒体权限/删除 | 统一鉴权、历史引用保护、两步删除 | 工程侧验证绕过、并发和 RustFS 故障 |
+| 多代理 | 保留四角色；每次核对路由和结果 | 主会话派发、整合并如实记录，不要求用户证明模型身份 |
+
+其他原有未定做法单独保留：回收站留在原树位置、有子页面时回收整棵子树、
+HomePage 日期豁免及预填当天、API v3/RawHTMLBlock 是否启用，
+以及 public 媒体转 restricted 时同步撤销受影响页面的处置。
+这些推荐不因本次文字修改而自动获批，也不改变已确认的业务要求。
+Redis 只做缓存、PostgreSQL 保存搜索副本等仍是推荐；确认对应小任务后再实现。
+本轮已授权并完成 PostgreSQL 服务切换、配置接入、空库准备与服务验证；不包含业务开发、业务 schema 迁移或部署。
 容量和响应指标（SLA）通过实际测试确定，不编造数字。
 
 ## G. 已做什么，还没做什么
 
-- **已准备**：代理角色、`.ai-memory.toml`、AGENTS 协作规则、独立服务和两份被 Git 忽略的本地 env。
+- **历史已准备**：代理角色、`.ai-memory.toml`、AGENTS 协作规则、旧关系库服务和两份被 Git 忽略的本地 env；这些前次探针不证明 PostgreSQL 已通过。
+- **S0 完成**：PostgreSQL 18.6、psycopg 3 和 POSTGRES_* 已接入，认证、UTF8 空库、Windows TCP、11 项离线测试、四服务探针、两库严格检查与中文临时 GIN 探针通过；旧 MySQL 已停并保留容器、卷和回退备份。
+- **测试事件**：单测隔离错误曾覆盖凭据，已从切换前备份恢复并逐一核对容器；隔离和拒绝覆盖修复后，6 个凭据文件及 2 个客户端 env 测试前后哈希不变。详细经过见《PostgreSQL 切换记录》。
 - **旧站未改**：只读参考代码与配置；env 仅选必要服务项，未复制 AI、邮件、ES 密钥或功能开关。
-  新项目使用自己的资源名和 Django secret，默认 settings 尚未加载新 env。
+  新项目使用自己的资源名和 Django secret，settings 已接入本地 env。
 - **业务未做**：尚未实现业务代码、模型和迁移，未运行 migrate/makemigrations/runserver 或部署应用。
+- **验证边界**：业务并发、完整搜索集成、性能和恢复演练未做。最新 `pip check` 仍仅有旧站 Wagtail 版本冲突；8 个改动 Python 文件语法编译、5 份 Codex TOML 解析及 Compose config 通过。
 - **记录边界**：历史记忆用于辅助检查，不能继承旧报告的通过数字或授权。
   未写 wiki 页面、跨项目消息或 handoff，未改全局配置。
-- **检查和 Git**：详见环境记录。最初只读阶段未运行 Docker，后续按授权安装服务；
-  没有 Git add/commit/push，HEAD 和原有暂存需求文件保留。
+- **检查和 Git**：上一版方案及准备文件已推送至 main，提交 `b76aa0b`。
+  本次文档评审提交不包含服务切换代码、配置及测试文件。
+  原需求书和设计任务书仅在顶部补充数据库最终状态；历史环境正文和 JSON 保留，不把历史结果写成本轮 PostgreSQL 测试通过。

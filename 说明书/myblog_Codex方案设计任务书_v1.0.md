@@ -4,9 +4,13 @@
 
 **2026-11-04 对接更新**：按用户要求，本文对象存储统一改为 RustFS，保留原设计任务和权限要求。以下“当前仅授权只读”描述最初方案设计阶段；后续已授权并完成独立服务准备，本轮获准同步文档。实际版本、地址、资源与未完成事项见《第一阶段技术方案》A 节及《RustFS 对接方案》。本文不能单独授权业务迁移、升级共享环境或部署。
 
+**2026-11-04 数据库更新**：用户明确要求全面改用 PostgreSQL，原设计任务与业务、权限要求不变。S0 环境切换完成：`postgres:18.6-trixie` 镜像校验、启动、默认管理员认证、UTF8 两空库、Windows TCP、11 项离线测试、四服务探针、两库严格检查和中文临时 GIN 探针通过，dev/test 配置检查均为 0 issues。旧 MySQL 已停止并设 `restart=no`，容器、卷与回退备份保留。业务 schema 迁移、业务并发、完整搜索集成、性能及恢复演练未做；本轮事实与测试覆盖凭据事件见[PostgreSQL 切换记录](myblog_PostgreSQL切换记录_2026-11-04.md)。以下正文保留原任务阶段的表述和授权约束，当前数据库验证状态以本段及切换记录为准；历史环境与 JSON 不改写为 PostgreSQL 成功记录。
+
+**当前评审交付授权**：用户另行明确授权将本轮方案和任务技术书提交并推送给网页审核。本授权只覆盖说明书与需求附件，不包含代码、配置、迁移、数据库或部署；以下任务书指令中的“只读/禁止实施”仍约束业务实现，不覆盖本次文档交付。
+
 ## 指令
 
-你是 `anc1996/myblog` 的首席方案设计/架构审查代理。用户已逐项确认第一阶段需求，详见附带的需求规格说明书。**当前仅授权只读调查和方案设计，不授权修改项目代码或配置、创建/重写迁移、访问/操作数据库、调用真实 MySQL/MongoDB/Redis/RustFS 服务、运行 Docker、部署、Git commit/push、调用任何可能自动执行 migrate 的启动命令。** 不要询问或查找密码、Token、`.env`、私钥。旧站 `anc1996/wagtailblog2` 为只读能力参考，绝对不得写入。
+你是 `anc1996/myblog` 的首席方案设计/架构审查代理。用户已逐项确认第一阶段需求，详见附带的需求规格说明书。**当前仅授权只读调查和方案设计，不授权修改项目代码或配置、创建/重写迁移、访问/操作数据库、调用真实 PostgreSQL/MongoDB/Redis/RustFS 服务、运行 Docker、部署、Git commit/push、调用任何可能自动执行 migrate 的启动命令。** 不要询问或查找密码、Token、`.env`、私钥。旧站 `anc1996/wagtailblog2` 为只读能力参考，绝对不得写入。
 
 ### 现场信息
 
@@ -15,7 +19,7 @@
 - GitHub：`https://github.com/anc1996/myblog`
 - 指定 Conda Python：`/root/anaconda3/envs/wagtailblog-test/bin/python`
 - 仓库声明：`Django>=6.1,<6.2`，`wagtail>=8.1,<8.2`；需只读核对本地版本。
-- **用户确认本机已安装 MySQL、MongoDB、Redis、RustFS**；安装不代表已配置或授权连接。请在方案中充分利用这些基础设施，但不得现在探测或登录服务。
+- **用户要求关系数据库切换 PostgreSQL 18.6，MongoDB、Redis、RustFS 保持**；PostgreSQL 默认管理员 `postgres`、5432、`myblog_dev` / `myblog_test`（UTF8），Mongo 管理员仍为 `root`。SQL 认证与空库检查已通过，完整服务和业务验收待验证；服务准备结果不自动授权此任务书的执行者连接服务。
 - 最新需求包括：最小 AbstractUser、公共 Person/Tag、必填成文日期、BlogPage 全生命周期、Mongo 外置 `intro/body`、公共四种媒体/私有 RustFS、MEDIA-REF-01、受控回收站、全站搜索/归档、Wagtail 8.1 API v3 安全边界。完整要求以附件为准。
 
 ### 第一项任务：P0-A 身份与迁移现状只读核查（最优先）
@@ -42,7 +46,7 @@
 按照附带规格设计：
 
 1. 全站公共基本 Block vs Page 专属组合的接口图（绝不复用跨 Page 可变正文）。
-2. MySQL Wagtail Revision 权威与 MongoDB `intro`/`body` 不可变字段版本绑定合同、幂等 Outbox、发布失败补偿、历史恢复。
+2. PostgreSQL Wagtail Revision 权威与 MongoDB `intro`/`body` 不可变字段版本绑定合同、幂等 Outbox、发布失败补偿、历史恢复。
 3. `authored_on` 必填字段适用业务 Page/IndexPage，Wagtail 原生发布时间独立。
 4. Person 多人/贡献角色、共享 Tag（无 Category）、图集双形态的 Revision 关系模型。
 5. F10 单页/子树受控回收站的技术比较（保留原 Page ID / Revision / 树结构、恢复后未发布，防止 API v3 DELETE 硬删除绕过）。
@@ -55,7 +59,7 @@
 A. `现状核查证据表`：每个结论标明文件/行号或检查输出，严格区分事实、推断、未知。
 B. `P0-A 推荐方案`：User、迁移依赖图、冲突和下一步；不得声称本地数据库状态已知。
 C. `P0-B 方案比较及推荐`：原生 vs 自定义媒体模型、安全与删除引用的覆盖面。
-D. `总体架构/关键时序`：Wagtail/MySQL、Mongo、RustFS、Redis 的权威和投影边界。
+D. `总体架构/关键时序`：Wagtail/PostgreSQL、Mongo、RustFS、Redis 的权威和投影边界。
 E. `第一阶段开发切片 + 验收矩阵`：每一项附需验证的风险和可交付证据。
 F. `待用户再次审批的问题`：只列真实未定技术事项，避免重复询问需求规格中已确定的 F01–F12 等结论。
 G. `操作声明`：列出实际执行过的只读命令、读取的文件，明确**无修改、无迁移、无连接真实服务、无 commit/push**。
