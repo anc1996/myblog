@@ -95,6 +95,11 @@ class RecycleService:
                 # 打上原树占位回收标记
                 node.is_recycled = True
                 node.save(update_fields=["is_recycled"], clean=False)
+                try:
+                    from discovery.projection import recycle_page_discovery
+                    recycle_page_discovery(node.id)
+                except Exception as exc:
+                    logger.debug("Failed to sync recycle to discovery for %s: %s", node.id, exc)
 
             # 写入事务性 Outbox 任务事件
             OutboxEvent.objects.create(

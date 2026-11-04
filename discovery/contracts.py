@@ -17,6 +17,30 @@ from typing import Any, Protocol, runtime_checkable
 
 
 @dataclass(frozen=True)
+class TextSegment:
+    """单个逻辑文本段数据结构（标题、简介或正文）"""
+    field_name: str  # 'title' | 'intro' | 'body'
+    text: str
+    char_offset: int = 0
+
+
+@dataclass(frozen=True)
+class PublishedPayload:
+    """页面类型适配器从有效发布快照中提取的统一发布载荷"""
+    page_id: int
+    document_uuid: str
+    type_key: str
+    title: str
+    url_path: str
+    authored_on: date
+    summary: str
+    text_segments: list[TextSegment] = field(default_factory=list)
+    tag_ids: list[int] = field(default_factory=list)
+    tags_data: list[dict[str, Any]] = field(default_factory=list)
+    extra_data: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class QuerySpec:
     """公共内容查询参数规范"""
     q: str | None = None

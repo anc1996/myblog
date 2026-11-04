@@ -3,36 +3,121 @@
 
 {% block body_class %}template-searchresults{% endblock %}
 
-{% block title %}Search{% endblock %}
+{% block title %}全站搜索与导览{% endblock %}
 
 {% block content %}
-<h1>Search</h1>
+<div class="search-container">
+    <h1>全站搜索与内容发现</h1>
 
-<form action="{% url 'search' %}" method="get">
-    <input type="text" name="query"{% if search_query %} value="{{ search_query }}"{% endif %}>
-    <input type="submit" value="Search" class="button">
-</form>
+    {% if cursor_reset %}
+    <div class="alert alert-info" style="background:#eef6fc;border-left:4px solid #3273dc;padding:12px;margin-bottom:16px;">
+        <strong>提示：</strong> 内容刚刚有更新，已为您自动刷新回最新结果第 1 页。
+    </div>
+    {% endif %}
 
-{% if search_results %}
-<ul>
-    {% for result in search_results %}
-    <li>
-        <h4><a href="{% pageurl result %}">{{ result }}</a></h4>
-        {% if result.search_description %}
-        {{ result.search_description }}
-        {% endif %}
-    </li>
-    {% endfor %}
-</ul>
+    <form action="{% url 'search' %}" method="get" class="search-form" style="margin-bottom:24px;">
+        <input type="text" name="query"{% if search_query %} value="{{ search_query }}"{% endif %} placeholder="输入关键词、原句或技术词 (如 C++、PostgreSQL 18)..." style="width:360px;padding:8px;">
+        <input type="submit" value="搜索" class="button" style="padding:8px 16px;">
+    </form>
 
-{% if search_results.has_previous %}
-<a href="{% url 'search' %}?query={{ search_query|urlencode }}&amp;page={{ search_results.previous_page_number }}">Previous</a>
-{% endif %}
+    <div class="search-layout" style="display:flex;gap:32px;">
+        <div class="search-results-pane" style="flex:3;">
+            {% if search_query %}
+                <p style="color:#666;">
+                    搜索 “<strong>{{ search_query }}</strong>” 共找到 <strong>{{ total_count }}</strong> 条结果
+                    {% if query_result.expansion_used %}
+                        <span style="color:#e67e22;margin-left:8px;">(已自动扩展同义词)</span>
+                    {% endif %}
+                </p>
+            {% else %}
+                <p style="color:#666;">浏览全站内容，共 <strong>{{ total_count }}</strong> 条已发布记录</p>
+            {% endif %}
 
-{% if search_results.has_next %}
-<a href="{% url 'search' %}?query={{ search_query|urlencode }}&amp;page={{ search_results.next_page_number }}">Next</a>
-{% endif %}
-{% elif search_query %}
-No results found
-{% endif %}
+            {% if items %}
+                <ul class="result-list" style="list-style:none;padding:0;">
+                    {% for item in items %}
+                    <li style="margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid #eee;">
+                        <h3 style="margin-bottom:6px;">
+                            <a href="{{ item.url }}">{{ item.title }}</a>
+                            <span style="font-size:12px;padding:2px 6px;border-radius:4px;background:#f0f0f0;margin-left:8px;">
+                                {% if item.match_mode == "A" %}原句命中{% elif item.match_mode == "B" %}分词匹配{% elif item.match_mode == "C" %}同义扩展{% else %}已发布{% endif %}
+                            </span>
+                        </h3>
+                        <p style="color:#888;font-size:13px;margin:4px 0;">成文日期：{{ item.authored_on|date:"Y-m-d" }} | 类型：{{ item.type_key }}</p>
+                        {% if item.highlights %}
+                            <p style="margin:6px 0;color:#444;font-size:14px;">
+                                {% for h in item.highlights %}
+                                    {{ h.snippet|safe }}
+                                {% endfor %}
+                            </p>
+                        {% elif item.summary %}
+                            <p style="margin:6px 0;color:#555;font-size:14px;">{{ item.summary }}</p>
+                        {% endif %}
+                        {% if item.tags %}
+                            <div style="margin-top:4px;">
+                                {% for tag in item.tags %}
+                                    <a href="{% url 'search' %}?tag={{ tag.id }}" style="font-size:12px;color:#2980b9;margin-right:8px;">#{{ tag.name }}</a>
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+                    </li>
+                    {% endfor %}
+                </ul>
+
+                {% if show_expand_button %}
+                <div class="expand-b-box" style="background:#f9f9f9;padding:16px;border:1px dashed #ccc;text-align:center;margin-top:20px;">
+                    <p style="margin:0 0 8px 0;color:#666;">当前仅显示完整原句匹配（共 {{ items|length }} 条），未达到 5 条。</p>
+                    <a href="{% url 'search' %}?query={{ search_query|urlencode }}&amp;secondary=words" class="button" style="display:inline-block;padding:8px 16px;background:#3498db;color:#fff;text-decoration:none;border-radius:4px;">
+                        点击继续查看包含相关分词的更多结果（模式 B）
+                    </a>
+                </div>
+                {% endif %}
+
+                {% if next_cursor %}
+                <div style="margin-top:20px;">
+                    <a href="{% url 'search' %}?query={{ search_query|urlencode }}&amp;cursor={{ next_cursor }}" class="button" style="padding:8px 16px;">加载更多</a>
+                </div>
+                {% endif %}
+            {% elif search_query %}
+                <p>未找到匹配 “{{ search_query }}” 的内容。</p>
+            {% endif %}
+        </div>
+
+        <div class="search-facets-pane" style="flex:1;background:#fafafa;padding:16px;border-radius:6px;height:fit-content;">
+            <h4>组合筛选</h4>
+            {% if facets.types %}
+            <div style="margin-bottom:16px;">
+                <strong>内容类型</strong>
+                <ul style="list-style:none;padding-left:0;margin:6px 0;">
+                    {% for t in facets.types %}
+                    <li><a href="{% url 'search' %}?query={{ search_query|urlencode }}&amp;type={{ t.key }}">{{ t.key }} ({{ t.count }})</a></li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+
+            {% if facets.tags %}
+            <div style="margin-bottom:16px;">
+                <strong>标签</strong>
+                <ul style="list-style:none;padding-left:0;margin:6px 0;">
+                    {% for tg in facets.tags %}
+                    <li><a href="{% url 'search' %}?query={{ search_query|urlencode }}&amp;tag={{ tg.id }}">{{ tg.name }} ({{ tg.count }})</a></li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+
+            {% if facets.years %}
+            <div>
+                <strong>年份归档</strong>
+                <ul style="list-style:none;padding-left:0;margin:6px 0;">
+                    {% for yr in facets.years %}
+                    <li><a href="{% url 'search' %}?query={{ search_query|urlencode }}&amp;year={{ yr.year }}">{{ yr.year }} 年 ({{ yr.count }})</a></li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
 {% endblock %}
