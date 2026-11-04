@@ -69,3 +69,34 @@ class CustomBasePage(Page):
             exclude_fields = list(exclude_fields) + ["document_uuid"]
             kwargs["exclude_fields"] = exclude_fields
         return super().copy(*args, **kwargs)
+
+
+class ContentMutationGuard(models.Model):
+    """
+    PostgreSQL 单行协调排他锁模型。
+    所有页面生命周期、发布与媒体权限写操作首先获取该记录的行级排他锁 (SELECT FOR UPDATE)，
+    配合 lock_timeout = 3s 协调后台写操作串行排队，彻底消除死锁。
+    """
+    name = models.CharField(max_length=64, unique=True, default="global", verbose_name="锁标识")
+    last_mutated_at = models.DateTimeField(auto_now=True, verbose_name="最后加锁时间")
+
+    class Meta:
+        verbose_name = "全局写协调锁"
+        verbose_name_plural = "全局写协调锁"
+
+
+class AliasPublicationBinding(models.Model):
+    """
+    别名页面 (Alias) 发布关联绑定表。
+    记录别名页与源页面正式发布版本及发布序号的精准对应关系。
+    """
+    alias_page_id = models.IntegerField(unique=True, db_index=True, verbose_name="别名页面ID")
+    source_page_id = models.IntegerField(db_index=True, verbose_name="源页面ID")
+    source_revision_id = models.IntegerField(verbose_name="绑定的源发布Revision ID")
+    source_document_uuid = models.UUIDField(verbose_name="绑定的源文档UUID")
+    publication_generation = models.BigIntegerField(default=1, verbose_name="发布序号代次")
+    synced_at = models.DateTimeField(auto_now=True, verbose_name="同步时间")
+
+    class Meta:
+        verbose_name = "别名发布绑定"
+        verbose_name_plural = "别名发布绑定"

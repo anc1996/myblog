@@ -123,6 +123,16 @@ DATABASES = {
     }
 }
 
+# MongoDB Settings for external content field versions
+MONGO_SETTINGS = {
+    "HOST": _database_env.get("MONGO_HOST", "127.0.0.1"),
+    "PORT": int(_database_env.get("MONGO_PORT", 27017)),
+    "USER": _database_env.get("MONGO_USER", "root"),
+    "PASSWORD": _database_env.get("MONGO_PASSWORD", ""),
+    "AUTH_SOURCE": _database_env.get("MONGO_AUTH_SOURCE", "admin"),
+    "DATABASE": _database_env.get("MONGO_NAME", "myblog_dev"),
+}
+
 
 # Password validation
 # https://docs.djangoproject.com/en/6.1/ref/settings/#auth-password-validators
