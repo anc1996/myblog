@@ -1,0 +1,59 @@
+/* 复杂表格自适应与响应式排版样式 */
+.responsive-table-wrapper {
+    width: 100%;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border-radius: 6px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.custom-table-block {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.95rem;
+    line-height: 1.5;
+    text-align: left;
+}
+
+.custom-table-block.table-align-center {
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.custom-table-block.table-align-left {
+    margin-right: auto;
+}
+
+.custom-table-block.table-align-right {
+    margin-left: auto;
+}
+
+.custom-table-block .table-caption {
+    caption-side: top;
+    font-weight: 600;
+    padding: 0.5rem 0;
+    color: #4b5563;
+    text-align: center;
+}
+
+.custom-table-block th,
+.custom-table-block td {
+    padding: 0.75rem 1rem;
+    border: 1px solid #e5e7eb;
+    vertical-align: middle;
+}
+
+.custom-table-block thead th {
+    background-color: #f9fafb;
+    font-weight: 600;
+    color: #111827;
+}
+
+.custom-table-block tbody tr:nth-child(even) {
+    background-color: #fcfcfd;
+}
+
+.custom-table-block tbody tr:hover {
+    background-color: #f3f4f6;
+}

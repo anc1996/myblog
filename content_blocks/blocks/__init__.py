@@ -6,6 +6,7 @@ from .rich_text import CustomRichTextBlock
 from .markdown import CustomMarkdownBlock
 from .code import CustomCodeBlock
 from .mermaid import CustomMermaidBlock
+from .table import CustomTableBlock
 from .media import (
     CustomImageBlock,
     CustomDocumentBlock,
@@ -19,6 +20,7 @@ __all__ = [
     "CustomMarkdownBlock",
     "CustomCodeBlock",
     "CustomMermaidBlock",
+    "CustomTableBlock",
     "CustomImageBlock",
     "CustomDocumentBlock",
     "CustomAudioBlock",
@@ -35,6 +37,7 @@ def get_common_stream_blocks():
         ("markdown", CustomMarkdownBlock()),
         ("code", CustomCodeBlock()),
         ("mermaid", CustomMermaidBlock()),
+        ("table", CustomTableBlock()),
         ("image", CustomImageBlock()),
         ("document", CustomDocumentBlock()),
         ("audio", CustomAudioBlock()),

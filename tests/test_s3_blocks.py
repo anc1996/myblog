@@ -236,7 +236,7 @@ class S3BlocksTests(unittest.TestCase):
 
         blocks_list = get_common_stream_blocks()
         block_keys = [b[0] for b in blocks_list]
-        expected_keys = ["rich_text", "markdown", "code", "mermaid", "image", "document", "audio", "video", "embed"]
+        expected_keys = ["rich_text", "markdown", "code", "mermaid", "table", "image", "document", "audio", "video", "embed"]
         self.assertEqual(block_keys, expected_keys)
 
 
