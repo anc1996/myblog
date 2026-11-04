@@ -1,0 +1,92 @@
+name: myblog-services
+
+# Only infrastructure. This file never starts Django or applies migrations.
+services:
+  mysql:
+    image: mysql:26.10.0@sha256:3819b2b23835c4a73c8b022fafc33c8095c0f81c929a8b7a84613d2fba6c52f5
+    restart: unless-stopped
+    env_file:
+      - path: /opt/myblog-services/secrets/mysql.env
+        format: raw
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --innodb-buffer-pool-size=256M
+      - --max-connections=60
+    ports: ["0.0.0.0:3306:3306"]
+    volumes: ["mysql-data:/var/lib/mysql"]
+    mem_limit: 1g
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "--host=127.0.0.1", "--silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  redis:
+    image: redis:8.10.3@sha256:de1068af6f552240dfab67bcc9bfef99bfc60f776bb4580ef077ea4c8c97e848
+    restart: unless-stopped
+    env_file:
+      - path: /opt/myblog-services/secrets/redis.env
+        format: raw
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    ports: ["0.0.0.0:6379:6379"]
+    volumes:
+      - redis-data:/data
+      - /opt/myblog-services/secrets/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  mongo:
+    image: mongo:9.0.4@sha256:452bdaf2127b8ff851e31410a267809b9829eded219979f2210e7c7efb85a058
+    restart: unless-stopped
+    env_file:
+      - path: /opt/myblog-services/secrets/mongo.env
+        format: raw
+    command: ["mongod", "--wiredTigerCacheSizeGB", "0.25", "--bind_ip_all"]
+    ports: ["0.0.0.0:27017:27017"]
+    volumes: ["mongo-data:/data/db", "mongo-config:/data/configdb"]
+    mem_limit: 768m
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "quit(db.adminCommand({ping:1}).ok ? 0 : 1)"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+
+  rustfs:
+    # Official 1.0.4 image, imported through fetch_rustfs.py with each upstream
+    # digest verified. This digest identifies Docker's local import manifest.
+    image: rustfs/rustfs:1.0.4@sha256:411dc00e2cf07b1360995d6e4884a1e5190d0493088b81a3b2f6d00c082c988a
+    pull_policy: never
+    restart: unless-stopped
+    env_file:
+      - path: /opt/myblog-services/secrets/rustfs.env
+        format: raw
+    environment:
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ADDRESS: 0.0.0.0:9000
+      RUSTFS_CONSOLE_ADDRESS: 0.0.0.0:9001
+      RUSTFS_CONSOLE_ENABLE: "true"
+    command: ["rustfs"]
+    ports: ["0.0.0.0:9000:9000", "0.0.0.0:9001:9001"]
+    volumes: ["rustfs-data:/data", "rustfs-logs:/logs"]
+    mem_limit: 1g
+    healthcheck:
+      test: ["CMD", "sh", "-ec", "curl -fsS http://127.0.0.1:9000/health/ready && curl -fsS http://127.0.0.1:9001/rustfs/console/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+volumes:
+  mysql-data:
+  redis-data:
+  mongo-data:
+  mongo-config:
+  rustfs-data:
+  rustfs-logs:

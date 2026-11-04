@@ -47,3 +47,10 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.bak
+
+# Local browser verification artifacts can include authenticated UI snapshots.
+.playwright-cli/
+output/playwright/
+
+# Local service credentials; never commit plaintext passwords.
+说明书/myblog_本地服务凭据_不提交.md
