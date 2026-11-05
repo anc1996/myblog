@@ -9,8 +9,69 @@ Wagtail 管理后台回收站隔离与菜单集成钩子。
 """
 
 from django.http import Http404
+from django.urls import path, reverse
+from django.shortcuts import get_object_or_404, redirect
+from django.utils.safestring import mark_safe
 from wagtail import hooks
-from content_lifecycle.models import RecycleEntry
+from wagtail.admin import messages
+from wagtail.admin.viewsets.model import ModelViewSet
+from content_lifecycle.models import RecycleBatch, RecycleEntry
+
+
+class RecycleBatchViewSet(ModelViewSet):
+    """
+    Wagtail 8.1 管理后台【受控回收站】专属管理视图集。
+    在左侧菜单栏常驻“受控回收站”，提供回收批次列表查看、一键精准恢复与彻底物理销毁入口。
+    """
+    model = RecycleBatch
+    menu_label = "受控回收站"
+    icon = "bin"
+    menu_icon = "bin"
+    menu_order = 220
+    add_to_admin_menu = True
+    list_display = ["root_page_title", "total_pages", "recycled_at", "actor_username", "status", "actions"]
+    list_filter = ["status", "recycled_at"]
+    search_fields = ["root_page_title", "actor_username"]
+    inspect_view_enabled = True
+    inspect_view_fields = ["batch_id", "root_page_title", "total_pages", "recycled_at", "actor_username", "status"]
+    form_fields = ["status"]
+
+    def get_urlpatterns(self):
+        urlpatterns = super().get_urlpatterns()
+        return urlpatterns + [
+            path("<int:pk>/restore/", self.restore_view, name="restore"),
+            path("<int:pk>/purge/", self.purge_view, name="purge"),
+        ]
+
+    def restore_view(self, request, pk):
+        batch = get_object_or_404(RecycleBatch, pk=pk)
+        from content_lifecycle.recycle import RecycleService
+        try:
+            res = RecycleService.restore_page_or_subtree(batch.batch_id, actor=request.user)
+            messages.success(request, f"成功将 '{batch.root_page_title}' （共 {len(res.get('restored_pages', []))} 篇页面）原位恢复为未发布草稿！")
+        except Exception as exc:
+            messages.error(request, f"恢复失败: {exc}")
+        return redirect(self.get_url_name("index"))
+
+    def purge_view(self, request, pk):
+        batch = get_object_or_404(RecycleBatch, pk=pk)
+        from content_lifecycle.recycle import RecycleService
+        try:
+            res = RecycleService.purge_page_or_subtree(batch.root_page_id, actor=request.user)
+            from external_content.outbox import OutboxProcessor
+            OutboxProcessor.process_pending_events(batch_size=50)
+            messages.success(request, f"已永久物理销毁页面 '{batch.root_page_title}' 及其全部历史版本。")
+        except Exception as exc:
+            messages.error(request, f"销毁失败: {exc}")
+        return redirect(self.get_url_name("index"))
+
+
+recycle_batch_viewset = RecycleBatchViewSet("recycle_bin")
+
+
+@hooks.register("register_admin_viewset")
+def register_recycle_batch_viewset():
+    return recycle_batch_viewset
 
 
 @hooks.register("construct_explorer_page_queryset")

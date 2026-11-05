@@ -150,6 +150,26 @@ class RecycleBatch(models.Model):
         verbose_name_plural = "回收批次"
         ordering = ["-recycled_at"]
 
+    def actions(self):
+        from django.utils.safestring import mark_safe
+        from django.urls import reverse
+        if self.status == "recycled":
+            try:
+                restore_url = reverse("recycle_bin:restore", args=[self.pk])
+                purge_url = reverse("recycle_bin:purge", args=[self.pk])
+                return mark_safe(
+                    f'<a href="{restore_url}" class="button button-small button-secondary" style="margin-right:8px;" onclick="return confirm(\'确认将该页面/子树原位恢复为未发布草稿？\')">一键恢复</a>'
+                    f'<a href="{purge_url}" class="button button-small button-danger" style="background:#dc2626;color:#fff;" onclick="return confirm(\'警告：永久删除将彻底物理销毁该页面及 MongoDB 中的全部历史版本，不可撤销！确认删除？\')">彻底销毁</a>'
+                )
+            except Exception:
+                return "待操作"
+        elif self.status == "restored":
+            return mark_safe('<span style="color:#16a34a;font-weight:600;">已恢复为草稿</span>')
+        else:
+            return mark_safe('<span style="color:#94a3b8;">已彻底销毁</span>')
+
+    actions.short_description = "回收站操作"
+
     def __str__(self):
         return f"RecycleBatch {self.batch_id} (root: {self.root_page_title}, count: {self.total_pages})"
 
