@@ -1,21 +1,123 @@
 {% extends "base.html" %}
-{% load static %}
+{% load static wagtailcore_tags %}
 
 {% block body_class %}template-homepage{% endblock %}
 
-{% block extra_css %}
+{% block title %}myblog - 首页{% endblock %}
 
-{% comment %}
-Delete the line below if you're just getting started and want to remove the welcome screen!
-{% endcomment %}
-<link rel="stylesheet" href="{% static 'css/welcome_page.css' %}">
+{% block extra_css %}
+<link rel="stylesheet" type="text/css" href="{% static 'blog/css/article.css' %}">
+<style>
+    .nav-bar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 16px 0;
+        border-bottom: 1px solid #e2e8f0;
+        margin-bottom: 24px;
+    }
+    .nav-logo {
+        font-size: 1.3rem;
+        font-weight: 700;
+        color: #0f172a;
+        text-decoration: none;
+    }
+    .nav-links a {
+        margin-left: 20px;
+        color: #2563eb;
+        text-decoration: none;
+        font-size: 14px;
+    }
+    .nav-links a:hover {
+        text-decoration: underline;
+    }
+    .quick-start-box {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        padding: 16px 20px;
+        margin-bottom: 32px;
+        font-size: 14px;
+        color: #334155;
+    }
+    .quick-start-box code {
+        background: #e2e8f0;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-family: monospace;
+    }
+</style>
 {% endblock extra_css %}
 
 {% block content %}
+<div class="blog-article-container">
+    <nav class="nav-bar">
+        <a href="/" class="nav-logo">myblog</a>
+        <div class="nav-links">
+            <a href="/tech/">📁 技术专栏</a>
+            <a href="/search/">🔍 全站搜索</a>
+            <a href="/admin/" target="_blank">⚙️ 后台管理</a>
+        </div>
+    </nav>
 
-{% comment %}
-Delete the line below if you're just getting started and want to remove the welcome screen!
-{% endcomment %}
-{% include 'home/welcome_page.html' %}
+    <div class="quick-start-box">
+        <strong>💡 快捷操作指南：</strong>
+        <ul style="margin: 8px 0 0 20px; padding: 0;">
+            <li><strong>前台阅读：</strong> 点击下方文章可进入单栏阅读、代码高亮、复杂表格与画廊灯箱；</li>
+            <li><strong>全站搜索：</strong> 访问 <a href="/search/" style="color:#2563eb;">/search/</a> 体验 Jieba 中文分词、原句匹配与多维度聚合；</li>
+            <li><strong>后台管理：</strong> 访问 <a href="/admin/" target="_blank" style="color:#2563eb;">/admin/</a>，账号 <code>admin</code> / 密码 <code>admin123456</code>。</li>
+        </ul>
+    </div>
 
+    <section style="margin-bottom: 36px;">
+        <h2 style="font-size: 1.4rem; color: #0f172a; margin-bottom: 16px; border-bottom: 2px solid #e2e8f0; padding-bottom: 6px;">
+            最新发布文章
+        </h2>
+        {% if latest_articles %}
+        <ul style="list-style: none; padding: 0; margin: 0;">
+            {% for article in latest_articles %}
+            <li style="margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid #f1f5f9;">
+                <h3 style="margin: 0 0 6px 0; font-size: 1.25rem;">
+                    <a href="{% pageurl article %}" style="color: #0f172a; text-decoration: none;">
+                        {{ article.title }}
+                    </a>
+                </h3>
+                <div style="font-size: 13px; color: #64748b; margin-bottom: 8px;">
+                    成文日期：{{ article.authored_on|date:"Y年m月d日" }}
+                    {% if article.tags.all %}
+                        | 标签：
+                        {% for tag in article.tags.all %}
+                            <a href="/search/?tag={{ tag.id }}" style="color: #2563eb; text-decoration: none; margin-right: 4px;">#{{ tag.name }}</a>
+                        {% endfor %}
+                    {% endif %}
+                </div>
+                {% if article.intro %}
+                    <p style="margin: 0; font-size: 14px; color: #475569;">
+                        {{ article.intro.raw_text|default:article.title|truncatechars:150 }}
+                    </p>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p style="color: #94a3b8;">暂无已发布文章。</p>
+        {% endif %}
+    </section>
+
+    {% if columns %}
+    <section>
+        <h2 style="font-size: 1.4rem; color: #0f172a; margin-bottom: 16px; border-bottom: 2px solid #e2e8f0; padding-bottom: 6px;">
+            专栏与目录
+        </h2>
+        <div style="display: flex; gap: 16px; flex-wrap: wrap;">
+            {% for col in columns %}
+            <div style="flex: 1; min-width: 200px; padding: 14px; border: 1px solid #e2e8f0; border-radius: 6px; background: #fafafa;">
+                <h4 style="margin: 0 0 6px 0;"><a href="{% pageurl col %}" style="color: #2563eb; text-decoration: none;">{{ col.title }}</a></h4>
+                <p style="margin: 0; font-size: 13px; color: #64748b;">{{ col.intro|truncatechars:80 }}</p>
+            </div>
+            {% endfor %}
+        </div>
+    </section>
+    {% endif %}
+</div>
 {% endblock content %}
