@@ -24,6 +24,10 @@ class BlogPageAdapter:
     }
 
     def extract(self, page: Any) -> PublishedPayload:
+        # 方案 A【彻底脱水模式】：若 Page 处于脱水状态，在提取搜索文本前先从 MongoDB 水合
+        if hasattr(page, "hydrate_from_mongo") and (not getattr(page, "body", None) or len(getattr(page, "body", [])) == 0):
+            page.hydrate_from_mongo()
+
         title = getattr(page, "title", "")
         doc_uuid = str(getattr(page, "document_uuid", ""))
         authored_on = getattr(page, "authored_on", None)

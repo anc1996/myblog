@@ -164,12 +164,50 @@ class BlogPage(CustomBasePage):
         verbose_name = "博客文章"
         verbose_name_plural = "博客文章"
 
+    def hydrate_from_mongo(self, access_context=None):
+        """
+        方案 A【彻底脱水模式】：从 MongoDB 按生效版本指针精准水合恢复 intro 与 body 积木。
+        PostgreSQL 物理行仅存 [] 空占位（2字节），彻底免除千万级长文导致的 TOAST 表膨胀！
+        """
+        from external_content.revision import get_effective_page_content
+        from blog.blocks import BlogIntroBlocks, BlogBodyBlocks
+        from external_content.store import MongoContentStore
+        store = None
+        try:
+            store = MongoContentStore()
+            data = get_effective_page_content(self, access_context=access_context, store=store)
+            if data and not data.get("error"):
+                if data.get("intro"):
+                    intro_block = BlogIntroBlocks()
+                    self.intro = intro_block.to_python(data["intro"])
+                if data.get("body"):
+                    body_block = BlogBodyBlocks()
+                    self.body = body_block.to_python(data["body"])
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning("Failed to hydrate page %s from MongoDB: %s", self.id, exc)
+        finally:
+            if store:
+                store.close()
+
+    def get_latest_revision_as_object(self):
+        """后台编辑或预览时，从最新草稿版本指针中水合正文"""
+        page = super().get_latest_revision_as_object()
+        from content_lifecycle.access import AccessContext, AccessMode
+        if hasattr(page, "hydrate_from_mongo"):
+            page.hydrate_from_mongo(access_context=AccessContext(mode=AccessMode.PREVIEW_DRAFT))
+        return page
+
     def save_revision(self, user=None, approved_go_live_at=None, changed=True, log_action=True, previous_revision=None, clean=True):
         """
-        保存修订版本时自动将 intro 与 body 积木外置持久化到 MongoDB：
+        方案 A【彻底脱水模式】保存管线：
         1. 在 MongoDB 集合 content_field_versions 中生成带有 SHA-256 哈希的不可变快照；
-        2. 在当前 Revision content 中绑定 _external_field_pointers 版本指针。
+        2. 在当前 Revision content 中绑定 _external_field_pointers 版本指针；
+        3. 彻底清空 PostgreSQL 的 Revision 与 blog_blogpage 中的正文字符串，仅留 [] 占位。
         """
+        raw_intro = self.intro
+        raw_body = self.body
+
         revision = super().save_revision(
             user=user,
             approved_go_live_at=approved_go_live_at,
@@ -189,9 +227,9 @@ class BlogPage(CustomBasePage):
             pointers = []
             op_id = f"op_rev_{revision.id}_{uuid.uuid4().hex[:8]}"
 
-            # 1. 外置保存 intro 到 MongoDB
-            if self.intro:
-                intro_val = self.intro.get_prep_value() if hasattr(self.intro, "get_prep_value") else list(self.intro)
+            # 1. 将 intro 积木流全量外置保存到 MongoDB
+            if raw_intro:
+                intro_val = raw_intro.get_prep_value() if hasattr(raw_intro, "get_prep_value") else list(raw_intro)
                 ptr_intro = store.save_field_version(
                     document_uuid=doc_uuid,
                     field_name="intro",
@@ -201,9 +239,9 @@ class BlogPage(CustomBasePage):
                 )
                 pointers.append(ptr_intro)
 
-            # 2. 外置保存 body 到 MongoDB
-            if self.body:
-                body_val = self.body.get_prep_value() if hasattr(self.body, "get_prep_value") else list(self.body)
+            # 2. 将 body 积木流全量外置保存到 MongoDB
+            if raw_body:
+                body_val = raw_body.get_prep_value() if hasattr(raw_body, "get_prep_value") else list(raw_body)
                 ptr_body = store.save_field_version(
                     document_uuid=doc_uuid,
                     field_name="body",
@@ -213,12 +251,19 @@ class BlogPage(CustomBasePage):
                 )
                 pointers.append(ptr_body)
 
-            # 3. 在 Revision 中记录外置版本指针
+            # 3. 在 Revision 中记录外置版本指针，并彻底清空 Revision 字典中的正文大文本
             if pointers:
                 content_dict = revision.content if isinstance(revision.content, dict) else json.loads(revision.content)
                 bind_pointers_to_revision_content(content_dict, pointers)
+                # 彻底脱水：PostgreSQL Revision 仅存指针，不存大 JSON
+                content_dict["intro"] = []
+                content_dict["body"] = []
                 revision.content = content_dict
                 revision.save(update_fields=["content"])
+
+            # 4. 彻底脱水：将 PostgreSQL 主表 blog_blogpage 的物理列清空为 []
+            BlogPage.objects.filter(id=self.id).update(intro=[], body=[])
+
         except Exception as exc:
             import logging
             logging.getLogger(__name__).warning("Failed to auto-externalize fields to MongoDB on save_revision: %s", exc)
@@ -231,6 +276,13 @@ class BlogPage(CustomBasePage):
         return revision
 
     def get_context(self, request, *args, **kwargs):
+        # 方案 A【彻底脱水模式】：在渲染前，从 MongoDB 精准水合生效版本的正文积木
+        from content_lifecycle.access import AccessContext, AccessMode
+        is_preview = getattr(request, "is_preview", False) or getattr(request, "in_preview_panel", False)
+        mode = AccessMode.PREVIEW_DRAFT if is_preview else AccessMode.PUBLIC
+        ctx = AccessContext(user=getattr(request, "user", None), mode=mode)
+        self.hydrate_from_mongo(access_context=ctx)
+
         context = super().get_context(request, *args, **kwargs)
         # 1. 真实有效面包屑导航 (过滤回收节点与根节点)
         ancestors = []
