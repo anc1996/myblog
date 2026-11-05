@@ -476,6 +476,19 @@ Redis 不可用时，按限定范围读取原数据，仍检查权限，不能�
 不能声称是独立实例。禁用 FLUSHDB/FLUSHALL，测试只能按自己的唯一前缀处理数据。
 若以后引入 broker/result DB，先另行核对占用，不能沿用旧站编号。
 
+### D3.1 【已确认】方案 A：彻底脱水模式（PostgreSQL 零大文本与 MongoDB 动态水合）
+
+为支撑千万级（10,000,000+）文章规模与长文高频编辑，彻底杜绝大正文导致 PostgreSQL TOAST 表膨胀、内存缓冲池击穿及 WAL 复制风暴，正式确定并落地**方案 A【彻底脱水模式】**：
+1. **保存与发布管线（Dehydration）**：
+   - 当文章保存草稿或发布时，自动提取 `intro` 与 `body` 完整积木流；
+   - 100% 外置持久化至 MongoDB `content_field_versions` 集合，生成带有 SHA-256 签名校验的不可变快照；
+   - 在 PostgreSQL `wagtailcore_revision.content` 中仅记录轻量版本指针 `_external_field_pointers`（包含 `version_id`、`content_hash`）；
+   - **PostgreSQL 物理存储彻底脱水**：PostgreSQL 主表 `blog_blogpage` 的 `intro` 和 `body` 物理列，以及 `revision.content` 中的正文大字典，全部脱水置换为 2 字节 `[]` 占位；PostgreSQL 单行体积缩小 99% 以上（仅约 200~300 字节），千万级数据量仅占用约 3 GB，可整体常驻内存极速响应。
+2. **动态水合管线（Hydration）**：
+   - 读者访问前台页面或调用搜索提取时，通过 `hydrate_from_mongo()` 动态通过有效版本指针从 MongoDB 水合提取真实积木流；
+   - 管理员在后台编辑页面时，通过 `get_latest_revision_as_object()` 从最新草稿指针中水合正文到编辑器表单；
+   - 搜索索引投影统一采用 Wagtail 对外公开路由接口 `page.get_url()`（如 `/tech/...`），彻底避免底层内部树路径（`/home/tech/...`）导致的 404 错误。
+
 ### D4. 编辑器和文章页面
 
 RichText（含下划线）、Markdown（数学/表格/代码/Mermaid）、Image/Document/Audio/Video/

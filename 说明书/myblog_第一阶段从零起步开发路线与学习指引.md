@@ -482,7 +482,7 @@ MongoDB：
 
 读者从 `live_revision_id=101` 取元数据和关系，再按 I1/B1 取正文。编辑人员预览 Revision 102，才会看到 I1/B2。即使 Page 当前表行已含一些草稿字段，也不能拿它们拼进正式页面。
 
-所以“把所有草稿字段从 Page 表拿走”并不是这项需求的完整答案。Wagtail 可以把当前编辑状态存进模型表；项目必须统一从正式 Revision 还原公开字段，覆盖标题、日期、作者、标签、封面、SEO、列表摘要和计数，不能只隔离 body。
+**【已确认方案 A：彻底脱水模式】**：为支撑千万级（10,000,000+）文章规模与长文高频编辑，PostgreSQL 的 `blog_blogpage` 物理行与 Revision 中的正文大 JSON 彻底脱水置换为 2 字节 `[]` 占位，单行仅存约 200 字节轻量元数据；大正文 100% 外置至 MongoDB 不可变集合 `content_field_versions`，通过 `hydrate_from_mongo()` 动态按版本指针水合恢复，彻底杜绝 TOAST 表膨胀。
 
 Mongo 字段版本候选内容包括 `version_id`、`document_uuid`、`field_name`、schema、Block 格式版本、`content_hash`、payload、创建时间和操作 ID。每次读都核对“属于哪个页面、哪个字段、哪种格式、内容是否匹配”；仅凭 ID 找到一条记录不够。
 
