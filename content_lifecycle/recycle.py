@@ -271,6 +271,16 @@ class RecycleService:
                 if not registry.action_exists(log_act):
                     log_act = "wagtail.revert"
 
+                # 方案 A 恢复关键闭环：从回收快照 Revision 及其 Mongo 指针水合恢复完整正文
+                if entry.snapshot_revision_id:
+                    snapshot_rev = Revision.objects.filter(id=entry.snapshot_revision_id).first()
+                    if snapshot_rev:
+                        snapshot_obj = snapshot_rev.as_object()
+                        if hasattr(snapshot_obj, "intro"):
+                            page.intro = snapshot_obj.intro
+                        if hasattr(snapshot_obj, "body"):
+                            page.body = snapshot_obj.body
+
                 # 生成全新的未发布草稿版本
                 page.save_revision(
                     user=actor,

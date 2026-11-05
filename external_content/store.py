@@ -38,36 +38,47 @@ def calculate_payload_hash(payload: Any) -> str:
 class MongoContentStore:
     """MongoDB 字段版本只读/只增存储适配器"""
 
+    _shared_client = None
+    _ensured_dbs = set()
+
     def __init__(self, db_client=None, db_name=None):
-        self._client = db_client
+        self._custom_client = db_client
         self._db_name = db_name
         self._db = None
 
     def close(self):
         """安全关闭底层 MongoClient 连接"""
-        if self._client is not None:
+        if self._custom_client is not None:
             try:
-                self._client.close()
+                self._custom_client.close()
             except Exception:
                 pass
-            self._client = None
-            self._db = None
+            self._custom_client = None
+        self._db = None
 
     def _get_db(self):
         if self._db is None:
-            if self._client is None:
-                cfg = getattr(settings, "MONGO_SETTINGS", {})
-                self._client = MongoClient(
-                    cfg.get("HOST", "127.0.0.1"),
-                    cfg.get("PORT", 27017),
-                    username=cfg.get("USER", "root"),
-                    password=cfg.get("PASSWORD", ""),
-                    authSource=cfg.get("AUTH_SOURCE", "admin"),
-                    serverSelectionTimeoutMS=3000,
-                )
-                self._db_name = cfg.get("DATABASE", "myblog_dev")
-            self._db = self._client[self._db_name]
-            self._ensure_indexes()
+            if self._custom_client is not None:
+                client = self._custom_client
+            else:
+                if MongoContentStore._shared_client is None:
+                    cfg = getattr(settings, "MONGO_SETTINGS", {})
+                    MongoContentStore._shared_client = MongoClient(
+                        cfg.get("HOST", "127.0.0.1"),
+                        cfg.get("PORT", 27017),
+                        username=cfg.get("USER", "root"),
+                        password=cfg.get("PASSWORD", ""),
+                        authSource=cfg.get("AUTH_SOURCE", "admin"),
+                        serverSelectionTimeoutMS=3000,
+                    )
+                client = MongoContentStore._shared_client
+
+            cfg = getattr(settings, "MONGO_SETTINGS", {})
+            db_name = self._db_name or cfg.get("DATABASE", "myblog_dev")
+            self._db = client[db_name]
+            if db_name not in MongoContentStore._ensured_dbs:
+                self._ensure_indexes()
+                MongoContentStore._ensured_dbs.add(db_name)
         return self._db
 
     def _ensure_indexes(self):

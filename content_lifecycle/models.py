@@ -68,7 +68,19 @@ class CustomBasePage(Page):
         if "document_uuid" not in exclude_fields:
             exclude_fields = list(exclude_fields) + ["document_uuid"]
             kwargs["exclude_fields"] = exclude_fields
+        # 默认不复制历史 Revision 链，防止新副本与源页面共享 MongoDB 指针在永久删除时产生连坐误删
+        kwargs.setdefault("copy_revisions", False)
         return super().copy(*args, **kwargs)
+
+    def with_content_json(self, content):
+        """
+        Wagtail 官方反序列化入口基类守卫：
+        从快照还原时强制保护实例级关键状态字段，防止历史 Revision 覆盖掉当前页面的 document_uuid 或 is_recycled。
+        """
+        obj = super().with_content_json(content)
+        obj.document_uuid = getattr(self, "document_uuid", getattr(obj, "document_uuid", None))
+        obj.is_recycled = getattr(self, "is_recycled", getattr(obj, "is_recycled", False))
+        return obj
 
     def serve(self, request, *args, **kwargs):
         """前台交付守卫：未发布草稿（非带权预览）与已回收页面统一返回 404"""

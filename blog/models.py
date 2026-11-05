@@ -198,7 +198,70 @@ class BlogPage(CustomBasePage):
             page.hydrate_from_mongo(access_context=AccessContext(mode=AccessMode.PREVIEW_DRAFT))
         return page
 
-    def save_revision(self, user=None, approved_go_live_at=None, changed=True, log_action=True, previous_revision=None, clean=True):
+    def save(self, *args, **kwargs):
+        """
+        保存页面模型物理行时的脱水守卫：
+        即使 Wagtail PublishRevisionAction 将水合后的正文写回，也在此拦截将 PostgreSQL 物理列清空为 []，
+        同时保留内存中的 self.intro 与 self.body 供信号监听器与搜索投影直接使用。
+        """
+        raw_intro = self.intro
+        raw_body = self.body
+        super().save(*args, **kwargs)
+        if self.pk:
+            BlogPage.objects.filter(pk=self.pk).update(intro=[], body=[])
+        self.intro = raw_intro
+        self.body = raw_body
+
+    def with_content_json(self, content):
+        """
+        Wagtail 8.1 官方反序列化入口重写：
+        从 Revision content 字典中解析 _external_field_pointers，精准从 MongoDB 还原正文积木。
+        完美兼容 Wagtail 原生的历史预览 (RevisionsView)、历史对比 (RevisionsCompareView) 与版本还原 (RevisionsRevertView)！
+        """
+        import json
+        from uuid import UUID
+        from external_content.store import MongoContentStore
+        from blog.blocks import BlogIntroBlocks, BlogBodyBlocks
+
+        content_dict = content if isinstance(content, dict) else json.loads(content)
+        obj = super().with_content_json(content)
+
+        pointers_list = content_dict.get("_external_field_pointers", [])
+        if pointers_list:
+            store = None
+            try:
+                store = MongoContentStore()
+                for item in pointers_list:
+                    doc_uuid = UUID(item["document_uuid"])
+                    field_name = item["field_name"]
+                    version_id = item["version_id"]
+                    expected_hash = item.get("content_hash")
+
+                    res = store.get_field_version(
+                        document_uuid=doc_uuid,
+                        field_name=field_name,
+                        version_id=version_id,
+                        expected_hash=expected_hash,
+                    )
+                    if field_name == "intro" and res.payload:
+                        obj.intro = BlogIntroBlocks().to_python(res.payload)
+                    elif field_name == "body" and res.payload:
+                        obj.body = BlogBodyBlocks().to_python(res.payload)
+            finally:
+                if store:
+                    store.close()
+
+        return obj
+
+    def get_admin_display_title(self):
+        title = super().get_admin_display_title()
+        # 修复 Wagtail 8.1 RevisionsCompareView 在比较 "live" 正式版时直接拿 self.object 的盲区
+        if self.live and (not getattr(self, "body", None) or len(getattr(self, "body", [])) == 0):
+            from content_lifecycle.access import AccessContext, AccessMode
+            self.hydrate_from_mongo(access_context=AccessContext(mode=AccessMode.PUBLIC))
+        return title
+
+    def save_revision(self, user=None, approved_go_live_at=None, changed=True, log_action=True, previous_revision=None, clean=True, overwrite_revision=None, **kwargs):
         """
         方案 A【彻底脱水模式】保存管线：
         1. 在 MongoDB 集合 content_field_versions 中生成带有 SHA-256 哈希的不可变快照；
@@ -208,6 +271,11 @@ class BlogPage(CustomBasePage):
         raw_intro = self.intro
         raw_body = self.body
 
+        # 安全防线：严禁原地覆写已上线的正式版本或排期发布版本
+        if overwrite_revision:
+            if overwrite_revision.id == self.live_revision_id or getattr(overwrite_revision, "approved_go_live_at", None) is not None:
+                overwrite_revision = None
+
         revision = super().save_revision(
             user=user,
             approved_go_live_at=approved_go_live_at,
@@ -215,6 +283,8 @@ class BlogPage(CustomBasePage):
             log_action=log_action,
             previous_revision=previous_revision,
             clean=clean,
+            overwrite_revision=overwrite_revision,
+            **kwargs,
         )
         try:
             import json
@@ -251,22 +321,24 @@ class BlogPage(CustomBasePage):
                 )
                 pointers.append(ptr_body)
 
-            # 3. 在 Revision 中记录外置版本指针，并彻底清空 Revision 字典中的正文大文本
-            if pointers:
-                content_dict = revision.content if isinstance(revision.content, dict) else json.loads(revision.content)
-                bind_pointers_to_revision_content(content_dict, pointers)
-                # 彻底脱水：PostgreSQL Revision 仅存指针，不存大 JSON
-                content_dict["intro"] = []
-                content_dict["body"] = []
-                revision.content = content_dict
-                revision.save(update_fields=["content"])
+            # 3. 在 Revision 中无条件记录外置版本指针，并彻底清空 Revision 字典中的正文大文本
+            content_dict = revision.content if isinstance(revision.content, dict) else json.loads(revision.content)
+            bind_pointers_to_revision_content(content_dict, pointers)
+            # 彻底脱水：PostgreSQL Revision 仅存指针，不存大 JSON
+            content_dict["intro"] = []
+            content_dict["body"] = []
+            revision.content = content_dict
+            revision.save(update_fields=["content"])
 
             # 4. 彻底脱水：将 PostgreSQL 主表 blog_blogpage 的物理列清空为 []
             BlogPage.objects.filter(id=self.id).update(intro=[], body=[])
 
-        except Exception as exc:
-            import logging
-            logging.getLogger(__name__).warning("Failed to auto-externalize fields to MongoDB on save_revision: %s", exc)
+            # 保持内存对象状态，供后续信号与搜索投影直接使用
+            self.intro = raw_intro
+            self.body = raw_body
+
+        except Exception:
+            raise
         finally:
             try:
                 store.close()
