@@ -219,3 +219,14 @@ class MongoContentStore:
             operation_id=record.get("operation_id", ""),
             extra_metadata=record.get("extra_metadata", {}),
         )
+
+    def purge_document_versions(self, document_uuid: UUID | str) -> int:
+        """
+        物理清除指定 document_uuid 在 MongoDB 中的所有字段版本快照。
+        由受控永久删除 (Purge) 流程通过 Outbox 触发，彻底杜绝孤儿数据。
+        """
+        db = self._get_db()
+        col = db["content_field_versions"]
+        res = col.delete_many({"document_uuid": str(document_uuid)})
+        logger.info("Purged %d versions from MongoDB for document_uuid=%s", res.deleted_count, document_uuid)
+        return res.deleted_count

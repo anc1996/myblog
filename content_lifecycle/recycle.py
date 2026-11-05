@@ -319,3 +319,53 @@ class RecycleService:
                 "batch_id": str(batch.batch_id),
                 "restored_pages": restored_pages,
             }
+
+    @classmethod
+    def purge_page_or_subtree(cls, page_id: int, actor: Any = None) -> dict[str, Any]:
+        """
+        受控永久销毁单页或整棵子树（Purge）：
+        1. 必须在 content_mutation_guard(timeout_seconds=3) 内执行；
+        2. 收集目标节点及其所有子节点的 (page_id, document_uuid)；
+        3. 同一事务写入 page.purged OutboxEvent（携带 document_uuid）；
+        4. 清理关联的 RecycleEntry、PublishedSearchDocument；
+        5. 调用 Wagtail 原生 node.delete(allow_physical_purge=True) 执行物理删除；
+        6. 后续由 Outbox 异步任务按 document_uuid 彻底擦除 MongoDB 中的全部历史版本。
+        """
+        with content_mutation_guard(timeout_seconds=3):
+            try:
+                page = Page.objects.get(id=page_id).specific
+            except Page.DoesNotExist:
+                return {"status": "not_found", "page_id": page_id}
+
+            from discovery.models import PublishedSearchDocument
+
+            descendants = list(page.get_descendants().select_related())
+            all_nodes = [page] + [d.specific for d in descendants]
+            purged_summaries = []
+
+            for node in reversed(all_nodes):
+                nid = node.id
+                doc_uuid = str(getattr(node, "document_uuid", ""))
+
+                # 1. 写入事务性 Outbox 事件，触发 MongoDB 异步全版本销毁
+                OutboxEvent.objects.create(
+                    event_type="page.purged",
+                    page_id=nid,
+                    payload={"document_uuid": doc_uuid, "title": node.title},
+                )
+
+                # 2. 清理搜索副本与回收站快照条目
+                PublishedSearchDocument.objects.filter(page_id=nid).delete()
+                RecycleEntry.objects.filter(page_id=nid).delete()
+
+                # 3. 物理执行 Wagtail ORM 删除
+                node.delete(allow_physical_purge=True)
+                purged_summaries.append({"page_id": nid, "document_uuid": doc_uuid})
+
+            RecycleBatch.objects.filter(root_page_id=page_id).update(status="purged")
+
+            return {
+                "status": "success",
+                "purged_count": len(purged_summaries),
+                "nodes": purged_summaries,
+            }

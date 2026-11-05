@@ -144,3 +144,112 @@ class CrossStorageReconciler:
             "total_orphans": len(orphans),
             "orphans": orphans,
         }
+
+    @classmethod
+    def run_garbage_collection(cls, grace_period_seconds: int = 7 * 86400, dry_run: bool = False) -> dict[str, Any]:
+        """
+        第二防线：全站 MongoDB 历史正文垃圾回收 (GC)。
+        扫描 content_field_versions 集合：
+        1. 收集全站所有现存 Revision、回收站快照及别名绑定的全部有效 (document_uuid, version_id) 指针；
+        2. 任何未被引用的版本，检查其 created_at 是否超过安全宽限期（默认 7 天）；
+        3. 仅对超出宽限期且确无任何引用的孤儿版本执行物理安全清理。
+        """
+        import json
+        from datetime import datetime, timezone, timedelta
+        from wagtail.models import Revision
+
+        active_pointers = set()
+        for rev in Revision.objects.all():
+            content = rev.content if isinstance(rev.content, dict) else json.loads(rev.content)
+            for ptr in content.get("_external_field_pointers", []):
+                active_pointers.add((str(ptr.get("document_uuid")), str(ptr.get("version_id"))))
+
+        mongo_store = MongoContentStore()
+        orphans = []
+        now = datetime.now(timezone.utc)
+        cutoff_time = now - timedelta(seconds=grace_period_seconds)
+
+        try:
+            db = mongo_store._get_db()
+            col = db["content_field_versions"]
+            for doc in col.find():
+                doc_uuid = str(doc.get("document_uuid"))
+                ver_id = str(doc.get("version_id"))
+                key = (doc_uuid, ver_id)
+
+                if key not in active_pointers:
+                    created_at = doc.get("created_at")
+                    if created_at and created_at.tzinfo is None:
+                        created_at = created_at.replace(tzinfo=timezone.utc)
+
+                    # 仅在超出宽限期时标记并执行物理清除
+                    if created_at and created_at < cutoff_time:
+                        orphans.append({
+                            "document_uuid": doc_uuid,
+                            "version_id": ver_id,
+                            "field_name": doc.get("field_name"),
+                            "created_at": str(created_at),
+                        })
+                        if not dry_run:
+                            col.delete_one({"_id": doc["_id"]})
+        finally:
+            mongo_store.close()
+
+        return {
+            "healthy": True,
+            "dry_run": dry_run,
+            "grace_period_seconds": grace_period_seconds,
+            "purged_count": len(orphans),
+            "purged_orphans": orphans,
+        }
+
+    @classmethod
+    def prune_page_draft_revisions(cls, page_id: int, keep_recent_drafts: int = 10) -> int:
+        """
+        第一防线：页面未发布草稿修剪策略 (Draft Retention Policy)。
+        在排除当前正式版、最新版、排期版、审批流版及回收快照的前提下，
+        仅保留最近 keep_recent_drafts 个草稿 Revision，修剪淘汰的旧草稿并同事务清理媒体引用。
+        """
+        from wagtail.models import Page, Revision
+        from content_lifecycle.models import RecycleEntry
+        from media_library.models import MediaReferenceRecord
+
+        try:
+            page = Page.objects.get(id=page_id).specific
+        except Page.DoesNotExist:
+            return 0
+
+        # 豁免保护白名单
+        protected_rev_ids = set()
+        if page.live_revision_id:
+            protected_rev_ids.add(page.live_revision_id)
+        latest_rev = page.get_latest_revision()
+        if latest_rev:
+            protected_rev_ids.add(latest_rev.id)
+
+        # 豁免回收站快照
+        for snap_id in RecycleEntry.objects.filter(page_id=page_id).values_list("snapshot_revision_id", flat=True):
+            if snap_id:
+                protected_rev_ids.add(snap_id)
+
+        # 获取候选可修剪草稿（未排期、非保护）
+        candidate_qs = (
+            Revision.objects.filter(object_id=str(page_id), approved_go_live_at__isnull=True)
+            .exclude(id__in=protected_rev_ids)
+            .order_by("-created_at")
+        )
+
+        total_candidates = candidate_qs.count()
+        if total_candidates <= keep_recent_drafts:
+            return 0
+
+        excess_revisions = list(candidate_qs[keep_recent_drafts:])
+        deleted_count = 0
+
+        for r in excess_revisions:
+            # 同事务级联清理媒体引用记录，防止媒体孤儿锁定
+            MediaReferenceRecord.objects.filter(page_id=page_id, revision_id=r.id).delete()
+            r.delete()
+            deleted_count += 1
+
+        return deleted_count

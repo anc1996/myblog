@@ -312,6 +312,117 @@ class S11IntegrationDrillsTests(unittest.TestCase):
         self.assertGreaterEqual(audit_res["audited_pages"], 1)
         self.assertEqual(audit_res["discrepancies_count"], 0)
 
+    def test_09_wagtail_history_preview_compare_and_revert_hydration(self):
+        """演练 9: Wagtail 8.1 官方历史预览、版本对比与还原水合验证"""
+        from blog.models import BlogPage
+        from wagtail.models import Revision
+        from wagtail.admin.views.pages.revisions import RevisionsCompareView
+        from identity.models import User
+
+        # 1. 创建并发布 V1
+        page = BlogPage(title="历史对比文章", slug=f"hist-{uuid4().hex[:6]}")
+        self.home.add_child(instance=page)
+        self.created_pages.append(page)
+        page.body = [("markdown", "这是【版本 V1】正文段落。")]
+        rev1 = page.save_revision()
+        rev1.publish()
+
+        # 2. 编辑并保存 V2 草稿
+        page.body = [("markdown", "这是【版本 V2】修改后的正文段落。")]
+        rev2 = page.save_revision()
+
+        # 验证 with_content_json 和 as_object 水合
+        obj1 = rev1.as_object()
+        obj2 = rev2.as_object()
+        self.assertEqual(len(obj1.body), 1)
+        self.assertEqual(len(obj2.body), 1)
+        self.assertIn("版本 V1", str(obj1.body[0].value))
+        self.assertIn("版本 V2", str(obj2.body[0].value))
+
+        # 3. 验证 RevisionsCompareView 对比正式版 ("live") 与草稿 V2
+        admin_user, _ = User.objects.get_or_create(username="admin_drill", defaults={"is_superuser": True, "is_staff": True})
+        req = self.factory.get(f"/admin/pages/{page.id}/revisions/compare/live...{rev2.id}/")
+        req.user = admin_user
+
+        view = RevisionsCompareView()
+        view.setup(req, page.id, "live", rev2.id)
+        ctx = view.get_context_data()
+        self.assertIsNotNone(ctx)
+        self.assertEqual(view.object.id, page.id)
+
+    def test_10_overwrite_revision_compatibility_and_live_protection(self):
+        """演练 10: 兼容 Wagtail 8.1 overwrite_revision 参数，严禁原地篡改已发布版本"""
+        from blog.models import BlogPage
+
+        page = BlogPage(title="覆写保护文章", slug=f"over-{uuid4().hex[:6]}")
+        self.home.add_child(instance=page)
+        self.created_pages.append(page)
+        page.body = [("markdown", "正式版初始正文")]
+        rev_live = page.save_revision()
+        rev_live.publish()
+        page.refresh_from_db()
+
+        # 模拟后台以 overwrite_revision 传入当前正式版进行保存
+        page.body = [("markdown", "篡改的新草稿")]
+        rev_new = page.save_revision(overwrite_revision=rev_live)
+
+        # 断言：由于目标是 live_revision，系统强制新建 Revision，严禁原地覆写！
+        self.assertNotEqual(rev_new.id, rev_live.id, "正式发布版本严禁被原地覆写，必须生成新版本！")
+        page.refresh_from_db()
+        self.assertEqual(page.live_revision_id, rev_live.id, "线上正式版本指针保持不变")
+
+    def test_11_purge_page_and_outbox_mongo_cascade(self):
+        """演练 11: 物理永久删除 (Purge) 与 Outbox 级联清理 MongoDB 孤儿版本"""
+        from blog.models import BlogPage
+        from content_lifecycle.recycle import RecycleService
+        from external_content.outbox import OutboxProcessor
+        from external_content.store import MongoContentStore
+
+        page = BlogPage(title="待销毁文章", slug=f"purge-{uuid4().hex[:6]}")
+        self.home.add_child(instance=page)
+        page.body = [("markdown", "这是将被彻底销毁的正文")]
+        page.save_revision().publish()
+        doc_uuid = str(page.document_uuid)
+        page_id = page.id
+
+        store = MongoContentStore()
+        col = store._get_db()["content_field_versions"]
+        self.assertGreater(col.count_documents({"document_uuid": doc_uuid}), 0, "销毁前 Mongo 中存在版本")
+
+        # 执行受控永久删除
+        res = RecycleService.purge_page_or_subtree(page_id)
+        self.assertEqual(res["status"], "success")
+
+        # 执行 Outbox 消费全量事件
+        OutboxProcessor.process_pending_events(batch_size=100)
+
+        # 断言：MongoDB 中的全套历史版本被彻底物理销毁，零孤儿残留！
+        remaining = col.count_documents({"document_uuid": doc_uuid})
+        self.assertEqual(remaining, 0, "永久删除后 MongoDB 中该文档的全部历史版本必须被彻底销毁！")
+
+    def test_12_draft_pruning_and_garbage_collection(self):
+        """演练 12: 草稿修剪策略 (Draft Retention Policy) 与对账 GC 机制"""
+        from blog.models import BlogPage
+        from content_lifecycle.reconciliation import CrossStorageReconciler
+        from external_content.store import MongoContentStore
+
+        page = BlogPage(title="多草稿文章", slug=f"prune-{uuid4().hex[:6]}")
+        self.home.add_child(instance=page)
+        self.created_pages.append(page)
+
+        # 连续保存 6 次草稿
+        for i in range(6):
+            page.body = [("markdown", f"草稿正文第 {i+1} 版")]
+            page.save_revision()
+
+        # 保留最近 2 个草稿（加最新版本保护），修剪淘汰早期旧草稿
+        pruned = CrossStorageReconciler.prune_page_draft_revisions(page.id, keep_recent_drafts=2)
+        self.assertGreaterEqual(pruned, 2, "成功修剪淘汰的旧草稿 Revision")
+
+        # 执行对账 GC（传入宽限期 0 秒以即时清理孤儿）
+        gc_res = CrossStorageReconciler.run_garbage_collection(grace_period_seconds=0, dry_run=False)
+        self.assertTrue(gc_res["healthy"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -63,6 +63,20 @@ class OutboxProcessor:
                 else:
                     unpublish_page_discovery(page_id)
 
+            elif event_type == "page.purged":
+                from external_content.store import MongoContentStore
+                from media_library.models import MediaReferenceRecord
+                payload = event.payload or {}
+                doc_uuid = payload.get("document_uuid")
+                if doc_uuid:
+                    store = MongoContentStore()
+                    try:
+                        store.purge_document_versions(doc_uuid)
+                    finally:
+                        store.close()
+                # 级联清理该页面的全部历史媒体引用记录，防止媒体孤儿锁定
+                MediaReferenceRecord.objects.filter(page_id=page_id).delete()
+
             elif event_type == "media.deleting":
                 from media_library.references import MediaReferenceTracker
                 from django.core.files.storage import default_storage
