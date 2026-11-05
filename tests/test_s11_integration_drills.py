@@ -385,6 +385,9 @@ class S11IntegrationDrillsTests(unittest.TestCase):
         doc_uuid = str(page.document_uuid)
         page_id = page.id
 
+        # 必须先移入回收站
+        RecycleService.recycle_page_or_subtree(page)
+
         store = MongoContentStore()
         col = store._get_db()["content_field_versions"]
         self.assertGreater(col.count_documents({"document_uuid": doc_uuid}), 0, "销毁前 Mongo 中存在版本")

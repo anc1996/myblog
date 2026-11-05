@@ -34,11 +34,14 @@ class RecycleService:
         """
         回收单页或整棵子树（原树占位模型）。
         """
-        page = page.specific
-        if getattr(page, "is_recycled", False):
-            raise PermissionDenied(f"页面 '{page.title}' 已经在回收站中，无需重复回收。")
-
         with content_mutation_guard(timeout_seconds=3):
+            db_page = Page.objects.select_for_update().get(id=page.id).specific
+            if getattr(db_page, "is_recycled", False):
+                raise PermissionDenied(f"页面 '{db_page.title}' 已经在回收站中，无需重复回收。")
+            if hasattr(page, "is_recycled"):
+                page.is_recycled = True
+            page = db_page
+
             # 获取目标节点及其所有活动后代子节点
             descendants = list(page.get_descendants().select_related())
             all_nodes = [page] + [d.specific for d in descendants if not getattr(d, "is_recycled", False)]
@@ -65,6 +68,9 @@ class RecycleService:
                         sibling_order = siblings.index(node.id)
 
                 latest_rev = node.get_latest_revision()
+                # 若页面未曾生成 Revision，在回收前自动建立基线快照版本
+                if not latest_rev:
+                    latest_rev = node.save_revision(user=actor)
                 was_live = bool(node.live)
                 had_changes = bool(node.has_unpublished_changes)
 
@@ -100,6 +106,19 @@ class RecycleService:
                     recycle_page_discovery(node.id)
                 except Exception as exc:
                     logger.debug("Failed to sync recycle to discovery for %s: %s", node.id, exc)
+
+                # 登记 Wagtail 官方专用回收操作审计日志
+                try:
+                    from wagtail.models import PageLogEntry
+                    user = actor if getattr(actor, "is_authenticated", False) else None
+                    PageLogEntry.objects.log_action(
+                        instance=node,
+                        action="myblog.recycle",
+                        user=user,
+                        data={"batch_id": str(batch.batch_id)},
+                    )
+                except Exception as log_exc:
+                    logger.debug("Failed to log recycle action for %s: %s", node.id, log_exc)
 
             # 写入事务性 Outbox 任务事件
             OutboxEvent.objects.create(
@@ -193,7 +212,7 @@ class RecycleService:
         cls,
         batch_id: UUID | str,
         actor: Any = None,
-        slug_overrides: dict[int, str] | None = None,
+        slug_overrides: dict[Any, str] | None = None,
         target_parent_id: int | None = None,
     ) -> dict[str, Any]:
         """
@@ -206,15 +225,35 @@ class RecycleService:
         6. 生成全新草稿修订版本，不覆盖历史版本。
         """
         slug_overrides = slug_overrides or {}
-        batch = RecycleBatch.objects.get(batch_id=batch_id)
 
         with content_mutation_guard(timeout_seconds=3):
+            try:
+                batch = RecycleBatch.objects.select_for_update().get(batch_id=batch_id)
+            except RecycleBatch.DoesNotExist:
+                raise ValidationError("目标回收批次不存在")
+
+            if batch.status == "purged":
+                raise ValidationError("该批次已被彻底销毁，不可恢复！")
+            if batch.status != "recycled":
+                raise ValidationError("该批次不处于已回收状态，禁止重复恢复！")
+            if not batch.entries.exists():
+                raise ValidationError("该批次无有效条目，不可恢复！")
+
+            if actor is not None:
+                try:
+                    root_p = Page.objects.get(id=batch.root_page_id).specific
+                    perms = root_p.permissions_for_user(actor)
+                    if not (perms.can_edit() or perms.can_delete() or actor.is_superuser):
+                        raise PermissionDenied("当前用户无权恢复此页面")
+                except Page.DoesNotExist:
+                    pass
+
             plan = cls.plan_restore(batch_id)
             # 若存在未解决的冲突，拒绝盲目执行
             unresolved_conflicts = []
             for c in plan["conflicts"]:
                 pid = c["page_id"]
-                if c["type"] == "slug_collision" and pid in slug_overrides:
+                if c["type"] == "slug_collision" and (pid in slug_overrides or str(pid) in slug_overrides):
                     continue
                 if c["type"] == "parent_missing_or_recycled" and target_parent_id:
                     continue
@@ -228,7 +267,7 @@ class RecycleService:
 
             for entry in entries:
                 page = Page.objects.get(id=entry.page_id).specific
-                resolved_slug = slug_overrides.get(entry.page_id) or entry.original_slug
+                resolved_slug = slug_overrides.get(entry.page_id) or slug_overrides.get(str(entry.page_id)) or entry.original_slug
 
                 # 确定目标父节点
                 if entry.is_batch_root and target_parent_id:
@@ -237,6 +276,31 @@ class RecycleService:
                 else:
                     parent = Page.objects.get(id=entry.parent_id).specific
                     requires_move = False
+
+                # 深度防碰撞校验：校验 resolved_slug 是否被目标父节点下的其他非回收兄弟页面占用
+                recycled_ids = set(
+                    RecycleEntry.objects.filter(status__in=["recycled", "restoring"]).values_list("page_id", flat=True)
+                )
+                is_occupied = parent.get_children().exclude(id=page.id).exclude(
+                    id__in=recycled_ids
+                ).filter(slug=resolved_slug).exists()
+                if is_occupied:
+                    raise ValidationError(f"指定的替代路径名称 '{resolved_slug}' 已被其他页面占用，请重新指定！")
+
+                # 回收快照存在性与完整性严格校验 (Fail-Closed)
+                snapshot_obj = None
+                if entry.snapshot_revision_id:
+                    snapshot_rev = Revision.objects.filter(id=entry.snapshot_revision_id).first()
+                    if not snapshot_rev:
+                        raise ValidationError(f"页面 ID={entry.page_id} 核心回收快照已损坏或丢失，拒绝恢复！")
+                    try:
+                        snapshot_obj = snapshot_rev.as_object()
+                    except Exception as exc:
+                        raise ValidationError(f"页面 ID={entry.page_id} 核心回收快照正文读取失败: {exc}")
+                else:
+                    from blog.models import BlogPage
+                    if entry.was_live or isinstance(page, BlogPage):
+                        raise ValidationError(f"页面 ID={entry.page_id} 核心回收快照已损坏或丢失，拒绝恢复！")
 
                 # 关键修复 [B-01]：若需要树移动且修改了 slug，先在当前节点赋新 slug (clean=False)，
                 # 避免 move() 内部校验旧 slug 导致 ValidationError 崩溃！
@@ -272,14 +336,10 @@ class RecycleService:
                     log_act = "wagtail.revert"
 
                 # 方案 A 恢复关键闭环：从回收快照 Revision 及其 Mongo 指针水合恢复完整正文
-                if entry.snapshot_revision_id:
-                    snapshot_rev = Revision.objects.filter(id=entry.snapshot_revision_id).first()
-                    if snapshot_rev:
-                        snapshot_obj = snapshot_rev.as_object()
-                        if hasattr(snapshot_obj, "intro"):
-                            page.intro = snapshot_obj.intro
-                        if hasattr(snapshot_obj, "body"):
-                            page.body = snapshot_obj.body
+                if snapshot_obj is not None and hasattr(snapshot_obj, "intro"):
+                    page.intro = snapshot_obj.intro
+                if snapshot_obj is not None and hasattr(snapshot_obj, "body"):
+                    page.body = snapshot_obj.body
 
                 # 生成全新的未发布草稿版本
                 page.save_revision(
@@ -321,7 +381,7 @@ class RecycleService:
             }
 
     @classmethod
-    def purge_page_or_subtree(cls, page_id: int, actor: Any = None) -> dict[str, Any]:
+    def purge_page_or_subtree(cls, page_id: int, actor: Any = None, batch_id: Any = None) -> dict[str, Any]:
         """
         受控永久销毁单页或整棵子树（Purge）：
         1. 必须在 content_mutation_guard(timeout_seconds=3) 内执行；
@@ -332,15 +392,36 @@ class RecycleService:
         6. 后续由 Outbox 异步任务按 document_uuid 彻底擦除 MongoDB 中的全部历史版本。
         """
         with content_mutation_guard(timeout_seconds=3):
+            if batch_id:
+                batch = RecycleBatch.objects.select_for_update().filter(batch_id=batch_id).first()
+                if not batch or batch.status != "recycled":
+                    raise ValidationError("该批次不处于已回收状态，旧销毁链接已失效")
+
             try:
                 page = Page.objects.get(id=page_id).specific
             except Page.DoesNotExist:
                 return {"status": "not_found", "page_id": page_id}
 
+            # 安全守卫：未回收的活动页面禁止直接永久销毁
+            if not page.is_recycled:
+                raise PermissionDenied("未移入回收站的活动页面禁止直接永久销毁，必须先移入回收站！")
+
             from discovery.models import PublishedSearchDocument
 
             descendants = list(page.get_descendants().select_related())
             all_nodes = [page] + [d.specific for d in descendants]
+
+            # 对象级删除权限校验：若含有曾发布页面，必须具备发布权限或超级管理员权限
+            if actor is not None:
+                perms = page.permissions_for_user(actor)
+                sub_entries = RecycleEntry.objects.filter(page_id__in=[n.id for n in all_nodes])
+                any_was_live = any(e.was_live for e in sub_entries)
+                if any_was_live:
+                    if not ((perms.can_delete() and perms.can_publish()) or actor.is_superuser):
+                        raise PermissionDenied("当前用户无权永久销毁曾发布的页面（需具备发布权限或管理员权限）")
+                else:
+                    if not (perms.can_delete() or actor.is_superuser):
+                        raise PermissionDenied("当前用户无权永久销毁此页面")
             purged_summaries = []
 
             for node in reversed(all_nodes):
@@ -362,7 +443,8 @@ class RecycleService:
                 node.delete(allow_physical_purge=True)
                 purged_summaries.append({"page_id": nid, "document_uuid": doc_uuid})
 
-            RecycleBatch.objects.filter(root_page_id=page_id).update(status="purged")
+            purged_ids = [n["page_id"] for n in purged_summaries]
+            RecycleBatch.objects.filter(root_page_id__in=purged_ids, status="recycled").update(status="purged")
 
             return {
                 "status": "success",

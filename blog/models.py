@@ -193,9 +193,10 @@ class BlogPage(CustomBasePage):
     def get_latest_revision_as_object(self):
         """后台编辑或预览时，从最新草稿版本指针中水合正文"""
         page = super().get_latest_revision_as_object()
-        from content_lifecycle.access import AccessContext, AccessMode
-        if hasattr(page, "hydrate_from_mongo"):
+        if not getattr(page, "_hydrated_from_revision", False) and hasattr(page, "hydrate_from_mongo"):
+            from content_lifecycle.access import AccessContext, AccessMode
             page.hydrate_from_mongo(access_context=AccessContext(mode=AccessMode.PREVIEW_DRAFT))
+            page._hydrated_from_revision = True
         return page
 
     def save(self, *args, **kwargs):
@@ -251,6 +252,7 @@ class BlogPage(CustomBasePage):
                 if store:
                     store.close()
 
+        obj._hydrated_from_revision = True
         return obj
 
     def get_admin_display_title(self):
@@ -276,84 +278,100 @@ class BlogPage(CustomBasePage):
             if overwrite_revision.id == self.live_revision_id or getattr(overwrite_revision, "approved_go_live_at", None) is not None:
                 overwrite_revision = None
 
-        revision = super().save_revision(
-            user=user,
-            approved_go_live_at=approved_go_live_at,
-            changed=changed,
-            log_action=log_action,
-            previous_revision=previous_revision,
-            clean=clean,
-            overwrite_revision=overwrite_revision,
-            **kwargs,
-        )
-        try:
-            import json
-            import uuid
-            from external_content.store import MongoContentStore
-            from external_content.revision import bind_pointers_to_revision_content
+        from django.db import transaction
+        with transaction.atomic():
+            old_latest_rev = getattr(self, "latest_revision", None)
+            old_latest_rev_id = getattr(self, "latest_revision_id", None)
+            old_latest_rev_time = getattr(self, "latest_revision_created_at", None)
+            old_has_changes = getattr(self, "has_unpublished_changes", False)
+            old_draft_title = getattr(self, "draft_title", None)
+            store = None
 
-            store = MongoContentStore()
-            doc_uuid = self.document_uuid
-            pointers = []
-            op_id = f"op_rev_{revision.id}_{uuid.uuid4().hex[:8]}"
-
-            # 1. 将 intro 积木流全量外置保存到 MongoDB
-            if raw_intro:
-                intro_val = raw_intro.get_prep_value() if hasattr(raw_intro, "get_prep_value") else list(raw_intro)
-                ptr_intro = store.save_field_version(
-                    document_uuid=doc_uuid,
-                    field_name="intro",
-                    payload=intro_val,
-                    model_label="blog.BlogPage",
-                    operation_id=f"{op_id}_intro",
-                )
-                pointers.append(ptr_intro)
-
-            # 2. 将 body 积木流全量外置保存到 MongoDB
-            if raw_body:
-                body_val = raw_body.get_prep_value() if hasattr(raw_body, "get_prep_value") else list(raw_body)
-                ptr_body = store.save_field_version(
-                    document_uuid=doc_uuid,
-                    field_name="body",
-                    payload=body_val,
-                    model_label="blog.BlogPage",
-                    operation_id=f"{op_id}_body",
-                )
-                pointers.append(ptr_body)
-
-            # 3. 在 Revision 中无条件记录外置版本指针，并彻底清空 Revision 字典中的正文大文本
-            content_dict = revision.content if isinstance(revision.content, dict) else json.loads(revision.content)
-            bind_pointers_to_revision_content(content_dict, pointers)
-            # 彻底脱水：PostgreSQL Revision 仅存指针，不存大 JSON
-            content_dict["intro"] = []
-            content_dict["body"] = []
-            revision.content = content_dict
-            revision.save(update_fields=["content"])
-
-            # 4. 彻底脱水：将 PostgreSQL 主表 blog_blogpage 的物理列清空为 []
-            BlogPage.objects.filter(id=self.id).update(intro=[], body=[])
-
-            # 保持内存对象状态，供后续信号与搜索投影直接使用
-            self.intro = raw_intro
-            self.body = raw_body
-
-        except Exception:
-            raise
-        finally:
             try:
-                store.close()
+                revision = super().save_revision(
+                    user=user,
+                    approved_go_live_at=approved_go_live_at,
+                    changed=changed,
+                    log_action=log_action,
+                    previous_revision=previous_revision,
+                    clean=clean,
+                    overwrite_revision=overwrite_revision,
+                    **kwargs,
+                )
+                import json
+                import uuid
+                from external_content.store import MongoContentStore
+                from external_content.revision import bind_pointers_to_revision_content
+
+                store = MongoContentStore()
+                doc_uuid = self.document_uuid
+                pointers = []
+                op_id = f"op_rev_{revision.id}_{uuid.uuid4().hex[:8]}"
+
+                # 1. 将 intro 积木流全量外置保存到 MongoDB
+                if raw_intro:
+                    intro_val = raw_intro.get_prep_value() if hasattr(raw_intro, "get_prep_value") else list(raw_intro)
+                    ptr_intro = store.save_field_version(
+                        document_uuid=doc_uuid,
+                        field_name="intro",
+                        payload=intro_val,
+                        model_label="blog.BlogPage",
+                        operation_id=f"{op_id}_intro",
+                    )
+                    pointers.append(ptr_intro)
+
+                # 2. 将 body 积木流全量外置保存到 MongoDB
+                if raw_body:
+                    body_val = raw_body.get_prep_value() if hasattr(raw_body, "get_prep_value") else list(raw_body)
+                    ptr_body = store.save_field_version(
+                        document_uuid=doc_uuid,
+                        field_name="body",
+                        payload=body_val,
+                        model_label="blog.BlogPage",
+                        operation_id=f"{op_id}_body",
+                    )
+                    pointers.append(ptr_body)
+
+                # 3. 在 Revision 中无条件记录外置版本指针，并彻底清空 Revision 字典中的正文大文本
+                content_dict = revision.content if isinstance(revision.content, dict) else json.loads(revision.content)
+                bind_pointers_to_revision_content(content_dict, pointers)
+                # 彻底脱水：PostgreSQL Revision 仅存指针，不存大 JSON
+                content_dict["intro"] = []
+                content_dict["body"] = []
+                revision.content = content_dict
+                revision.save(update_fields=["content"])
+
+                # 4. 彻底脱水：将 PostgreSQL 主表 blog_blogpage 的物理列清空为 []
+                BlogPage.objects.filter(id=self.id).update(intro=[], body=[])
+
+                # 保持内存对象状态，供后续信号与搜索投影直接使用
+                self.intro = raw_intro
+                self.body = raw_body
+
             except Exception:
-                pass
+                self.latest_revision = old_latest_rev
+                self.latest_revision_id = old_latest_rev_id
+                self.latest_revision_created_at = old_latest_rev_time
+                self.has_unpublished_changes = old_has_changes
+                self.draft_title = old_draft_title
+                raise
+            finally:
+                if store:
+                    try:
+                        store.close()
+                    except Exception:
+                        pass
 
         return revision
 
     def get_context(self, request, *args, **kwargs):
-        # 方案 A【彻底脱水模式】：在渲染前，从 MongoDB 精准水合生效版本的正文积木
-        from content_lifecycle.access import AccessContext, AccessMode
-        is_preview = getattr(request, "is_preview", False) or getattr(request, "in_preview_panel", False)
-        mode = AccessMode.PREVIEW_DRAFT if is_preview else AccessMode.PUBLIC
-        ctx = AccessContext(user=getattr(request, "user", None), mode=mode)
-        self.hydrate_from_mongo(access_context=ctx)
+        # 方案 A【彻底脱水模式】：仅在尚未从特定 Revision 水合时，从 MongoDB 精准水合生效版本的正文积木
+        if not getattr(self, "_hydrated_from_revision", False) and (not getattr(self, "body", None) or len(getattr(self, "body", [])) == 0):
+            from content_lifecycle.access import AccessContext, AccessMode
+            is_preview = getattr(request, "is_preview", False) or getattr(request, "in_preview_panel", False)
+            mode = AccessMode.PREVIEW_DRAFT if is_preview else AccessMode.PUBLIC
+            ctx = AccessContext(user=getattr(request, "user", None), mode=mode)
+            self.hydrate_from_mongo(access_context=ctx)
 
         context = super().get_context(request, *args, **kwargs)
         # 1. 真实有效面包屑导航 (过滤回收节点与根节点)
