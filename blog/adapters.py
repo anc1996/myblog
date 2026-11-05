@@ -29,7 +29,7 @@ class BlogPageAdapter:
         authored_on = getattr(page, "authored_on", None)
         if not authored_on:
             authored_on = date.today()
-        url_path = getattr(page, "url_path", "")
+        url_path = page.get_url() if hasattr(page, "get_url") else getattr(page, "url_path", "")
 
         # 提取 intro 文字
         intro_text = ""
@@ -114,7 +114,7 @@ class BlogIndexPageAdapter:
         authored_on = getattr(page, "authored_on", None)
         if not authored_on:
             authored_on = date.today()
-        url_path = getattr(page, "url_path", "")
+        url_path = page.get_url() if hasattr(page, "get_url") else getattr(page, "url_path", "")
         intro_text = str(getattr(page, "intro", "")).strip()
 
         segments = [

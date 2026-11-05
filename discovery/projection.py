@@ -66,6 +66,10 @@ def project_page_to_discovery(page: Any, index_generation: int = 1) -> Published
     except Exception:
         site_id = None
 
+    actual_url = payload.url_path
+    if not actual_url or actual_url.startswith("/home/"):
+        actual_url = page.get_url() if hasattr(page, "get_url") else getattr(page, "url_path", "")
+
     with transaction.atomic():
         doc, _ = PublishedSearchDocument.objects.update_or_create(
             page_id=page.id,
@@ -76,7 +80,7 @@ def project_page_to_discovery(page: Any, index_generation: int = 1) -> Published
                 "publication_generation": 1,
                 "type_key": payload.type_key,
                 "title": payload.title,
-                "url_path": payload.url_path,
+                "url_path": actual_url,
                 "authored_on": payload.authored_on,
                 "summary": payload.summary,
                 "is_live": True,

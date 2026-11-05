@@ -164,6 +164,72 @@ class BlogPage(CustomBasePage):
         verbose_name = "博客文章"
         verbose_name_plural = "博客文章"
 
+    def save_revision(self, user=None, approved_go_live_at=None, changed=True, log_action=True, previous_revision=None, clean=True):
+        """
+        保存修订版本时自动将 intro 与 body 积木外置持久化到 MongoDB：
+        1. 在 MongoDB 集合 content_field_versions 中生成带有 SHA-256 哈希的不可变快照；
+        2. 在当前 Revision content 中绑定 _external_field_pointers 版本指针。
+        """
+        revision = super().save_revision(
+            user=user,
+            approved_go_live_at=approved_go_live_at,
+            changed=changed,
+            log_action=log_action,
+            previous_revision=previous_revision,
+            clean=clean,
+        )
+        try:
+            import json
+            import uuid
+            from external_content.store import MongoContentStore
+            from external_content.revision import bind_pointers_to_revision_content
+
+            store = MongoContentStore()
+            doc_uuid = self.document_uuid
+            pointers = []
+            op_id = f"op_rev_{revision.id}_{uuid.uuid4().hex[:8]}"
+
+            # 1. 外置保存 intro 到 MongoDB
+            if self.intro:
+                intro_val = self.intro.get_prep_value() if hasattr(self.intro, "get_prep_value") else list(self.intro)
+                ptr_intro = store.save_field_version(
+                    document_uuid=doc_uuid,
+                    field_name="intro",
+                    payload=intro_val,
+                    model_label="blog.BlogPage",
+                    operation_id=f"{op_id}_intro",
+                )
+                pointers.append(ptr_intro)
+
+            # 2. 外置保存 body 到 MongoDB
+            if self.body:
+                body_val = self.body.get_prep_value() if hasattr(self.body, "get_prep_value") else list(self.body)
+                ptr_body = store.save_field_version(
+                    document_uuid=doc_uuid,
+                    field_name="body",
+                    payload=body_val,
+                    model_label="blog.BlogPage",
+                    operation_id=f"{op_id}_body",
+                )
+                pointers.append(ptr_body)
+
+            # 3. 在 Revision 中记录外置版本指针
+            if pointers:
+                content_dict = revision.content if isinstance(revision.content, dict) else json.loads(revision.content)
+                bind_pointers_to_revision_content(content_dict, pointers)
+                revision.content = content_dict
+                revision.save(update_fields=["content"])
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning("Failed to auto-externalize fields to MongoDB on save_revision: %s", exc)
+        finally:
+            try:
+                store.close()
+            except Exception:
+                pass
+
+        return revision
+
     def get_context(self, request, *args, **kwargs):
         context = super().get_context(request, *args, **kwargs)
         # 1. 真实有效面包屑导航 (过滤回收节点与根节点)
