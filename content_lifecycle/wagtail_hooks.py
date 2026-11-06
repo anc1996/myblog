@@ -43,18 +43,6 @@ class RecycleBatchViewSet(ModelViewSet):
     inspect_view_fields = ["batch_id", "root_page_title", "total_pages", "recycled_at", "actor_username", "status"]
     form_fields = ["status"]
 
-    def retention_status(self, obj):
-        """显示 30 天保留倒计时（<=3 天标红预警）"""
-        if obj.status != "recycled":
-            return "-"
-        elapsed_days = (timezone.now() - obj.recycled_at).days
-        remaining_days = max(0, 30 - elapsed_days)
-        if remaining_days <= 3:
-            return mark_safe(f'<span style="color:#dc2626;font-weight:bold;">已滞留 {elapsed_days} 天 (剩余 {remaining_days} 天)</span>')
-        return f"已滞留 {elapsed_days} 天 (剩余 {remaining_days} 天)"
-
-    retention_status.short_description = "保留倒计时(30天)"
-
     def _lazy_cleanup_expired_batches(self):
         """WSL2 / 本地开机自愈扫描：访问回收站列表时顺手扫描并物理销毁超期 30 天的废弃批次"""
         from content_lifecycle.recycle import RecycleService

@@ -175,6 +175,20 @@ class RecycleBatch(models.Model):
 
     actions.short_description = "回收站操作"
 
+    def retention_status(self):
+        """显示 30 天保留倒计时（<=3 天标红预警）"""
+        if self.status != "recycled":
+            return "-"
+        from django.utils import timezone
+        from django.utils.safestring import mark_safe
+        elapsed_days = (timezone.now() - self.recycled_at).days
+        remaining_days = max(0, 30 - elapsed_days)
+        if remaining_days <= 3:
+            return mark_safe(f'<span style="color:#dc2626;font-weight:bold;">已滞留 {elapsed_days} 天 (剩余 {remaining_days} 天)</span>')
+        return f"已滞留 {elapsed_days} 天 (剩余 {remaining_days} 天)"
+
+    retention_status.short_description = "保留倒计时(30天)"
+
     def __str__(self):
         return f"RecycleBatch {self.batch_id} (root: {self.root_page_title}, count: {self.total_pages})"
 
