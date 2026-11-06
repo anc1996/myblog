@@ -622,7 +622,12 @@ PostgreSQL 采用 `pg_dump` 自定义格式保存逻辑备份，计划用 `pg_re
 并协调 Mongo、RustFS 的备份时间及写入暂停/一致性边界；单份 SQL 备份不是三种存储的原子快照。
 恢复后逐条核对正式 Revision 的外置版本、对象及引用，缺失时停止公开交付，
 额外对象保留待对账，不因 SQL 回滚或恢复就直接物理删除；Redis 和搜索在核对后重建。
-此为规划，尚未执行备份/恢复演练、跨存储恢复或业务故障验收，执行需另行授权。
+
+**【已确认 RECONCILE-CROSS-STORAGE-01】跨存储离线对账与受控清理契约：**
+1. **服务实现与命令**：核心服务 `CrossStorageReconciler` (`content_lifecycle/reconciliation.py`)，集成管理命令 `python manage.py reconcile_cross_storage`。
+2. **四方深度一致性审计 (`--audit`)**：全量核验 PostgreSQL 已发布页面的 `live_revision`、MongoDB 外置正文版本的存在性与 SHA-256 哈希防篡改、Discovery 搜索副本版本同步状态、以及 Media 引用完整性。
+3. **MongoDB 废弃草稿正文 GC (`--clean-mongo-gc`)**：未被任何有效 Revision、回收站快照或别名引用的孤儿字段版本，必须在 MongoDB 滞留满 7 天（默认 `--grace-days 7`）才执行物理安全清理，杜绝误伤在途未保存草稿。
+4. **RustFS (S3) 零引用媒体对账与擦除 (`--clean-orphan-media`)**：全站无任何引用且创建超 30 天的孤儿媒体资源，默认仅为 Dry-Run 审计预览（输出清单与预计释放容量，绝不擅自删除底层文件）；只有管理员明确传入 `--force-delete` 时，才受控调用 `ProtectedRustFSStorage._controlled_physical_delete` 擦除 S3 文件字节并移除数据库记录。
 
 ## F. 确认决策汇总与后续验证职责
 

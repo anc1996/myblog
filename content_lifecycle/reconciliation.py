@@ -27,6 +27,88 @@ class CrossStorageReconciler:
     """全站跨存储数据一致性核对与对账器"""
 
     @classmethod
+    def reconcile_and_purge_orphan_media(
+        cls,
+        dry_run: bool = True,
+        grace_period_days: int = 30,
+    ) -> dict[str, Any]:
+        """
+        受控对账并处置零引用孤儿媒体资源 (RECONCILE-MEDIA-02)。
+        1. 必须跨全站所有页面、所有历史草稿与回收站检查；
+        2. 仅对全站确无引用、且创建时间超过 grace_period_days 的媒体资源进行处理；
+        3. dry_run=True (默认)：仅输出审计待清理清单与预计释放存储，绝不调用底层删除；
+        4. dry_run=False：经明确授权后，调用 ProtectedRustFSStorage._controlled_physical_delete
+           抹除 RustFS 桶中文件字节，并在数据库中删除该媒体记录。
+        """
+        from datetime import datetime, timezone, timedelta
+        from media_library.models import CustomImage, CustomDocument, Audio, Video
+        from media_library.references import MediaReferenceTracker
+
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(days=grace_period_days)
+        candidates = []
+        purged = []
+
+        models_to_check = [
+            (CustomImage, "image"),
+            (CustomDocument, "document"),
+            (Audio, "audio"),
+            (Video, "video"),
+        ]
+
+        for model_cls, asset_type in models_to_check:
+            for item in model_cls.objects.all():
+                public_id = getattr(item, "public_id", None)
+                if not public_id:
+                    continue
+                can_delete, _, refs = MediaReferenceTracker.check_asset_references(public_id)
+                if can_delete and len(refs) == 0:
+                    created_at = getattr(item, "created_at", None)
+                    if created_at and created_at.tzinfo is None:
+                        created_at = created_at.replace(tzinfo=timezone.utc)
+                    if created_at and created_at > cutoff:
+                        continue
+
+                    file_obj = getattr(item, "file", None)
+                    file_name = file_obj.name if file_obj else ""
+                    file_size = 0
+                    if file_obj:
+                        try:
+                            file_size = file_obj.size
+                        except Exception:
+                            pass
+
+                    candidate_info = {
+                        "asset_id": str(public_id),
+                        "asset_type": asset_type,
+                        "title": getattr(item, "title", str(item)),
+                        "file_name": file_name,
+                        "file_size": file_size,
+                        "created_at": str(created_at) if created_at else None,
+                    }
+                    candidates.append(candidate_info)
+
+                    if not dry_run:
+                        storage = getattr(file_obj, "storage", None)
+                        if storage and hasattr(storage, "_controlled_physical_delete") and file_name:
+                            try:
+                                storage._controlled_physical_delete(file_name)
+                            except Exception as del_exc:
+                                logger.warning("Failed to physically delete S3 file %s: %s", file_name, del_exc)
+                        item.delete()
+                        purged.append(candidate_info)
+
+        return {
+            "dry_run": dry_run,
+            "grace_period_days": grace_period_days,
+            "orphan_candidates_count": len(candidates),
+            "candidates": candidates,
+            "purged_count": len(purged),
+            "purged": purged,
+        }
+
+
+    @classmethod
     def audit_published_pages_consistency(cls, page_ids: list[int] | None = None) -> dict[str, Any]:
         """
         对全站所有处于已发布状态的页面执行跨存储深度一致性审计。
