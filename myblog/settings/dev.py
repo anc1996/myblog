@@ -9,6 +9,12 @@ SECRET_KEY = "django-insecure-h55k&l_d+!nbbe@3=o9&&lx$53ezo*97233z06h!n1!)g7b(l@
 # SECURITY WARNING: define the correct hosts in production!
 ALLOWED_HOSTS = ["*"]
 
+CSRF_TRUSTED_ORIGINS = [
+    "http://127.0.0.1:8000",
+    "http://localhost:8000",
+    "http://192.168.20.5:8000",
+]
+
 MAILERS = {
     "default": {
         "BACKEND": "django.core.mail.backends.console.EmailBackend",
