@@ -488,6 +488,31 @@ Redis 首期只做可选缓存，数据丢失后可重新生成；暂不引入 C
 Outbox 先由专门的管理命令处理；定时发布使用 Wagtail 原生命令，调度方式需获批准。
 Redis 不可用时，按限定范围读取原数据，仍检查权限，不能无限制增加数据库负担。
 回收和权限修改立即生效，不能等缓存过期时间（TTL）结束。
+
+
+### D4. 前后端分离与 RESTful JSON API 契约
+
+前端通过 AJAX / Fetch 访问后端标准 JSON API，后端全权负责多存储水合、分词检索、缓存加速与安全防刷。
+
+**已实现的 API 接口清单：**
+
+| 接口 | 方法 | 请求参数 | 返回形态与关键字段 | 缓存与限流规则 |
+|---|---|---|---|---|
+| `/api/v1/search/` | GET | `query`, `tag`, `type`, `year`, `month`, `cursor`, `page`, `page_size`, `secondary`, `expand` | `{total_count, page_size, next_cursor, cursor_reset, expansion_used, secondary_used, show_expand_button, items, facets, archive_groups}` | Redis Epoch 瞬时失效缓存（300s，代次隔离）；滑动窗口限流 60次/分/IP |
+| `/api/v1/posts/<slug>/` | GET | `slug` (路径参数) | `{status, epoch, data: {id, title, slug, url, authored_on, intro, featured_image, authors, tags, blocks, safe_html}}` | Redis Epoch 瞬时失效缓存（600s，代次隔离）；滑动窗口限流 120次/分/IP |
+| `/api/v1/posts/` | GET | `page`, `page_size`, `tag` | `{total_count, current_page, page_size, total_pages, has_next, has_prev, items}` | Redis Epoch 缓存（180s）；滑动窗口限流 60次/分/IP |
+
+**核心技术契约：**
+1. **分页机制（游标 + 页码兼容）**：底层核心采用 `next_cursor`（Base64 编码当前 Epoch 与 offset，杜绝百万级深分页性能瓶颈）；同时支持前端传 `page` 参数（如 `page=2`），后端自动折算对应游标偏移。
+2. **正文双形态输出（Dual Output）**：
+   - `blocks`：从 MongoDB 精准水合提取的原始 StreamField 结构化积木数组，便于前端深度定制渲染；
+   - `safe_html`：后端预先组装并经过 XSS 白名单净化的完整安全 HTML 字符串，便于前端直接无缝容器填充。
+3. **Redis Epoch 动态代次瞬间失效**：
+   - 缓存 Key 格式为 `api:search:{epoch}:{hash}` 与 `api:post:{epoch}:{slug}`；
+   - 依赖 `ContentDiscoveryEpoch` 版本号机制，当后台有发布、下架、回收或恢复时，`epoch` 原子自增，旧缓存瞬间整体作废，新内容零 TTL 延迟立即可见，同时承载万级并发。
+4. **安全防刷与 CORS 保护**：
+   - 采用 Redis ZSET 毫秒级滑动窗口限流；超限返回 HTTP 429 与 `Retry-After` 头；Redis 异常时 Fail-Open 降级放行；
+   - 所有 `/api/v1/` 响应携带标准 CORS 跨域响应头。
 已准备 dev DB9/test DB11 和命名空间；逻辑库共享同一 Redis 服务，
 不能声称是独立实例。禁用 FLUSHDB/FLUSHALL，测试只能按自己的唯一前缀处理数据。
 若以后引入 broker/result DB，先另行核对占用，不能沿用旧站编号。

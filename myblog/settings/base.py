@@ -133,6 +133,21 @@ MONGO_SETTINGS = {
     "DATABASE": _database_env.get("MONGO_NAME", "myblog_dev"),
 }
 
+# Redis Cache Settings for API & Session
+_redis_host = _database_env.get("REDIS_HOST", "127.0.0.1")
+_redis_port = _database_env.get("REDIS_PORT", "6379")
+_redis_password = _database_env.get("REDIS_PASSWORD", "")
+_redis_url = f"redis://:{_redis_password}@{_redis_host}:{_redis_port}/1" if _redis_password else f"redis://{_redis_host}:{_redis_port}/1"
+
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": _redis_url,
+        "KEY_PREFIX": "myblog",
+        "TIMEOUT": 300,
+    }
+}
+
 
 # Password validation
 # https://docs.djangoproject.com/en/6.1/ref/settings/#auth-password-validators

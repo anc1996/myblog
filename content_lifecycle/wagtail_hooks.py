@@ -377,7 +377,7 @@ def intercept_admin_bulk_page_delete(request, action_type, objects, bulk_action)
             continue
         try:
             res = RecycleService.recycle_page_or_subtree(p, actor=request.user)
-            recycled_count += len(res.get("recycled_pages", []))
+            recycled_count += getattr(res, "total_pages", 1)
         except Exception as exc:
             errors.append(f"{p.get_admin_display_title()}: {exc}")
 
