@@ -60,6 +60,11 @@ class CustomBasePage(Page):
                 f"禁止对页面 '{self.title}' (id={self.id}) 执行直接物理删除！"
                 "请调用 content_lifecycle.RecycleService 移入受控回收站。"
             )
+        try:
+            from media_library.models import MediaReferenceRecord
+            MediaReferenceRecord.objects.filter(page_id=self.id).delete()
+        except Exception:
+            pass
         return super().delete(*args, **kwargs)
 
     def copy(self, *args, **kwargs):

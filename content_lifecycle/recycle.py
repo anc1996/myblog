@@ -435,9 +435,14 @@ class RecycleService:
                     payload={"document_uuid": doc_uuid, "title": node.title},
                 )
 
-                # 2. 清理搜索副本与回收站快照条目
+                # 2. 清理搜索副本、回收站快照条目与媒体引用记录
                 PublishedSearchDocument.objects.filter(page_id=nid).delete()
                 RecycleEntry.objects.filter(page_id=nid).delete()
+                try:
+                    from media_library.models import MediaReferenceRecord
+                    MediaReferenceRecord.objects.filter(page_id=nid).delete()
+                except Exception:
+                    pass
 
                 # 3. 物理执行 Wagtail ORM 删除
                 node.delete(allow_physical_purge=True)
