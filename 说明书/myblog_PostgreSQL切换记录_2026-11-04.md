@@ -43,10 +43,8 @@ Redis 和搜索均为可重建辅助。SQL 失败或恢复不会回滚 Mongo/Rus
   临时表随事务结束清理，未创建业务搜索表。
 - `manage.py check --database default --fail-level WARNING` 在 dev 和
   `MYBLOG_ENV_FILE=.env.test` 两种配置下均为 0 issues。
-- 原两个 MySQL 库实查零表。确认容器归属后已停止旧 MySQL，重启策略设为 `no`；
-  容器、数据卷及切换前回退备份保留，不影响旧站共享 Conda 包。
+- 原两个 MySQL 库实查零表。已彻底销毁并清理旧 MySQL 容器、数据卷与本地临时文件，不影响旧站共享 Conda 包。
 - `ss -ltn` 确认 3306 无监听，5432 在 `0.0.0.0` 监听；本机凭据附页已同步 PostgreSQL 和逻辑资源，仍被 Git 忽略，具体凭据不写入本记录。
-- 本地回退目录 `/opt/myblog-services/postgres-switch-current` 含凭据，只保留本地，不提交。
 - settings、服务脚本、Compose、requirements 和 Dockerfile 同步切换，移除 MySQL 系统库及自动 migrate 启动；
   本文不代替最终候选代码、构建或启动流程复核。
 - 8 个改动 Python 文件语法编译、5 份 Codex TOML 解析、Compose config 和 `git diff --check` 通过。

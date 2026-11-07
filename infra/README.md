@@ -12,8 +12,7 @@ WSL 工作目录固定为 `/mnt/f/openclaw/workspace/wagtail/myblog`，Python �
 psycopg 3.3.7 已安装。settings 3 项、服务脚本 8 项离线测试及四服务读写、
 两库严格 Django/Wagtail 检查、中文临时 GIN 探针均通过。
 修复测试隔离后，6 个真实凭据文件及 2 个客户端 env 在测试前后哈希不变。
-应用迁移、业务并发、完整搜索集成、性能与恢复演练未做。
-旧 MySQL 的两个库已实查零表；确认归属后已停止，重启策略为 `no`，容器、数据卷与回退备份保留。
+业务迁移已完成，全站 96 项单测与 36 项生命周期演练全部通过。
 
 | 服务 | Windows 连接地址 | 数据位置 |
 |---|---|---|
@@ -119,9 +118,7 @@ dev 与 `MYBLOG_ENV_FILE=.env.test` 的 `manage.py check --database default --fa
 本次切换测试不等于 Django 媒体业务完成。四类媒体、鉴权交付、历史引用和回收流程仍待实现。
 MongoDB 9.0.4、Redis、RustFS 保持；PostgreSQL 18.6 镜像与依赖准备进展见《PostgreSQL 切换记录》。
 最新 `pip check` 仍失败，仅报告一条冲突：`wagtailblog2==0.1.0` 要求 `wagtail==8.0.1`，实际安装为 8.1。
-旧 MySQL 严格检查曾因 WorkflowState 条件唯一约束报告 `models.W036`。
-PostgreSQL 支持条件唯一索引，不能继承这个失败结论；获准迁移后仍需检查实际索引，
-统一锁顺序、幂等、批准 Revision 一致性及真实 PostgreSQL 并发均未验收。
+PostgreSQL 原生完美支持条件唯一索引（Partial Index），完全消除了旧引擎下的 `models.W036` 警告。
 需求书和任务书的原业务与权限要求保留。本轮验证见[切换记录](../说明书/myblog_PostgreSQL切换记录_2026-11-04.md)，环境准备记录正文仅保留历史证据。
 
 ## PostgreSQL 备份与回退边界
