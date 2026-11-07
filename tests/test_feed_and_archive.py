@@ -309,18 +309,18 @@ class FeedAndArchiveTestCase(unittest.TestCase):
 
     def test_future_xxpage_plug_and_play_extensibility(self):
         """
-        测试未来任意 xxPage（例如 ProjectPage）零核心修改即插即用扩展性：
+        测试未来任意 xxPage（例如 ShowcasePage）零核心修改即插即用扩展性：
         只需要定义 TypeAdapter 并声明 capabilities，即可自动接入 Feed 与归档。
         """
-        class MockProjectPageAdapter:
-            type_key = "project"
-            model_label = "portfolio.ProjectPage"
+        class MockShowcasePageAdapter:
+            type_key = "showcase"
+            model_label = "showcase.ShowcasePage"
             schema_version = 1
             extractor_version = 1
             allowed_filters = ["year", "month"]
             weight_profile = {"title": 1.0, "summary": 0.5}
             capabilities = PublicListingCapabilities(
-                public_type_slug="project",
+                public_type_slug="showcase",
                 feed_enabled=True,
                 archive_enabled=True,
                 supported_dimensions=("type", "tag", "author"),
@@ -328,23 +328,27 @@ class FeedAndArchiveTestCase(unittest.TestCase):
 
             def extract(self, page):
                 return PublishedPayload(
-                    page_id=9999,
+                    page_id=page.id if page else 9999,
                     document_uuid=str(uuid.uuid4()),
                     type_key=self.type_key,
                     title="开源高性能搜索引擎项目",
-                    url_path="/projects/open-search/",
+                    url_path="/showcase/open-search/",
                     authored_on=date(2026, 11, 5),
                     summary="基于 Rust 与 PostgreSQL 的搜索引擎",
                 )
 
+        test_page = Page(title="开源高性能搜索引擎项目", slug=f"sc-{uuid.uuid4().hex[:6]}")
+        self.home.add_child(instance=test_page)
+        test_page.save()
+
         # 注册该未来页面适配器
-        register_type_adapter(MockProjectPageAdapter())
+        register_type_adapter(MockShowcasePageAdapter())
 
         # 模拟该页面投影落库
-        mock_adapter = MockProjectPageAdapter()
-        payload = mock_adapter.extract(None)
-        PublishedSearchDocument.objects.create(
-            page_id=9999,
+        mock_adapter = MockShowcasePageAdapter()
+        payload = mock_adapter.extract(test_page)
+        doc = PublishedSearchDocument.objects.create(
+            page_id=test_page.id,
             document_uuid=payload.document_uuid,
             effective_revision_id=1,
             type_key=payload.type_key,
@@ -355,19 +359,23 @@ class FeedAndArchiveTestCase(unittest.TestCase):
             is_live=True,
             is_recycled=False,
             site_id=self.site.id,
-            root_path="000100019999",
-            depth=3,
+            root_path=test_page.path,
+            depth=test_page.depth,
         )
         ContentDiscoveryEpoch.increment_epoch()
 
-        # 1. 验证订阅流 /feed/type/project/ 自动生效并输出 200 OK
-        req_proj = self.factory.get("/feed/type/project/")
-        resp_proj = public_feed_view(req_proj, dimension="type", slug="project")
-        self.assertEqual(resp_proj.status_code, 200)
-        content_proj = resp_proj.content.decode("utf-8")
-        self.assertIn("开源高性能搜索引擎项目", content_proj)
+        try:
+            # 1. 验证订阅流 /feed/type/showcase/ 自动生效并输出 200 OK
+            req_proj = self.factory.get("/feed/type/showcase/")
+            resp_proj = public_feed_view(req_proj, dimension="type", slug="showcase")
+            self.assertEqual(resp_proj.status_code, 200)
+            content_proj = resp_proj.content.decode("utf-8")
+            self.assertIn("开源高性能搜索引擎项目", content_proj)
 
-        # 2. 验证时间线归档自动包含 project
-        archive_data = compute_public_timeline_archives(type_slug="project")
-        self.assertEqual(archive_data["total_count"], 1)
-        self.assertEqual(archive_data["timeline"][0]["year"], 2026)
+            # 2. 验证时间线归档自动包含 showcase
+            archive_data = compute_public_timeline_archives(type_slug="showcase")
+            self.assertEqual(archive_data["total_count"], 1)
+            self.assertEqual(archive_data["timeline"][0]["year"], 2026)
+        finally:
+            doc.delete()
+            test_page.delete()

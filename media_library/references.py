@@ -39,7 +39,20 @@ class MediaReferenceTracker:
                 try:
                     asset_uuid = UUID(str(ref.asset_id))
                 except Exception:
-                    continue
+                    asset_uuid = None
+                    if str(ref.asset_id).isdigit():
+                        pk_val = int(str(ref.asset_id))
+                        from media_library.models import CustomImage, CustomDocument, Audio, Video
+                        model_map = {"image": CustomImage, "document": CustomDocument, "audio": Audio, "video": Video}
+                        m = model_map.get(ref.asset_type, CustomImage)
+                        try:
+                            res = m.objects.filter(pk=pk_val).values_list("public_id", flat=True).first()
+                            if res:
+                                asset_uuid = res
+                        except Exception:
+                            pass
+                    if not asset_uuid:
+                        raise ValidationError(f"无效的媒体资产引用标识: '{ref.asset_id}' (类型: {ref.asset_type})")
                 records.append(
                     MediaReferenceRecord(
                         asset_id=asset_uuid,
@@ -94,3 +107,4 @@ class MediaReferenceTracker:
                 })
 
         return False, f"资源正被 {len(details)} 处页面版本引用，禁止物理删除！", details
+from django.core.exceptions import ValidationError

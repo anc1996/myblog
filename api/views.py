@@ -535,3 +535,293 @@ def timeline_archives_api(request):
     resp = _cors_json_response(payload, extra_headers={"ETag": weak_etag, "X-Epoch": str(epoch)})
     resp["Cache-Control"] = "public, max-age=60"
     return resp
+
+
+@ratelimit_api(scope="project_list", max_requests=60, window_seconds=60)
+def project_list_api(request):
+    """
+    开源作品集与项目列表 API
+    GET /api/v1/projects/
+    """
+    from portfolio.models import ProjectPage
+
+    page_str = request.GET.get("page", "1").strip()
+    page_num = int(page_str) if page_str.isdigit() and int(page_str) > 0 else 1
+
+    page_size_str = request.GET.get("page_size", "10").strip()
+    page_size = max(1, min(int(page_size_str) if page_size_str.isdigit() else 10, 50))
+
+    status_filter = request.GET.get("status", "").strip()
+    lang_filter = request.GET.get("language", "").strip()
+    tag_slug = request.GET.get("tag", "").strip()
+
+    current_epoch = ContentDiscoveryEpoch.get_current_epoch_readonly()
+    cache_key = f"api:projects_list:{current_epoch}:p{page_num}_s{page_size}_st{status_filter}_l{lang_filter}_t{tag_slug}"
+    cached_payload = cache.get(cache_key)
+
+    if cached_payload is not None:
+        return _cors_json_response(cached_payload, extra_headers={"X-Cache": "HIT", "X-Epoch": str(current_epoch)})
+
+    qs = ProjectPage.objects.filter(live=True, is_recycled=False).order_by("-authored_on", "-id")
+    if status_filter:
+        qs = qs.filter(project_status=status_filter)
+    if lang_filter:
+        qs = qs.filter(primary_language__iexact=lang_filter)
+    if tag_slug:
+        qs = qs.filter(tags__slug=tag_slug)
+
+    total_count = qs.count()
+    offset = (page_num - 1) * page_size
+    pages = qs.select_related("featured_image").prefetch_related("tags", "authors__person")[offset : offset + page_size]
+
+    items = []
+    for p in pages:
+        authors = [{"id": a.person.id, "name": a.person.name, "role": a.role} for a in p.authors.all() if a.person]
+        tags = [{"id": t.id, "name": t.name, "slug": t.slug} for t in p.tags.all()]
+        cover_data = None
+        if p.featured_image:
+            cover_data = {
+                "id": p.featured_image.id,
+                "public_id": str(p.featured_image.public_id),
+                "title": p.featured_image.title,
+                "url": f"/media-gateway/image/{p.featured_image.public_id}/",
+            }
+        items.append({
+            "id": p.id,
+            "title": p.title,
+            "slug": p.slug,
+            "url": p.url,
+            "project_status": p.project_status,
+            "project_status_label": p.get_project_status_display(),
+            "summary": p.summary,
+            "primary_language": p.primary_language,
+            "star_count": p.star_count,
+            "license_name": p.license_name,
+            "repo_url": p.repo_url,
+            "demo_url": p.demo_url,
+            "started_on": p.started_on.strftime("%Y-%m-%d") if p.started_on else None,
+            "completed_on": p.completed_on.strftime("%Y-%m-%d") if p.completed_on else None,
+            "authored_on": p.authored_on.strftime("%Y-%m-%d") if p.authored_on else None,
+            "featured_image": cover_data,
+            "authors": authors,
+            "tags": tags,
+        })
+
+    payload = {
+        "status": "success",
+        "epoch": current_epoch,
+        "pagination": {
+            "total_count": total_count,
+            "page": page_num,
+            "page_size": page_size,
+            "total_pages": (total_count + page_size - 1) // page_size if total_count > 0 else 1,
+            "has_next": offset + page_size < total_count,
+            "has_prev": page_num > 1,
+        },
+        "data": items,
+    }
+    cache.set(cache_key, payload, timeout=600)
+    return _cors_json_response(payload, extra_headers={"X-Cache": "MISS", "X-Epoch": str(current_epoch)})
+
+
+@ratelimit_api(scope="project_detail", max_requests=120, window_seconds=60)
+def project_detail_api(request, slug):
+    """
+    开源作品集与项目详情 API
+    GET /api/v1/projects/<slug>/
+    """
+    from portfolio.models import ProjectPage
+
+    current_epoch = ContentDiscoveryEpoch.get_current_epoch_readonly()
+    cache_key = f"api:project_detail:{current_epoch}:{slug}"
+    cached_payload = cache.get(cache_key)
+
+    if cached_payload is not None:
+        return _cors_json_response(cached_payload, extra_headers={"X-Cache": "HIT", "X-Epoch": str(current_epoch)})
+
+    page = get_object_or_404(ProjectPage, slug=slug, live=True, is_recycled=False)
+    page.hydrate_from_mongo()
+
+    authors_data = []
+    for a in page.authors.select_related("person").all():
+        if a.person:
+            authors_data.append({
+                "id": a.person.id,
+                "name": a.person.name,
+                "role": a.role,
+                "bio": a.person.bio,
+            })
+
+    tags_data = [{"id": t.id, "name": t.name, "slug": t.slug} for t in page.tags.all()]
+
+    cover_data = None
+    if page.featured_image:
+        cover_data = {
+            "id": page.featured_image.id,
+            "public_id": str(page.featured_image.public_id),
+            "title": page.featured_image.title,
+            "url": f"/media-gateway/image/{page.featured_image.public_id}/",
+        }
+
+    blocks_data = []
+    rendered_html_parts = []
+    if page.body:
+        for child in page.body:
+            block_type = child.block_type
+            block_val = child.value
+            rendered_chunk = ""
+            if hasattr(child.block, "render_clean"):
+                res = child.block.render_clean(block_val)
+                rendered_chunk = res.html
+            else:
+                rendered_chunk = child.render()
+            rendered_html_parts.append(rendered_chunk)
+            blocks_data.append({
+                "type": block_type,
+                "value": child.block.get_prep_value(block_val) if hasattr(child.block, "get_prep_value") else str(block_val),
+            })
+
+    safe_html_str = mark_safe("\n".join(rendered_html_parts))
+
+    project_payload = {
+        "status": "success",
+        "epoch": current_epoch,
+        "data": {
+            "id": page.id,
+            "title": page.title,
+            "slug": page.slug,
+            "url": page.url,
+            "project_status": page.project_status,
+            "project_status_label": page.get_project_status_display(),
+            "summary": page.summary,
+            "primary_language": page.primary_language,
+            "star_count": page.star_count,
+            "license_name": page.license_name,
+            "repo_url": page.repo_url,
+            "demo_url": page.demo_url,
+            "started_on": page.started_on.strftime("%Y-%m-%d") if page.started_on else None,
+            "completed_on": page.completed_on.strftime("%Y-%m-%d") if page.completed_on else None,
+            "authored_on": page.authored_on.strftime("%Y-%m-%d") if page.authored_on else None,
+            "featured_image": cover_data,
+            "authors": authors_data,
+            "tags": tags_data,
+            "blocks": blocks_data,
+            "safe_html": safe_html_str,
+        },
+    }
+
+    cache.set(cache_key, project_payload, timeout=600)
+    return _cors_json_response(project_payload, extra_headers={"X-Cache": "MISS", "X-Epoch": str(current_epoch)})
+
+
+@ratelimit_api(scope="site_settings", max_requests=120, window_seconds=60)
+def site_settings_api(request):
+    """
+    全站全局导航与站点设置只读 API (H-03 & H-07)
+    GET /api/v1/site/settings/
+    严格只读查询 filter(singleton_key=1)，严禁调用 .load()；
+    菜单项关联页面批量核验公开资格，下架或回收页面自动优雅降级。
+    """
+    from site_settings.models import NavigationSettings, SocialMediaSettings, FooterSettings
+    from content_lifecycle.public_access import get_public_blocked_page_ids
+    from wagtail.models import Site, Page
+    from django.utils.cache import get_conditional_response
+
+    site = Site.find_for_request(request)
+    site_id = site.id if site else 0
+    current_epoch = ContentDiscoveryEpoch.get_current_epoch_readonly()
+
+    weak_etag = f'W/"site_settings:v1:s{site_id}:e{current_epoch}"'
+    conditional_resp = get_conditional_response(request, etag=weak_etag)
+    if conditional_resp is not None:
+        conditional_resp["ETag"] = weak_etag
+        conditional_resp["X-Epoch"] = str(current_epoch)
+        conditional_resp["Cache-Control"] = "public, max-age=120"
+        return conditional_resp
+
+    nav_obj = NavigationSettings.objects.filter(singleton_key=1).first()
+    social_obj = SocialMediaSettings.objects.filter(singleton_key=1).first()
+    footer_obj = FooterSettings.objects.filter(singleton_key=1).first()
+
+    # 1. 解析导航菜单并收集被引用页面
+    raw_nav_items = []
+    target_page_ids = set()
+    if nav_obj and nav_obj.nav_items:
+        for block in nav_obj.nav_items:
+            val = block.value
+            p_obj = val.get("target_page")
+            p_id = getattr(p_obj, "id", None) if p_obj else None
+            if p_id:
+                target_page_ids.add(p_id)
+            raw_nav_items.append({
+                "label": val.get("label", ""),
+                "badge": val.get("badge", ""),
+                "target_page_id": p_id,
+                "external_url": val.get("external_url", ""),
+                "is_external": bool(val.get("is_external", False)),
+            })
+
+    # 批量核验页面可用性 (H-07)
+    allowed_page_urls = {}
+    if target_page_ids:
+        pages_qs = Page.objects.filter(id__in=target_page_ids, live=True).exclude(live_revision=None)
+        candidate_records = list(pages_qs.values_list("id", "path"))
+        blocked_ids = get_public_blocked_page_ids(candidate_records)
+        for p in pages_qs:
+            if p.id not in blocked_ids and getattr(p, "alias_of_id", None) is None:
+                allowed_page_urls[p.id] = p.url
+
+    # 过滤并降级导航
+    nav_items = []
+    for item in raw_nav_items:
+        ext_url = item["external_url"]
+        p_id = item["target_page_id"]
+        final_url = ""
+        if ext_url:
+            final_url = ext_url
+        elif p_id and p_id in allowed_page_urls:
+            final_url = allowed_page_urls[p_id]
+        elif not p_id and not ext_url:
+            final_url = ""
+        else:
+            # 关联的页面已被回收或下架，跳过该项 (优雅降级)
+            continue
+
+        nav_items.append({
+            "label": item["label"],
+            "badge": item["badge"],
+            "url": final_url,
+            "is_external": item["is_external"],
+        })
+
+    # 2. 解析社交媒体链接
+    social_links = []
+    if social_obj and social_obj.social_links:
+        for block in social_obj.social_links:
+            val = block.value
+            social_links.append({
+                "platform": val.get("platform", "custom"),
+                "label": val.get("label", ""),
+                "url": val.get("url", ""),
+            })
+
+    # 3. 解析页脚设置
+    footer_data = {
+        "copyright_text": footer_obj.copyright_text if footer_obj else "© 2026 myblog.",
+        "icp_number": footer_obj.icp_number if footer_obj else "",
+        "police_record_number": footer_obj.police_record_number if footer_obj else "",
+        "about_text": footer_obj.about_text if footer_obj else "",
+    }
+
+    payload = {
+        "status": "success",
+        "epoch": current_epoch,
+        "data": {
+            "navigation": nav_items,
+            "social_links": social_links,
+            "footer": footer_data,
+        },
+    }
+    resp = _cors_json_response(payload, extra_headers={"ETag": weak_etag, "X-Epoch": str(current_epoch)})
+    resp["Cache-Control"] = "public, max-age=120"
+    return resp

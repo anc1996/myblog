@@ -17,6 +17,11 @@ urlpatterns = [
     # 专题技术专栏与指南
     path("guides/", views.guides_list_api, name="guide_list"),
     path("guides/<slug:slug>/", views.guide_detail_api, name="guide_detail"),
+    # 开源作品集与项目展示
+    path("projects/", views.project_list_api, name="project_list"),
+    path("projects/<slug:slug>/", views.project_detail_api, name="project_detail"),
+    # 全局站点与导航设置
+    path("site/settings/", views.site_settings_api, name="site_settings"),
     # 时间线归档
     path("archives/", views.timeline_archives_api, name="timeline_archives"),
     # 全站通用评论互动

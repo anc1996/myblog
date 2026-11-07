@@ -37,13 +37,23 @@ FORMAT_CHOICES = [
 ]
 
 
-def _resolve_asset_id(instance_or_id: Any) -> str:
-    """安全提取模型实例的 public_id，未绑定时返回空字符串"""
+def _resolve_asset_id(instance_or_id: Any, expected_model: Any = None) -> str:
+    """安全提取模型实例的 public_id；若传入整数主键，自动按模型查询对应 public_id (H-05)"""
     if not instance_or_id:
         return ""
     if hasattr(instance_or_id, "public_id"):
         return str(instance_or_id.public_id)
-    return str(instance_or_id)
+    val_str = str(instance_or_id).strip()
+    if val_str.isdigit():
+        pk_val = int(val_str)
+        model = expected_model or CustomImage
+        try:
+            res = model.objects.filter(pk=pk_val).values_list("public_id", flat=True).first()
+            if res:
+                return str(res)
+        except Exception:
+            pass
+    return val_str
 
 
 class CustomImageBlock(blocks.StructBlock):

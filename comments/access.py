@@ -48,10 +48,10 @@ def get_accessible_comment_page(request, page_id: int, *, for_write: bool = Fals
     # 4. 当前 Site 边界校验
     try:
         current_site = Site.find_for_request(request)
-        if current_site and not specific_page.is_descendant_of(current_site.root_page):
-            raise PermissionDenied("目标页面不属于当前访问站点。")
     except Exception:
-        pass
+        current_site = None
+    if current_site and not specific_page.is_descendant_of(current_site.root_page):
+        raise PermissionDenied("目标页面不属于当前访问站点。")
 
     # 5. 正式发布与全链防回收状态校验
     if not target_page.live or not target_page.live_revision_id or getattr(target_page, "is_recycled", False):

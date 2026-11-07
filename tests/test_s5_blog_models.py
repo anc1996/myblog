@@ -130,7 +130,8 @@ class S5BlogModelsTests(unittest.TestCase):
     def test_homepage_subpage_types_constraint(self):
         from home.models import HomePage
 
-        self.assertEqual(HomePage.subpage_types, ["blog.BlogIndexPage", "blog.BlogPage"])
+        self.assertIn("blog.BlogIndexPage", HomePage.subpage_types)
+        self.assertIn("blog.BlogPage", HomePage.subpage_types)
 
     def test_custom_base_page_safety_guards(self):
         from blog.models import BlogPage

@@ -38,10 +38,13 @@ INSTALLED_APPS = [
     "blog.apps.BlogConfig",
     "guides.apps.GuidesConfig",
     "comments.apps.CommentsConfig",
+    "portfolio.apps.PortfolioConfig",
+    "site_settings.apps.SiteSettingsConfig",
     "home",
     "search",
     "wagtail.contrib.forms",
     "wagtail.contrib.redirects",
+    "wagtail.contrib.settings",
     "wagtail.embeds",
     "wagtail.sites",
     "wagtail.users",
@@ -242,6 +245,10 @@ DATA_UPLOAD_MAX_NUMBER_FIELDS = 10_000
 # Wagtail settings
 
 WAGTAIL_SITE_NAME = "myblog"
+
+# Wagtail 8.1 工作流终审版本防篡改保护 (H-06)
+WAGTAIL_WORKFLOW_REQUIRE_REAPPROVAL_ON_EDIT = True
+WAGTAIL_FINISH_WORKFLOW_ACTION = "content_lifecycle.workflows.publish_approved_revision"
 
 # Custom user model
 AUTH_USER_MODEL = "identity.User"

@@ -49,6 +49,9 @@ def get_public_blocked_page_ids(candidate_records: Iterable[tuple[int, str]]) ->
     node_id_to_path = {row[0]: row[1] for row in node_rows}
     all_node_ids = set(node_id_to_path.keys())
 
+    # 2.1 检查节点自身未上线 (live=False)
+    unlive_node_ids = {row[0] for row in node_rows if not row[3]}
+
     # 3. 追查别名源页面及其祖先
     alias_of_ids = {row[2] for row in node_rows if row[2] is not None}
     source_ancestor_paths: set[str] = set()
@@ -78,7 +81,14 @@ def get_public_blocked_page_ids(candidate_records: Iterable[tuple[int, str]]) ->
 
     # 6. 检查具体页面表的 is_recycled=True
     from content_lifecycle.models import CustomBasePage
-    for subcls in CustomBasePage.__subclasses__():
+
+    def _get_all_subclasses(cls):
+        subs = set(cls.__subclasses__())
+        for s in list(subs):
+            subs.update(_get_all_subclasses(s))
+        return subs
+
+    for subcls in _get_all_subclasses(CustomBasePage):
         try:
             flagged = set(
                 subcls.objects.filter(page_ptr_id__in=all_node_ids, is_recycled=True).values_list("page_ptr_id", flat=True)
@@ -87,7 +97,7 @@ def get_public_blocked_page_ids(candidate_records: Iterable[tuple[int, str]]) ->
         except Exception:
             pass
 
-    bad_node_ids = restricted_node_ids | recycled_node_ids
+    bad_node_ids = restricted_node_ids | recycled_node_ids | unlive_node_ids
 
     # 7. 将受限或回收节点的 path 映射回受影响的 candidate page_id
     bad_paths: set[str] = set()
@@ -96,7 +106,12 @@ def get_public_blocked_page_ids(candidate_records: Iterable[tuple[int, str]]) ->
             bad_paths.add(node_id_to_path[nid])
 
     blocked_page_ids: set[int] = set()
+    found_node_paths = set(node_id_to_path.values())
     for cand_path, cand_id in candidate_map.items():
+        # 若页面已从主表物理删除
+        if cand_path not in found_node_paths:
+            blocked_page_ids.add(cand_id)
+            continue
         # 若候选页面本身就是 Alias，或者其祖先处于受限/回收状态
         for bad_p in bad_paths:
             if cand_path.startswith(bad_p):

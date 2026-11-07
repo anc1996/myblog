@@ -89,12 +89,13 @@ class ContentQuery:
 
         page_size = max(1, min(spec.page_size, 50))
 
+        was_in_atomic = connection.in_atomic_block
         with transaction.atomic():
             # 开启只读可重复读隔离级别，确保同事务内单快照绝对一致 (SEARCH-RANK-02)
-            if connection.vendor == "postgresql" and not connection.in_atomic_block:
+            if connection.vendor == "postgresql" and not was_in_atomic:
                 try:
                     with connection.cursor() as cur:
-                        cur.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;")
+                        cur.execute("SET LOCAL TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;")
                 except Exception as exc:
                     logger.debug("Failed to set REPEATABLE READ isolation level: %s", exc)
 

@@ -305,6 +305,8 @@ class RecycleService:
                 # 关键修复 [B-01]：若需要树移动且修改了 slug，先在当前节点赋新 slug (clean=False)，
                 # 避免 move() 内部校验旧 slug 导致 ValidationError 崩溃！
                 if requires_move:
+                    if hasattr(page, "can_move_to") and not page.can_move_to(parent):
+                        raise ValidationError(f"页面类型 '{page.__class__.__name__}' 不允许作为 '{parent.title}' 的子节点恢复！")
                     if page.slug != resolved_slug:
                         page.slug = resolved_slug
                         page.save(update_fields=["slug"], clean=False)
@@ -335,11 +337,40 @@ class RecycleService:
                 if not registry.action_exists(log_act):
                     log_act = "wagtail.revert"
 
-                # 方案 A 恢复关键闭环：从回收快照 Revision 及其 Mongo 指针水合恢复完整正文
-                if snapshot_obj is not None and hasattr(snapshot_obj, "intro"):
-                    page.intro = snapshot_obj.intro
-                if snapshot_obj is not None and hasattr(snapshot_obj, "body"):
-                    page.body = snapshot_obj.body
+                # 方案 A 恢复关键闭环：从回收快照 Revision 完整同步标量字段与关系子表 (H-02)
+                if snapshot_obj is not None:
+                    for attr in [
+                        "intro", "body", "summary", "project_status", "featured_image_id",
+                        "started_on", "completed_on", "authored_on", "demo_url", "repo_url",
+                        "primary_language", "license_name"
+                    ]:
+                        if hasattr(snapshot_obj, attr):
+                            setattr(page, attr, getattr(snapshot_obj, attr))
+
+                    if hasattr(snapshot_obj, "tags") and hasattr(page, "tags"):
+                        try:
+                            tag_names = [t.name for t in snapshot_obj.tags.all()]
+                            page.tags.set(tag_names)
+                        except Exception:
+                            pass
+
+                    if hasattr(snapshot_obj, "authors") and hasattr(page, "authors"):
+                        try:
+                            author_items = []
+                            for a in snapshot_obj.authors.all():
+                                person = getattr(a, "person", None)
+                                role = getattr(a, "role", "")
+                                sort_order = getattr(a, "sort_order", 0)
+                                if person:
+                                    rel_cls = a.__class__
+                                    author_items.append(
+                                        rel_cls(page=page, person=person, role=role, sort_order=sort_order, pk=None)
+                                    )
+                            page.authors.set(author_items)
+                        except Exception:
+                            pass
+
+                    page.save(clean=False)
 
                 # 生成全新的未发布草稿版本
                 page.save_revision(

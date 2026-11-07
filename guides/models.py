@@ -507,8 +507,10 @@ class GuidePage(CustomBasePage):
                     draft_revs = list(Revision.objects.filter(object_id=str(self.id)).order_by("-created_at"))
                     if len(draft_revs) > 20:
                         to_delete = draft_revs[20:]
+                        from media_library.models import MediaReferenceRecord
                         for old_rev in to_delete:
                             if old_rev.id != revision.id:
+                                MediaReferenceRecord.objects.filter(page_id=self.id, revision_id=old_rev.id).delete()
                                 old_rev.delete()
 
             except Exception:

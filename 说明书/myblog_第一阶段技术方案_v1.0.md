@@ -265,6 +265,9 @@ graph LR
 | **博客详情** | `GET /api/v1/posts/<slug>/` | 120次/分/IP | Redis Epoch 代次缓存 | 双形态输出（积木 JSON 树 + 预渲染 safe_html） |
 | **专栏列表** | `GET /api/v1/guides/` | 60次/分/IP | Redis Epoch 代次缓存 | 专栏指南列表，支持按 Topic、难度与作者筛选 |
 | **专栏详情** | `GET /api/v1/guides/<slug>/` | 120次/分/IP | Redis Epoch 代次缓存 | 包含步骤目录（TOC）、代码块与 365 天过时预警 |
+| **项目列表** | `GET /api/v1/projects/` | 60次/分/IP | Redis Epoch 代次缓存 | 开源作品集与项目列表，支持状态/语言/标签过滤 |
+| **项目详情** | `GET /api/v1/projects/<slug>/` | 120次/分/IP | Redis Epoch 代次缓存 | 双形态输出（积木 JSON 树 + 预渲染 safe_html） |
+| **全局设置** | `GET /api/v1/site/settings/` | 120次/分/IP | 弱 ETag / 304 快速协商 | 全站导航菜单、社交媒体与页脚设置（下架页面自动降级） |
 | **时间线归档** | `GET /api/v1/archives/` | 120次/分/IP | 弱 ETag / 304 快速协商 | 年月归档分桶统计，支持按 type/tag/topic/year 过滤 |
 | **评论列表** | `GET /api/v1/pages/<id>/comments/` | 120次/分/IP | 细粒度行锁与受限页隔离 | 扁平两级评论树，受限页面自动输出 no-store |
 | **发表评论** | `POST /api/v1/pages/<id>/comments/` | 30次/分/用户 | Fail-Closed 503 风控 | 蜜罐过滤、nh3 净化、生成待审版本 |
@@ -278,8 +281,10 @@ graph LR
 | 验收项目 | 验收范围与命令 | 实测结果 | 结论 |
 |---|---|---|---|
 | **Django 系统检查** | `python manage.py check` | `0 issues (0 silenced)` | **完全合规** |
-| **全站自动化单元测试** | `python -m unittest discover -s tests` | **Ran 96 tests in 28.601s -> OK** | **100% 通过** |
+| **全站自动化单元测试** | `python -m unittest discover -s tests` | **Ran 103 tests in 32.279s -> OK** | **100% 通过** |
 | **订阅与归档专项测试** | `python -m unittest tests/test_feed_and_archive.py` | **Ran 7 tests in 12.352s -> OK** | **100% 通过** |
+| **作品集专项测试** | `python -m unittest tests/test_portfolio.py` | **Ran 4 tests in 3.838s -> OK** | **100% 通过** |
+| **全局设置专项测试** | `python -m unittest tests/test_site_settings.py` | **Ran 3 tests in 2.325s -> OK** | **100% 通过** |
 | **Wagtail 8.1 生命周期演练** | `python myblog-side-lifecycle-audit-20261105.py` | **36 项演练全部 PASS (0 FAIL, 0 ERROR)** | **100% 通过** |
 | **跨存储对账工具** | `python manage.py reconcile_cross_storage --audit` | SQL/Mongo/S3/Discovery 四方一致性核验通过 | **完整无缺失** |
 | **过期回收站物理清理** | `python manage.py purge_expired_recycled_pages --days 30` | 自动扫描超期页面并安全异步清理 Mongo 快照 | **运转正常** |
