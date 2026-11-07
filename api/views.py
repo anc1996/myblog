@@ -485,3 +485,53 @@ def guide_detail_api(request, slug):
 
     cache.set(cache_key, guide_payload, timeout=600)
     return _cors_json_response(guide_payload, extra_headers={"X-Cache": "MISS", "X-Epoch": str(current_epoch)})
+
+
+@ratelimit_api(scope="archives", max_requests=120, window_seconds=60)
+def timeline_archives_api(request):
+    """
+    全站多页面时间线归档 API (GET /api/v1/archives/)。
+    支持按 type, tag, topic, year 过滤，返回年月分桶统计与时间线。
+    支持弱 ETag 与 304 快速缓存协商。
+    """
+    from discovery.feeds import compute_public_timeline_archives
+    from django.utils.cache import get_conditional_response
+    from wagtail.models import Site
+
+    site = Site.find_for_request(request)
+    site_id = site.id if site else None
+
+    type_slug = request.GET.get("type", "").strip() or None
+    tag_slug = request.GET.get("tag", "").strip() or None
+    topic_slug = request.GET.get("topic", "").strip() or None
+    year_param = request.GET.get("year", "").strip()
+    year_val = None
+    if year_param.isdigit():
+        year_val = int(year_param)
+
+    epoch = ContentDiscoveryEpoch.get_current_epoch_readonly()
+    weak_etag = f'W/"archives:v1:s{site_id or 0}:e{epoch}:t{type_slug or "all"}:tag{tag_slug or "all"}:top{topic_slug or "all"}:y{year_val or "all"}"'
+
+    conditional_response = get_conditional_response(request, etag=weak_etag)
+    if conditional_response is not None:
+        conditional_response["ETag"] = weak_etag
+        conditional_response["X-Epoch"] = str(epoch)
+        conditional_response["Cache-Control"] = "public, max-age=60"
+        return conditional_response
+
+    data = compute_public_timeline_archives(
+        site_id=site_id,
+        type_slug=type_slug,
+        tag_slug=tag_slug,
+        topic_slug=topic_slug,
+        year=year_val,
+    )
+
+    payload = {
+        "status": "success",
+        "epoch": epoch,
+        "data": data,
+    }
+    resp = _cors_json_response(payload, extra_headers={"ETag": weak_etag, "X-Epoch": str(epoch)})
+    resp["Cache-Control"] = "public, max-age=60"
+    return resp

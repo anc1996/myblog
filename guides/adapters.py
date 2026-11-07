@@ -9,7 +9,7 @@ GuidePage 与 GuideIndexPage 的统一内容发现适配器 (TypeAdapter)。
 import re
 from datetime import date
 from typing import Any
-from discovery.contracts import PublishedPayload, TextSegment, TypeAdapterContract
+from discovery.contracts import PublishedPayload, PublicListingCapabilities, TextSegment, TypeAdapterContract
 
 
 class GuidePageAdapter:
@@ -23,6 +23,12 @@ class GuidePageAdapter:
         "summary": 0.4,
         "body": 0.1,
     }
+    capabilities = PublicListingCapabilities(
+        public_type_slug="guide",
+        feed_enabled=True,
+        archive_enabled=True,
+        supported_dimensions=("type", "tag", "author", "topic"),
+    )
 
     def extract(self, page: Any) -> PublishedPayload:
         if hasattr(page, "hydrate_from_mongo") and (not getattr(page, "body", None) or len(getattr(page, "body", [])) == 0):
@@ -50,6 +56,49 @@ class GuidePageAdapter:
                 tag_ids.append(t.id)
                 tags_data.append({"id": t.id, "name": t.name, "slug": t.slug})
 
+        # 提取 authors
+        authors_data = []
+        author_slugs = []
+        if hasattr(page, "authors"):
+            try:
+                for a in page.authors.all():
+                    person = getattr(a, "person", None)
+                    if person:
+                        p_name = getattr(person, "name", "")
+                        p_id = getattr(person, "id", None)
+                        p_uuid = str(getattr(person, "public_id", ""))
+                        authors_data.append({
+                            "id": p_id,
+                            "name": p_name,
+                            "public_id": p_uuid,
+                            "role": getattr(a, "role", ""),
+                        })
+                        if p_id is not None:
+                            author_slugs.append(str(p_id))
+                        if p_name:
+                            author_slugs.append(p_name.lower().replace(" ", "-"))
+                        if p_uuid:
+                            author_slugs.append(p_uuid)
+            except Exception:
+                pass
+
+        # 提取 topic
+        topic_slug = ""
+        topic_name = ""
+        topic = getattr(page, "topic", None)
+        if topic:
+            topic_slug = getattr(topic, "slug", "")
+            topic_name = getattr(topic, "name", "")
+
+        extra_data = {
+            "authors": authors_data,
+            "author_slugs": author_slugs,
+            "topic_slug": topic_slug,
+            "topic_name": topic_name,
+            "difficulty": getattr(page, "difficulty", "intermediate"),
+            "last_published_at": page.last_published_at.isoformat() if getattr(page, "last_published_at", None) else None,
+        }
+
         segments = [
             TextSegment(field_name="title", text=title),
         ]
@@ -69,6 +118,7 @@ class GuidePageAdapter:
             text_segments=segments,
             tag_ids=tag_ids,
             tags_data=tags_data,
+            extra_data=extra_data,
         )
 
     def _extract_stream_text(self, stream_value: Any) -> str:
@@ -103,6 +153,12 @@ class GuideIndexPageAdapter:
         "title": 1.0,
         "intro": 0.4,
     }
+    capabilities = PublicListingCapabilities(
+        public_type_slug="guide_index",
+        feed_enabled=False,
+        archive_enabled=False,
+        supported_dimensions=(),
+    )
 
     def extract(self, page: Any) -> PublishedPayload:
         title = getattr(page, "title", "")

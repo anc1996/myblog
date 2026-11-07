@@ -41,6 +41,11 @@ class CustomBasePage(Page):
         """发布守卫：自身或任一祖先处于回收状态时坚决拒绝发布"""
         if self.is_recycled:
             raise PermissionDenied(f"页面 '{self.title}' 当前处于回收站中，禁止发布！")
+        ancestor_ids = list(self.get_ancestors().values_list("id", flat=True))
+        if ancestor_ids:
+            from content_lifecycle.models import RecycleEntry
+            if RecycleEntry.objects.filter(page_id__in=ancestor_ids, status__in=["recycled", "restoring"]).exists():
+                raise PermissionDenied("父级页面或祖先页面处于回收站中，禁止发布子页面！")
         for ancestor in self.get_ancestors():
             if getattr(ancestor, "is_recycled", False):
                 raise PermissionDenied(f"父级页面 '{ancestor.title}' 处于回收站中，禁止发布子页面！")
@@ -77,6 +82,29 @@ class CustomBasePage(Page):
         # 默认不复制历史 Revision 链，防止新副本与源页面共享 MongoDB 指针在永久删除时产生连坐误删
         kwargs.setdefault("copy_revisions", False)
         return super().copy(*args, **kwargs)
+
+    def create_alias(self, *args, **kwargs):
+        """别名守卫：已回收页面禁止创建别名，且为别名排除 document_uuid 避免唯一约束冲突"""
+        if self.is_recycled:
+            raise PermissionDenied(f"页面 '{self.title}' 当前处于回收站中，禁止创建别名！")
+        exclude_fields = kwargs.get("exclude_fields") or []
+        if "document_uuid" not in exclude_fields:
+            exclude_fields = list(exclude_fields) + ["document_uuid"]
+            kwargs["exclude_fields"] = exclude_fields
+        return super().create_alias(*args, **kwargs)
+
+    def update_aliases(self, *, revision=None, _content=None, _updated_ids=None):
+        """别名同步守卫：未上线页面（如未来排期）不唤醒别名；排除处于回收站中的别名"""
+        if not self.live:
+            return []
+        from content_lifecycle.models import RecycleEntry
+        recycled_alias_ids = set(
+            RecycleEntry.objects.filter(status__in=["recycled", "restoring"]).values_list("page_id", flat=True)
+        )
+        if _updated_ids is None:
+            _updated_ids = set()
+        _updated_ids.update(recycled_alias_ids)
+        return super().update_aliases(revision=revision, _content=_content, _updated_ids=_updated_ids)
 
     def with_content_json(self, content):
         """

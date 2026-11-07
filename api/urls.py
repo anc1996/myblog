@@ -17,6 +17,8 @@ urlpatterns = [
     # 专题技术专栏与指南
     path("guides/", views.guides_list_api, name="guide_list"),
     path("guides/<slug:slug>/", views.guide_detail_api, name="guide_detail"),
+    # 时间线归档
+    path("archives/", views.timeline_archives_api, name="timeline_archives"),
     # 全站通用评论互动
     path("", include("comments.api.urls")),
 ]

@@ -298,8 +298,8 @@ class RecycleService:
                     except Exception as exc:
                         raise ValidationError(f"页面 ID={entry.page_id} 核心回收快照正文读取失败: {exc}")
                 else:
-                    from blog.models import BlogPage
-                    if entry.was_live or isinstance(page, BlogPage):
+                    from content_lifecycle.models import CustomBasePage
+                    if entry.was_live or isinstance(page, CustomBasePage):
                         raise ValidationError(f"页面 ID={entry.page_id} 核心回收快照已损坏或丢失，拒绝恢复！")
 
                 # 关键修复 [B-01]：若需要树移动且修改了 slug，先在当前节点赋新 slug (clean=False)，

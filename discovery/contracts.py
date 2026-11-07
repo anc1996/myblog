@@ -17,6 +17,24 @@ from typing import Any, Protocol, runtime_checkable
 
 
 @dataclass(frozen=True)
+class PublicListingCapabilities:
+    """页面类型接入全站公共列表（订阅 Feed 与时间线归档 Archive）的能力声明"""
+    public_type_slug: str                          # 公开对外暴露的类型别名，如 "blog", "guide", "project"
+    feed_enabled: bool = False                     # 是否允许进入全站及分类 RSS/Atom 订阅流
+    archive_enabled: bool = False                  # 是否允许进入全站及分类时间线归档
+    supported_dimensions: tuple[str, ...] = ("type", "tag", "author")  # 支持的订阅/归档维度
+
+
+@dataclass(frozen=True)
+class PublishedListingTerm:
+    """发布列表中的分类项数据结构（用于维度检索与订阅）"""
+    dimension: str       # "type" | "tag" | "author" | "topic"
+    namespace: str       # "global" | "type" | "tag" | "author" | "guides"
+    object_key: str      # 唯一标识，如 "blog", "python", "anc", "database"
+    label: str           # 用户可见名称，如 "博客文章", "Python", "anc", "数据库架构"
+
+
+@dataclass(frozen=True)
 class TextSegment:
     """单个逻辑文本段数据结构（标题、简介或正文）"""
     field_name: str  # 'title' | 'intro' | 'body'

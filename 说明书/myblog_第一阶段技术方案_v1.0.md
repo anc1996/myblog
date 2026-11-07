@@ -683,6 +683,31 @@ E3 连接指定的独立数据库、桶和缓存前缀，测试真实服务。Dj
 历史环境记录正文保持原样，业务表迁移、媒体播放、业务并发及整体验收尚未完成。
 新项目使用独立 PostgreSQL；不能拿旧 MySQL 的服务探针证明 PostgreSQL 兼容或并发通过。
 
+### S12 全站多页面通用订阅（RSS 2.0 / Atom 1.0）与时间线归档（Timeline Archive）系统
+
+落实架构契约与多页面通用扩展规范：
+1. **全站多页面通用接入（零核心硬编码，支持任意未来 xxPage）**：
+   - 扩展 `discovery/contracts.py` 的 `PublicListingCapabilities` 能力声明契约；
+   - 任何当前模型（`BlogPage`, `GuidePage`）及未来任意新增模型（如 `ProjectPage`, `NewsPage`, `ArticlePage`），只需在各自 App 中定义 TypeAdapter 并声明 capabilities，即可自动接入全站订阅与归档；
+   - 栏目聚合页（`BlogIndexPage`, `GuideIndexPage`）显式配置 `feed_enabled=False, archive_enabled=False`，物理阻断栏目聚合页污染订阅文章流。
+2. **全维度 RSS 2.0 与 Atom 1.0 订阅体系**：
+   - 订阅路由：`/feed/`（全站订阅）、`/feed/type/<slug>/`（按内容类型）、`/feed/tag/<slug>/`（按标签）、`/feed/author/<slug>/`（按作者）、`/feed/topic/<slug>/`（按专题/分类）；
+   - Atom 1.0 专属路径：`/feed/atom/`、`/feed/atom/type/<slug>/` 及 `?format=atom` 参数；
+   - 标准规范合规：严格遵循 RFC 4287 (Atom 1.0) 与 RFC 822 (RSS 2.0)，发布时间统一转换为 UTC，条目 ID 采用稳定 `urn:uuid:{document_uuid}`，`<summary>` 强制标记为 `type="text"` 杜绝富文本二次注入，清洗 XML 1.0 非法控制字符；
+   - 弱 ETag 与 304 极速响应：基于全局 `ContentDiscoveryEpoch` 生成弱 ETag (`W/"feed:v1:s{site_id}:e{epoch}:{dim}:{slug}:{fmt}:{today}"`)，结合 Django `get_conditional_response` 主库短查询核验，命中时瞬间返回 HTTP 304 Not Modified（零 XML 序列化、零正文水合开销）。
+3. **全站时间线归档系统（Timeline Archive Framework）**：
+   - 接口挂载：`GET /api/v1/archives/`；
+   - 组合筛选：支持按 `type`, `tag`, `topic`, `year` 过滤；
+   - 高性能聚合：采用 PostgreSQL SARGable 左闭右开区间 `[start_date, next_period_start)` 与 `TruncMonth("authored_on")` 统计年月分桶；
+   - 同样支持弱 ETag 与 HTTP 304 协商缓存。
+4. **Wagtail 8.1 刚性生命周期安全守卫（BLK-01 至 BLK-08 闭环）**：
+   - 别名页（Alias）剔除：`alias_of_id is not None` 页面严禁入流，防止读者收到重复推送；
+   - 回收站与祖先回收穿透防御：`content_lifecycle.public_access` 批量切分 Treebeard 物化路径，祖先处于回收站或具体表 `is_recycled=True` 的页面 100% 阻断；
+   - 权限受限页（`PageViewRestriction` 密码/私有组）100% 阻断，严防私密文章泄露；
+   - 未来排期防御：`authored_on__lte=timezone.localdate()`，未到上线日期的文章严禁入流；
+   - 草稿泄漏防御：投影服务仅从 `live_revision.as_object()` 提取稳定发布快照，内存脏草稿或在途编辑绝不外泄；
+   - 全局 Epoch 联动：页面发布、下架、树移动、权限变更及维度标签修改均在同一事务中递增 `ContentDiscoveryEpoch`。
+
 ### E.1 备份、恢复和跨存储对账计划
 
 PostgreSQL 采用 `pg_dump` 自定义格式保存逻辑备份，计划用 `pg_restore` 恢复到另一个隔离库；

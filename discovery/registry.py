@@ -35,6 +35,55 @@ def list_type_adapters() -> list[TypeAdapterContract]:
     return list(_ADAPTER_REGISTRY.values())
 
 
+def get_feed_enabled_type_keys() -> list[str]:
+    """获取所有开启了 RSS/Atom 订阅能力的页面类型 key 列表"""
+    keys = []
+    for k, adapter in _ADAPTER_REGISTRY.items():
+        caps = getattr(adapter, "capabilities", None)
+        if caps and getattr(caps, "feed_enabled", False):
+            keys.append(k)
+    return keys
+
+
+def get_archive_enabled_type_keys() -> list[str]:
+    """获取所有开启了时间线归档能力的页面类型 key 列表"""
+    keys = []
+    for k, adapter in _ADAPTER_REGISTRY.items():
+        caps = getattr(adapter, "capabilities", None)
+        if caps and getattr(caps, "archive_enabled", False):
+            keys.append(k)
+    return keys
+
+
+def get_adapter_by_public_type_slug(slug: str) -> TypeAdapterContract | None:
+    """根据公开对外暴露的类型别名 (public_type_slug) 查找适配器"""
+    for adapter in _ADAPTER_REGISTRY.values():
+        caps = getattr(adapter, "capabilities", None)
+        if caps and getattr(caps, "public_type_slug", None) == slug:
+            return adapter
+    return None
+
+
+def get_public_type_slug_map() -> dict[str, str]:
+    """获取 public_type_slug 到内部 type_key 的映射字典"""
+    mapping = {}
+    for k, adapter in _ADAPTER_REGISTRY.items():
+        caps = getattr(adapter, "capabilities", None)
+        if caps and getattr(caps, "public_type_slug", None):
+            mapping[caps.public_type_slug] = k
+    return mapping
+
+
+def get_type_key_to_public_slug_map() -> dict[str, str]:
+    """获取内部 type_key 到公开 public_type_slug 的映射字典"""
+    mapping = {}
+    for k, adapter in _ADAPTER_REGISTRY.items():
+        caps = getattr(adapter, "capabilities", None)
+        if caps and getattr(caps, "public_type_slug", None):
+            mapping[k] = caps.public_type_slug
+    return mapping
+
+
 def clear_adapters() -> None:
     """清空适配器注册表（仅供测试套件重置使用）"""
     _ADAPTER_REGISTRY.clear()

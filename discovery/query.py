@@ -85,27 +85,28 @@ class ContentQuery:
         if context is None:
             context = AccessContext(mode=AccessMode.PUBLIC)
 
-        current_epoch = ContentDiscoveryEpoch.get_current_epoch()
         cursor_epoch, cursor_offset = _decode_cursor(spec.cursor)
-
-        # RECYCLE-DISCOVERY-02: 游标失效判定
-        cursor_reset = False
-        offset = cursor_offset
-        if spec.cursor is not None:
-            if cursor_epoch is not None and cursor_epoch != current_epoch:
-                cursor_reset = True
-                offset = 0  # 自动重置为第 1 页
 
         page_size = max(1, min(spec.page_size, 50))
 
         with transaction.atomic():
             # 开启只读可重复读隔离级别，确保同事务内单快照绝对一致 (SEARCH-RANK-02)
-            if connection.vendor == "postgresql":
+            if connection.vendor == "postgresql" and not connection.in_atomic_block:
                 try:
                     with connection.cursor() as cur:
                         cur.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;")
                 except Exception as exc:
                     logger.debug("Failed to set REPEATABLE READ isolation level: %s", exc)
+
+            current_epoch = ContentDiscoveryEpoch.get_current_epoch_readonly()
+
+            # RECYCLE-DISCOVERY-02: 游标失效判定
+            cursor_reset = False
+            offset = cursor_offset
+            if spec.cursor is not None:
+                if cursor_epoch is not None and cursor_epoch != current_epoch:
+                    cursor_reset = True
+                    offset = 0  # 自动重置为第 1 页
 
             # 1. 基础合法候选集 E (仅限已上线、未回收内容)
             candidates = PublishedSearchDocument.objects.filter(is_live=True, is_recycled=False)

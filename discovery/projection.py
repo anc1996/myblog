@@ -39,28 +39,47 @@ def _find_adapter_for_page(page: Any):
 def project_page_to_discovery(page: Any, index_generation: int = 1) -> PublishedSearchDocument | None:
     """
     将已发布的页面投影到全站搜索副本表：
-    1. 若未发布或已被回收，立即标记下架并递增 epoch；
-    2. 提取文本与标签，落库 PublishedSearchDocument / PublishedSearchChunk / PublishedSearchTag；
-    3. 递增全局 Epoch。
+    1. 严格从数据库重新读取主表状态并排除别名页与未上线页面；
+    2. 仅从 live_revision.as_object() 还原正式快照，杜绝在途草稿污染；
+    3. 提取文本、标签与维度元数据，落库 PublishedSearchDocument / PublishedSearchChunk / PublishedSearchTag；
+    4. 原子递增全局 Epoch。
     """
-    is_live = getattr(page, "live", False) and (getattr(page, "live_revision_id", None) is not None)
-    is_recycled = getattr(page, "is_recycled", False)
+    from wagtail.models import Page
+
+    page_id = getattr(page, "id", None)
+    if not page_id:
+        return None
+
+    # 1. 严格重读数据库当前 Page 主表状态，拒绝直接信任内存脏实例与 Alias (BLK-04)
+    db_page = Page.objects.filter(id=page_id).select_related("live_revision").first()
+    if not db_page or db_page.alias_of_id is not None:
+        unpublish_page_discovery(page_id)
+        return None
+
+    specific_page = db_page.specific
+    is_live = getattr(specific_page, "live", False) and (getattr(specific_page, "live_revision_id", None) is not None)
+    is_recycled = getattr(specific_page, "is_recycled", False)
 
     if (not is_live) or is_recycled:
-        unpublish_page_discovery(page.id)
+        unpublish_page_discovery(page_id)
         return None
 
-    adapter = _find_adapter_for_page(page)
+    adapter = _find_adapter_for_page(specific_page)
     if not adapter:
-        logger.debug("No TypeAdapter registered for page %s (%s)", page.id, getattr(page, "title", ""))
+        logger.debug("No TypeAdapter registered for page %s (%s)", page_id, getattr(specific_page, "title", ""))
         return None
 
-    payload = adapter.extract(page)
+    # 2. 必须且仅从 live_revision.as_object() 还原正式快照（内部触发 Mongo 指针校验水合）
+    live_rev = specific_page.live_revision
+    if str(live_rev.object_id) != str(specific_page.id):
+        raise ValueError(f"Revision object_id mismatch for page {specific_page.id}")
+    published_snapshot = live_rev.as_object()
+    payload = adapter.extract(published_snapshot)
 
     site_id = None
     try:
-        if hasattr(page, "get_site"):
-            site = page.get_site()
+        if hasattr(specific_page, "get_site"):
+            site = specific_page.get_site()
             if site:
                 site_id = site.id
     except Exception:
@@ -68,15 +87,15 @@ def project_page_to_discovery(page: Any, index_generation: int = 1) -> Published
 
     actual_url = payload.url_path
     if not actual_url or actual_url.startswith("/home/"):
-        actual_url = page.get_url() if hasattr(page, "get_url") else getattr(page, "url_path", "")
+        actual_url = specific_page.get_url() if hasattr(specific_page, "get_url") else getattr(specific_page, "url_path", "")
 
     with transaction.atomic():
         doc, _ = PublishedSearchDocument.objects.update_or_create(
-            page_id=page.id,
+            page_id=specific_page.id,
             index_generation=index_generation,
             defaults={
-                "document_uuid": getattr(page, "document_uuid", uuid.uuid4()),
-                "effective_revision_id": page.live_revision_id or 0,
+                "document_uuid": getattr(specific_page, "document_uuid", uuid.uuid4()),
+                "effective_revision_id": specific_page.live_revision_id or 0,
                 "publication_generation": 1,
                 "type_key": payload.type_key,
                 "title": payload.title,
@@ -86,8 +105,8 @@ def project_page_to_discovery(page: Any, index_generation: int = 1) -> Published
                 "is_live": True,
                 "is_recycled": False,
                 "site_id": site_id,
-                "root_path": getattr(page, "path", ""),
-                "depth": getattr(page, "depth", 1),
+                "root_path": getattr(specific_page, "path", ""),
+                "depth": getattr(specific_page, "depth", 1),
                 "extra_data": payload.extra_data,
             },
         )

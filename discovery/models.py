@@ -33,10 +33,16 @@ class ContentDiscoveryEpoch(models.Model):
         return obj.epoch
 
     @classmethod
+    def get_current_epoch_readonly(cls, name: str = "global") -> int:
+        """在只读事务内安全读取当前版本号，绝不触发写操作"""
+        val = cls.objects.filter(name=name).values_list("epoch", flat=True).first()
+        return val if val is not None else 1
+
+    @classmethod
     def increment_epoch(cls, name: str = "global") -> int:
-        """原子递增版本号并返回新版本"""
+        """原子递增版本号并返回新版本（确保首次递增至少从默认 1 递增到 2）"""
         with transaction.atomic():
-            obj, created = cls.objects.select_for_update().get_or_create(name=name, defaults={"epoch": 1})
+            obj, created = cls.objects.select_for_update().get_or_create(name=name, defaults={"epoch": 2})
             if not created:
                 obj.epoch += 1
                 obj.save(update_fields=["epoch", "last_mutated_at"])
