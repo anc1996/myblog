@@ -1,0 +1,13 @@
+{% load wagtailcore_tags %}
+{% if value.tip_type == "danger" %}
+<div class="guide-tip-card danger" style="background:#fef2f2;border-left:5px solid #dc2626;padding:16px 20px;border-radius:6px;margin:20px 0;color:#991b1b;">
+{% elif value.tip_type == "warning" %}
+<div class="guide-tip-card warning" style="background:#fffbeb;border-left:5px solid #d97706;padding:16px 20px;border-radius:6px;margin:20px 0;color:#92400e;">
+{% elif value.tip_type == "info" %}
+<div class="guide-tip-card info" style="background:#eff6ff;border-left:5px solid #3b82f6;padding:16px 20px;border-radius:6px;margin:20px 0;color:#1e40af;">
+{% else %}
+<div class="guide-tip-card tip" style="background:#f0fdf4;border-left:5px solid #16a34a;padding:16px 20px;border-radius:6px;margin:20px 0;color:#166534;">
+{% endif %}
+    {% if value.title %}<h4 style="margin:0 0 8px 0;">{{ value.title }}</h4>{% endif %}
+    <div style="line-height:1.6;font-size:14px;">{{ value.content }}</div>
+</div>

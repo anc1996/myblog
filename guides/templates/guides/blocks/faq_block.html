@@ -1,0 +1,10 @@
+{% load wagtailcore_tags %}
+<div class="guide-faq-card" style="background:#f8fafc;border:1px solid #e2e8f0;padding:16px 20px;border-radius:6px;margin:16px 0;">
+    <h4 style="margin:0 0 8px 0;color:#0f172a;display:flex;align-items:center;gap:8px;">
+        <span style="background:#64748b;color:#fff;font-size:12px;padding:2px 6px;border-radius:4px;">FAQ</span>
+        {{ value.question }}
+    </h4>
+    <div style="color:#475569;font-size:14px;line-height:1.6;margin-top:8px;">
+        {{ value.answer }}
+    </div>
+</div>

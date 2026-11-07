@@ -36,6 +36,7 @@ INSTALLED_APPS = [
     "people.apps.PeopleConfig",
     "taxonomy.apps.TaxonomyConfig",
     "blog.apps.BlogConfig",
+    "guides.apps.GuidesConfig",
     "home",
     "search",
     "wagtail.contrib.forms",

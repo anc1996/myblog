@@ -1,0 +1,13 @@
+{% load wagtailcore_tags %}
+<div class="guide-lead-card" style="background:#f0f9ff;border:1px solid #bae6fd;border-left:5px solid #0284c7;padding:20px;border-radius:8px;margin:24px 0;">
+    <h3 style="margin-top:0;color:#0369a1;">{{ value.title }}</h3>
+    {% if value.prerequisites %}
+        <div class="prerequisites" style="margin-bottom:12px;font-size:14px;color:#0f172a;">
+            <strong>先决条件与环境准备：</strong>
+            {{ value.prerequisites }}
+        </div>
+    {% endif %}
+    <div class="overview" style="color:#334155;">
+        {{ value.overview }}
+    </div>
+</div>

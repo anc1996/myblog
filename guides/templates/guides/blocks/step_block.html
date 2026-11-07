@@ -1,0 +1,27 @@
+{% load wagtailcore_tags wagtailimages_tags %}
+<div class="guide-step-card" id="step-{{ value.step_number }}" style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:24px;margin:28px 0;box-shadow:0 1px 3px rgba(0,0,0,0.05);">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+        <span style="background:#0284c7;color:#fff;width:32px;height:32px;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;font-weight:bold;font-size:16px;">{{ value.step_number }}</span>
+        <h3 style="margin:0;color:#0f172a;font-size:20px;">{{ value.title }}</h3>
+    </div>
+    <div class="step-content" style="color:#334155;line-height:1.7;">
+        {{ value.content }}
+    </div>
+    {% if value.code_snippet %}
+        <div class="step-code" style="margin-top:16px;background:#0f172a;border-radius:6px;overflow:hidden;">
+            <div style="padding:6px 12px;background:#1e293b;color:#94a3b8;font-size:12px;font-family:monospace;">
+                {{ value.code_language|upper }}
+            </div>
+            <pre style="margin:0;padding:16px;color:#f8fafc;font-family:monospace;font-size:13px;overflow-x:auto;"><code>{{ value.code_snippet }}</code></pre>
+        </div>
+    {% endif %}
+    {% if value.image %}
+        <div class="step-image" style="margin-top:16px;text-align:center;">
+            {% image value.image width-800 as img %}
+            <img src="{{ img.url }}" alt="{{ value.title }}" style="max-width:100%;height:auto;border-radius:6px;border:1px solid #cbd5e1;">
+            {% if value.image_caption %}
+                <p style="color:#64748b;font-size:13px;margin-top:6px;">{{ value.image_caption }}</p>
+            {% endif %}
+        </div>
+    {% endif %}
+</div>

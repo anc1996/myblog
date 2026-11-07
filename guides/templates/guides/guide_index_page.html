@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% load wagtailcore_tags %}
+
+{% block title %}{{ page.title }}{% endblock %}
+
+{% block content %}
+<div class="guide-index" style="max-width:960px;margin:30px auto;padding:0 20px;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;">
+    <header style="margin-bottom:32px;">
+        <h1 style="color:#0f172a;font-size:32px;">{{ page.title }}</h1>
+        {% if page.intro %}
+            <p style="color:#64748b;font-size:16px;line-height:1.6;">{{ page.intro }}</p>
+        {% endif %}
+    </header>
+
+    <div class="guide-list" style="display:grid;grid-template-columns:repeat(auto-fill, minmax(280px, 1fr));gap:20px;">
+        {% for child in page.get_children.live.specific %}
+            <div class="guide-card" style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:20px;display:flex;flex-direction:column;justify-content:space-between;box-shadow:0 1px 3px rgba(0,0,0,0.05);">
+                <div>
+                    {% if child.topic %}
+                        <span style="background:#e0f2fe;color:#0369a1;font-size:11px;font-weight:600;padding:2px 8px;border-radius:4px;">
+                            {{ child.topic.name }}
+                        </span>
+                    {% endif %}
+                    <h3 style="margin:10px 0 8px 0;font-size:18px;">
+                        <a href="{{ child.url }}" style="color:#0f172a;text-decoration:none;">{{ child.title }}</a>
+                    </h3>
+                    {% if child.summary %}
+                        <p style="color:#64748b;font-size:13px;line-height:1.6;margin:0 0 12px 0;">{{ child.summary|truncatechars:80 }}</p>
+                    {% endif %}
+                </div>
+                <div style="color:#94a3b8;font-size:12px;border-top:1px solid #f1f5f9;padding-top:10px;display:flex;justify-content:space-between;">
+                    <span>复核: {{ child.last_reviewed_at|date:"Y-m-d" }}</span>
+                    <span>{{ child.get_difficulty_display }}</span>
+                </div>
+            </div>
+        {% empty %}
+            <p style="color:#94a3b8;">暂无已发布的专题指南。</p>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

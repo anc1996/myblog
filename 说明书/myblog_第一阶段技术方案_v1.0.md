@@ -501,6 +501,8 @@ Redis 不可用时，按限定范围读取原数据，仍检查权限，不能�
 | `/api/v1/search/` | GET | `query`, `tag`, `type`, `year`, `month`, `cursor`, `page`, `page_size`, `secondary`, `expand` | `{total_count, page_size, next_cursor, cursor_reset, expansion_used, secondary_used, show_expand_button, items, facets, archive_groups}` | Redis Epoch 瞬时失效缓存（300s，代次隔离）；滑动窗口限流 60次/分/IP |
 | `/api/v1/posts/<slug>/` | GET | `slug` (路径参数) | `{status, epoch, data: {id, title, slug, url, authored_on, intro, featured_image, authors, tags, blocks, safe_html}}` | Redis Epoch 瞬时失效缓存（600s，代次隔离）；滑动窗口限流 120次/分/IP |
 | `/api/v1/posts/` | GET | `page`, `page_size`, `tag` | `{total_count, current_page, page_size, total_pages, has_next, has_prev, items}` | Redis Epoch 缓存（180s）；滑动窗口限流 60次/分/IP |
+| `/api/v1/guides/` | GET | `topic`, `difficulty`, `page`, `page_size` | `{total_count, current_page, page_size, total_pages, has_next, has_prev, items}` | Redis Epoch 缓存（180s）；滑动窗口限流 60次/分/IP |
+| `/api/v1/guides/<slug>/` | GET | `slug` (路径参数) | `{status, epoch, data: {id, title, slug, url, topic, difficulty, estimated_minutes, last_reviewed_at, is_outdated, outdated_warning, summary, featured_image, authors, tags, steps_toc, blocks, safe_html, related_guides}}` | Redis Epoch 瞬时失效缓存（600s）；滑动窗口限流 120次/分/IP |
 
 **核心技术契约：**
 1. **分页机制（游标 + 页码兼容）**：底层核心采用 `next_cursor`（Base64 编码当前 Epoch 与 offset，杜绝百万级深分页性能瓶颈）；同时支持前端传 `page` 参数（如 `page=2`），后端自动折算对应游标偏移。
@@ -516,6 +518,29 @@ Redis 不可用时，按限定范围读取原数据，仍检查权限，不能�
 已准备 dev DB9/test DB11 和命名空间；逻辑库共享同一 Redis 服务，
 不能声称是独立实例。禁用 FLUSHDB/FLUSHALL，测试只能按自己的唯一前缀处理数据。
 若以后引入 broker/result DB，先另行核对占用，不能沿用旧站编号。
+
+### D3.2 【已确认】专题指南与技术专栏体系 (guides App)
+
+实现结构化教程、系统配置指南的专栏体系，并深度集成既有底层：
+
+**数据模型与积木组件：**
+1. `GuideTopic` (Snippet)：专栏主题分类，具备唯一 slug 且带 `models.PROTECT` 防级联误删。
+2. `GuideIndexPage` (Page)：专栏聚合大厅，支持按主题与难度筛选，默认按 `last_reviewed_at` 倒序。
+3. `GuidePage` (Page)：专栏详情页，继承 `CustomBasePage`，正文 `body` 彻底脱水至 MongoDB（SQL 列保持 `[]`）。
+4. 专属教程积木 (`GuideStreamBlock`)：
+   - `lead`（导读与先决条件）
+   - `step`（实操操作步骤：编号、标题、详细说明、代码、配图）
+   - `code`（增强代码块）
+   - `tip`（预警技巧卡片：tip/info/warning/danger）
+   - `faq`（常见排错问答对）
+   - `reference`（官方权威参考外链）
+   - 复用 `CustomTableBlock` 与 `CustomMermaidBlock`。
+
+**业务与安全契约：**
+1. **决策一（技术复核时效检查）**：`last_reviewed_at` 超过 365 天未复核的文章，前台与 API 自动注入时效预警提示（`⚠️ 本指南最后技术复核于 X 年前...`）。
+2. **决策二（发布门禁）**：保存草稿时宽容允许无主题、无步骤；正式发布（`live=True`）时强校验必须绑定 `topic` 且正文必须包含至少 1 个 `step` 操作步骤块。
+3. **全生命周期保障**：享有 `CustomBasePage` 提供的 30 天原树受控回收站、误删一键恢复与网址冲突自动改名。
+4. **统一检索接入**：通过 `GuidePageAdapter` 将教程步骤、代码与正文分块索引至 PostgreSQL GIN 倒排索引（`type_key = "guide"`）。
 
 ### D3.1 【已确认】方案 A：彻底脱水模式（PostgreSQL 零大文本与 MongoDB 动态水合）
 

@@ -306,3 +306,179 @@ def post_list_api(request):
 
     cache.set(cache_key, payload, timeout=180)
     return _cors_json_response(payload, extra_headers={"X-Cache": "MISS", "X-Epoch": str(current_epoch)})
+
+
+@ratelimit_api(scope="guide_list", max_requests=60, window_seconds=60)
+def guides_list_api(request):
+    """
+    专题指南专栏列表 API
+    GET /api/v1/guides/
+    """
+    from guides.models import GuidePage, GuideTopic
+
+    page_str = request.GET.get("page", "1").strip()
+    page_num = int(page_str) if page_str.isdigit() and int(page_str) > 0 else 1
+
+    page_size_str = request.GET.get("page_size", "10").strip()
+    page_size = max(1, min(int(page_size_str) if page_size_str.isdigit() else 10, 50))
+
+    topic_slug = request.GET.get("topic", "").strip()
+    difficulty = request.GET.get("difficulty", "").strip()
+
+    current_epoch = ContentDiscoveryEpoch.get_current_epoch()
+    cache_key = f"api:guides_list:{current_epoch}:p{page_num}_s{page_size}_t{topic_slug}_d{difficulty}"
+    cached_payload = cache.get(cache_key)
+
+    if cached_payload is not None:
+        return _cors_json_response(cached_payload, extra_headers={"X-Cache": "HIT", "X-Epoch": str(current_epoch)})
+
+    qs = GuidePage.objects.filter(live=True).order_by("-last_reviewed_at", "-first_published_at")
+    if topic_slug:
+        qs = qs.filter(topic__slug=topic_slug)
+    if difficulty:
+        qs = qs.filter(difficulty=difficulty)
+
+    total_count = qs.count()
+    offset = (page_num - 1) * page_size
+    pages = qs.select_related("topic", "featured_image").prefetch_related("tags", "authors__person")[offset : offset + page_size]
+
+    items = []
+    for g in pages:
+        is_outdated, _, warning_msg = g.is_outdated()
+        authors = [{"id": a.person.id, "name": a.person.name, "role": a.role} for a in g.authors.all() if a.person]
+        tags = [{"id": t.id, "name": t.name, "slug": t.slug} for t in g.tags.all()]
+        items.append({
+            "id": g.id,
+            "title": g.title,
+            "slug": g.slug,
+            "url": g.url,
+            "topic": {"name": g.topic.name, "slug": g.topic.slug} if g.topic else None,
+            "difficulty": g.difficulty,
+            "difficulty_label": g.get_difficulty_display(),
+            "estimated_minutes": g.estimated_minutes,
+            "authored_on": g.authored_on.strftime("%Y-%m-%d") if g.authored_on else None,
+            "last_reviewed_at": g.last_reviewed_at.strftime("%Y-%m-%d") if g.last_reviewed_at else None,
+            "is_outdated": is_outdated,
+            "summary": g.summary,
+            "cover_url": g.featured_image.file.url if g.featured_image else None,
+            "authors": authors,
+            "tags": tags,
+        })
+
+    total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 1
+    has_next = page_num < total_pages
+    has_prev = page_num > 1
+
+    payload = {
+        "status": "success",
+        "epoch": current_epoch,
+        "total_count": total_count,
+        "current_page": page_num,
+        "page_size": page_size,
+        "total_pages": total_pages,
+        "has_next": has_next,
+        "has_prev": has_prev,
+        "items": items,
+    }
+
+    cache.set(cache_key, payload, timeout=180)
+    return _cors_json_response(payload, extra_headers={"X-Cache": "MISS", "X-Epoch": str(current_epoch)})
+
+
+@ratelimit_api(scope="guide_detail", max_requests=120, window_seconds=60)
+def guide_detail_api(request, slug):
+    """
+    专题指南详情 API（双形态积木输出与技术复核告警）
+    GET /api/v1/guides/<slug>/
+    """
+    from guides.models import GuidePage
+
+    current_epoch = ContentDiscoveryEpoch.get_current_epoch()
+    cache_key = f"api:guide:{current_epoch}:{slug}"
+    cached_payload = cache.get(cache_key)
+
+    if cached_payload is not None:
+        return _cors_json_response(cached_payload, extra_headers={"X-Cache": "HIT", "X-Epoch": str(current_epoch)})
+
+    page = GuidePage.objects.filter(slug=slug, live=True).first()
+    if not page or getattr(page, "is_recycled", False):
+        return _cors_json_response(
+            {"status": "error", "code": 404, "message": "专栏指南不存在或已下架"},
+            status=404,
+        )
+
+    access_context = AccessContext(user=request.user, mode=AccessMode.PUBLIC)
+    page.hydrate_from_mongo(access_context=access_context)
+
+    # 1. 结构化积木列表 (blocks)
+    blocks_data = []
+    steps_toc = []
+    for b in page.body:
+        val = b.block.get_prep_value(b.value) if hasattr(b.block, "get_prep_value") else b.value
+        blocks_data.append({
+            "type": b.block_type,
+            "value": val,
+        })
+        if b.block_type == "step":
+            steps_toc.append({
+                "step_number": val.get("step_number"),
+                "title": val.get("title"),
+            })
+
+    safe_html_str = str(page.body)
+    is_outdated, _, warning_msg = page.is_outdated()
+
+    authors_data = []
+    for a in page.authors.select_related("person").all():
+        if a.person:
+            authors_data.append({
+                "id": a.person.id,
+                "name": a.person.name,
+                "role": a.role,
+                "bio": a.person.bio or "",
+            })
+
+    tags_data = [{"id": t.id, "name": t.name, "slug": t.slug} for t in page.tags.all()]
+    related_data = [
+        {"id": r.related_page.id, "title": r.related_page.title, "url": r.related_page.url}
+        for r in page.related_guides.all()
+    ]
+
+    cover_data = None
+    if page.featured_image:
+        cover_data = {
+            "id": page.featured_image.id,
+            "title": page.featured_image.title,
+            "public_id": str(page.featured_image.public_id),
+            "url": page.featured_image.file.url,
+        }
+
+    guide_payload = {
+        "status": "success",
+        "epoch": current_epoch,
+        "data": {
+            "id": page.id,
+            "title": page.title,
+            "slug": page.slug,
+            "url": page.url,
+            "topic": {"name": page.topic.name, "slug": page.topic.slug} if page.topic else None,
+            "difficulty": page.difficulty,
+            "difficulty_label": page.get_difficulty_display(),
+            "estimated_minutes": page.estimated_minutes,
+            "authored_on": page.authored_on.strftime("%Y-%m-%d") if page.authored_on else None,
+            "last_reviewed_at": page.last_reviewed_at.strftime("%Y-%m-%d") if page.last_reviewed_at else None,
+            "is_outdated": is_outdated,
+            "outdated_warning": warning_msg if is_outdated else None,
+            "summary": page.summary,
+            "featured_image": cover_data,
+            "authors": authors_data,
+            "tags": tags_data,
+            "steps_toc": steps_toc,
+            "blocks": blocks_data,
+            "safe_html": safe_html_str,
+            "related_guides": related_data,
+        },
+    }
+
+    cache.set(cache_key, guide_payload, timeout=600)
+    return _cors_json_response(guide_payload, extra_headers={"X-Cache": "MISS", "X-Epoch": str(current_epoch)})
