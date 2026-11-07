@@ -503,6 +503,12 @@ Redis 不可用时，按限定范围读取原数据，仍检查权限，不能�
 | `/api/v1/posts/` | GET | `page`, `page_size`, `tag` | `{total_count, current_page, page_size, total_pages, has_next, has_prev, items}` | Redis Epoch 缓存（180s）；滑动窗口限流 60次/分/IP |
 | `/api/v1/guides/` | GET | `topic`, `difficulty`, `page`, `page_size` | `{total_count, current_page, page_size, total_pages, has_next, has_prev, items}` | Redis Epoch 缓存（180s）；滑动窗口限流 60次/分/IP |
 | `/api/v1/guides/<slug>/` | GET | `slug` (路径参数) | `{status, epoch, data: {id, title, slug, url, topic, difficulty, estimated_minutes, last_reviewed_at, is_outdated, outdated_warning, summary, featured_image, authors, tags, steps_toc, blocks, safe_html, related_guides}}` | Redis Epoch 瞬时失效缓存（600s）；滑动窗口限流 120次/分/IP |
+| `/api/v1/pages/<page_id>/comments/` | GET | `sort` (hot/latest), `page`, `page_size` | `{status, total_count, current_page, page_size, total_pages, items: [{id, author, safe_html, like_count, dislike_count, reply_count, user_reaction, created_at, is_editable}]}` | 校验页面受限权限（受限页私有 no-store）；未受限走动态缓存；限流 60次/分/IP |
+| `/api/v1/pages/<page_id>/comments/post/` | POST | `content`, `parent_id`, `reply_to_comment_id`, `contact_website` (蜜罐) | `{status: "success", data: {id, status, is_publicly_visible, can_edit_until}}` | 蜜罐静默丢弃；Redis 用户/IP 滑动窗口限流（故障时 503 熔断）；细粒度页级共享锁 (FOR SHARE) |
+| `/api/v1/comments/<root_id>/replies/` | GET | `root_id` (路径参数) | `{status: "success", root_id, reply_count, items}` | 懒加载二级回复；按首次批准时间递增排序 |
+| `/api/v1/comments/<id>/react/` | POST | `reaction` (1赞, -1踩, 0取消) | `{status: "success", data: {like_count, dislike_count}}` | 同一用户互斥唯一；禁止自赞自踩；F() 原子更新 |
+| `/api/v1/comments/<id>/edit/` | POST | `content` (新正文) | `{status: "success", data: {comment_id, version_number, status}}` | 5 分钟编辑时限校验；生成新 CommentVersion (pending)；排他覆盖旧 pending 版本 |
+| `/api/v1/comments/<id>/delete/` | POST | - | `{status: "success", message: "评论已成功下架删除"}` | 仅作者或审核员有权操作；软删除下架，父级 reply_count 联动扣减 |
 
 **核心技术契约：**
 1. **分页机制（游标 + 页码兼容）**：底层核心采用 `next_cursor`（Base64 编码当前 Epoch 与 offset，杜绝百万级深分页性能瓶颈）；同时支持前端传 `page` 参数（如 `page=2`），后端自动折算对应游标偏移。
@@ -520,6 +526,44 @@ Redis 不可用时，按限定范围读取原数据，仍检查权限，不能�
 若以后引入 broker/result DB，先另行核对占用，不能沿用旧站编号。
 
 ### D3.2 【已确认】专题指南与技术专栏体系 (guides App)
+
+### D3.3 【已确认】全站通用评论互动与审核风控系统 (comments App)
+
+实现解耦、全站各类 Page 通用、具备企业级防刷风控的评论与二级回复体系：
+
+**1. 全站通用 Page 外键挂载 (C-01 & C-02)**：
+- 直接外键关联基类 `wagtailcore.Page`（`null=True, on_delete=models.SET_NULL, related_name="site_comments"`），`BlogPage`、`GuidePage` 等全站所有页面直接开箱通用；
+- 严禁使用 `ParentalKey`，彻底消除页面复制、翻译克隆评论的污染；
+- 表中冗余存储 `page_document_uuid` 与 `page_title_snapshot`，当页面被 30 天物理销毁时评论平滑降级展示为 `[页面已永久销毁]`，杜绝 500 崩溃并保留审核存证；
+- 统一守卫 `get_accessible_comment_page`：强校验 `depth > 1`、`allow_comments=True`、当前 `Site` 归属、未回收与已上线，并 100% 执行 `PageViewRestriction` 权限校验（受限页面的评论 API 附加 `no-store` 头且禁用公共缓存）。
+
+**2. 扁平两级反嵌套与原子状态跃迁计数 (C-04 & C-05)**：
+- 结构约束：`parent` 恒指向顶级根评论，`reply_to_comment` 记录直接回复目标，`replied_to_user` 记录被回复人，杜绝递归嵌套导致的性能雪崩；
+- 根评论优先锁 (Parent-First Lock)：回复和审批子评论必须先锁根评论，强校验根评论已公开存活；
+- `is_publicly_visible` 布尔跃迁计分法：仅在可见性发生 `False <-> True` 翻转时才对根评论累加差值；**已上线评论编辑 V2 审批时差值为 0，彻底杜绝审批新版本导致 reply_count 翻倍**。
+
+**3. 不可变版本化审核与防盲批 CAS (C-03)**：
+- 5 分钟安全编辑窗口内修改评论生成全新 `CommentVersion` 记录；
+- V2 待审核期间，前台继续稳定展示旧已批准的 V1 正文；
+- 审核批准强校验 `expected_version_id == comment.pending_version_id`，杜绝管理员审阅期间作者提交新版本导致的“盲批覆盖漏洞”。
+
+**4. 互斥点赞与非负约束 (C-05)**：
+- `CommentReaction` 唯一约束 `(comment, user)`，禁止自评自赞；
+- 数据库级 `CheckConstraint` 强制保障 `like_count >= 0`、`dislike_count >= 0`、`reply_count >= 0`。
+
+**5. 防垃圾风控与安全净化 (C-08)**：
+- **蜜罐防御**：表单内置 `contact_website` 隐藏字段，机器人提交则静默返回 200 丢弃；
+- **Fail-Closed 熔断限流**：单用户 60 秒限 5 次，单 IP 60 秒限 20 次；先查后写杜绝自我锁死；Redis 异常时 503 阻断写；
+- **独立 nh3 白名单**：严禁 `img/video/audio/table/div` 等富媒体标签注入；链接强制追加 `rel="nofollow ugc noopener noreferrer"`。
+
+**6. Wagtail 8.1 审核控制台安全加固 (C-06)**：
+- `CommentViewSet(ModelViewSet)` 彻底剪除 `add/edit/delete/copy` 路由，标题点击重定向至 `inspect` 只读视图；
+- 重写 `Comment.delete()` 默认阻断物理硬删；注册独立权限 `comments.moderate_comment`。
+
+**7. 细粒度页级共享锁 (C-07)**：
+- 评论写事务在 `lock_timeout = '3s'` 下对目标 `wagtailcore_page` 行加 `FOR SHARE`，兼顾页面回收/销毁互斥与全站评论高并发。
+
+
 
 实现结构化教程、系统配置指南的专栏体系，并深度集成既有底层：
 

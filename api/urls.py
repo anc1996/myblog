@@ -3,7 +3,7 @@ api.urls
 API 路由分发器。
 """
 
-from django.urls import path
+from django.urls import path, include
 from . import views
 
 app_name = "api_v1"
@@ -17,4 +17,6 @@ urlpatterns = [
     # 专题技术专栏与指南
     path("guides/", views.guides_list_api, name="guide_list"),
     path("guides/<slug:slug>/", views.guide_detail_api, name="guide_detail"),
+    # 全站通用评论互动
+    path("", include("comments.api.urls")),
 ]

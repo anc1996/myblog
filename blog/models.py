@@ -85,6 +85,7 @@ class BlogPageGalleryImage(Orderable):
 
 class BlogIndexPage(CustomBasePage):
     """博客栏目 / 目录页面，可递归多层嵌套"""
+    allow_comments = False
     authored_on = models.DateField(
         default=timezone.now,
         verbose_name="成文日期",

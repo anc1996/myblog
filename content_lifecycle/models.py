@@ -32,6 +32,7 @@ class CustomBasePage(Page):
         verbose_name="是否已移入回收站",
         help_text="原树占位标记；已回收页面不可发布、对公网不可见且在管理后台普通目录隐藏",
     )
+    allow_comments = True
 
     class Meta:
         abstract = True

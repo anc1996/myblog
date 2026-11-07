@@ -133,6 +133,7 @@ class GuideRelatedPage(Orderable):
 
 class GuideIndexPage(CustomBasePage):
     """专题指南聚合大厅页面（支持主题与难度聚合筛选）"""
+    allow_comments = False
     intro = models.TextField(blank=True, verbose_name="专栏聚合大厅简介")
     featured_topic = models.ForeignKey(
         GuideTopic,
