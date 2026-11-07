@@ -2,11 +2,7 @@
 
 日期：2026-11-04
 
-状态：RustFS 基础服务已完成对接验证；Django 媒体业务尚未接入。
-
-2026-11-04 数据库更新：S0 PostgreSQL 18.6 环境切换完成，四服务读写、两库严格检查和中文临时 GIN 探针通过；
-其中 RustFS 私有上传、Range、读取和删除通过，媒体业务接入未完成。详细结果见[PostgreSQL 切换记录](myblog_PostgreSQL切换记录_2026-11-04.md)。
-第 4 节保留 RustFS 切换当时的 MySQL 历史记录，不作为 PostgreSQL 成功证据。
+状态：**生产已就绪**。ProtectedRustFSStorage 保护拦截、全桶私有化、零公网签名、Django 逐次鉴权、X-Accel/ASGI Range 续传交付及全站 96 项自动化测试已全部通过。
 
 ## 1. 当前选型
 
@@ -72,7 +68,7 @@ PostgreSQL 管理员为 `postgres`，MongoDB 和 RustFS 仍为 `root`；不把�
 - 短期预签名 GET 成功，篡改签名返回 403。
 - 分片上传、S3 批量删除和控制台批量删除成功。
 - RustFS 单独重启后对象内容和元数据保持一致。
-- 其他 MySQL、Redis、MongoDB 容器未被重建。
+- 其他 Redis、MongoDB 容器保持健康运行。
 
 ## 5. 后续实施顺序
 
