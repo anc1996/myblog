@@ -23,9 +23,9 @@ class BlogIntroBlocks(blocks.StreamBlock):
 
 
 class BlogBodyBlocks(blocks.StreamBlock):
-    """正文专属积木流：装配全部 10 个全站公共积木"""
+    """正文专属积木流：装配全部 15 个全站公共积木（含基础积木与结构化教程卡片）"""
     def __init__(self, **kwargs):
-        super().__init__(get_common_stream_blocks(), **kwargs)
+        super().__init__(get_common_stream_blocks(include_structured=True), **kwargs)
 
     class Meta:
         label = "文章正文区块"

@@ -527,14 +527,14 @@ Redis 不可用时，按限定范围读取原数据，仍检查权限，不能�
 1. `GuideTopic` (Snippet)：专栏主题分类，具备唯一 slug 且带 `models.PROTECT` 防级联误删。
 2. `GuideIndexPage` (Page)：专栏聚合大厅，支持按主题与难度筛选，默认按 `last_reviewed_at` 倒序。
 3. `GuidePage` (Page)：专栏详情页，继承 `CustomBasePage`，正文 `body` 彻底脱水至 MongoDB（SQL 列保持 `[]`）。
-4. 专属教程积木 (`GuideStreamBlock`)：
-   - `lead`（导读与先决条件）
-   - `step`（实操操作步骤：编号、标题、详细说明、代码、配图）
-   - `code`（增强代码块）
-   - `tip`（预警技巧卡片：tip/info/warning/danger）
-   - `faq`（常见排错问答对）
-   - `reference`（官方权威参考外链）
-   - 复用 `CustomTableBlock` 与 `CustomMermaidBlock`。
+4. 全站通用教程与卡片积木（已下沉至 `content_blocks.blocks.structured`，供 BlogPage、GuidePage 等全站共享复用）：
+   - `CustomLeadBlock` (`lead`：导读与先决条件卡片)
+   - `CustomStepBlock` (`step`：实操步骤卡片，含步骤配图受控网关交付与 Pygments 高亮复制按钮，实现了 `MEDIA-REF-01` 引用追踪)
+   - `CustomTipBlock` (`tip`：技巧预警 Callout 卡片，支持 tip/info/warning/danger)
+   - `CustomFaqBlock` (`faq`：排错与疑难问答对)
+   - `CustomReferenceBlock` (`reference`：官方权威外链卡片)
+   - 全面实现 `BlockContract`（纯文本提取供搜索分块，XSS 白名单 `nh3` 安全净化）；
+   - `BlogBodyBlocks` 与 `GuideStreamBlock` 统一装配全套 15 个全站公共积木，彻底避免重复造轮子。
 
 **业务与安全契约：**
 1. **决策一（技术复核时效检查）**：`last_reviewed_at` 超过 365 天未复核的文章，前台与 API 自动注入时效预警提示（`⚠️ 本指南最后技术复核于 X 年前...`）。

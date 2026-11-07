@@ -75,27 +75,22 @@ class GuidePageAdapter:
         parts = []
         try:
             for child in stream_value:
-                b_type = child.block_type
-                val = child.value
-                if b_type == "step":
-                    parts.append(str(val.get("title", "")))
-                    parts.append(str(val.get("content", "")))
-                    parts.append(str(val.get("code_snippet", "")))
-                elif b_type in ("lead", "tip", "faq"):
-                    for k in ("title", "prerequisites", "overview", "content", "question", "answer"):
-                        if k in val and val[k]:
-                            parts.append(str(val[k]))
-                elif b_type == "code":
-                    parts.append(str(val.get("code", "")))
+                block = getattr(child, "block", None)
+                if block and hasattr(block, "extract_text"):
+                    ext = block.extract_text(child.value)
+                    if ext and ext.plain_text:
+                        parts.append(ext.plain_text)
                 else:
-                    parts.append(str(val))
+                    v_str = str(getattr(child, "value", ""))
+                    clean = re.sub(r"<[^>]+>", " ", v_str)
+                    clean = re.sub(r"\s+", " ", clean).strip()
+                    if clean:
+                        parts.append(clean)
         except Exception:
-            parts.append(str(stream_value))
-
-        combined = " \n".join(parts)
-        clean = re.sub(r"<[^>]+>", " ", combined)
-        clean = re.sub(r"\s+", " ", clean).strip()
-        return clean
+            v_str = str(stream_value)
+            clean = re.sub(r"<[^>]+>", " ", v_str)
+            parts.append(clean.strip())
+        return " \n".join(parts)
 
 
 class GuideIndexPageAdapter:

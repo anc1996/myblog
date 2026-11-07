@@ -332,7 +332,7 @@ def guides_list_api(request):
     if cached_payload is not None:
         return _cors_json_response(cached_payload, extra_headers={"X-Cache": "HIT", "X-Epoch": str(current_epoch)})
 
-    qs = GuidePage.objects.filter(live=True).order_by("-last_reviewed_at", "-first_published_at")
+    qs = GuidePage.objects.filter(live=True, is_recycled=False).order_by("-last_reviewed_at", "-first_published_at")
     if topic_slug:
         qs = qs.filter(topic__slug=topic_slug)
     if difficulty:
@@ -360,7 +360,7 @@ def guides_list_api(request):
             "last_reviewed_at": g.last_reviewed_at.strftime("%Y-%m-%d") if g.last_reviewed_at else None,
             "is_outdated": is_outdated,
             "summary": g.summary,
-            "cover_url": g.featured_image.file.url if g.featured_image else None,
+            "cover_url": f"/media-gateway/image/{g.featured_image.public_id}/" if g.featured_image else None,
             "authors": authors,
             "tags": tags,
         })
@@ -420,9 +420,11 @@ def guide_detail_api(request, slug):
             "value": val,
         })
         if b.block_type == "step":
+            num = str(val.get("step_number") or len(steps_toc) + 1)
             steps_toc.append({
-                "step_number": val.get("step_number"),
-                "title": val.get("title"),
+                "step_number": num,
+                "title": str(val.get("title") or f"步骤 {num}"),
+                "anchor": f"step-{num}",
             })
 
     safe_html_str = str(page.body)
@@ -441,7 +443,8 @@ def guide_detail_api(request, slug):
     tags_data = [{"id": t.id, "name": t.name, "slug": t.slug} for t in page.tags.all()]
     related_data = [
         {"id": r.related_page.id, "title": r.related_page.title, "url": r.related_page.url}
-        for r in page.related_guides.all()
+        for r in page.related_guides.select_related("related_page").all()
+        if r.related_page.live and not getattr(r.related_page.specific, "is_recycled", False)
     ]
 
     cover_data = None
@@ -450,7 +453,7 @@ def guide_detail_api(request, slug):
             "id": page.featured_image.id,
             "title": page.featured_image.title,
             "public_id": str(page.featured_image.public_id),
-            "url": page.featured_image.file.url,
+            "url": f"/media-gateway/image/{page.featured_image.public_id}/",
         }
 
     guide_payload = {

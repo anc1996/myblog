@@ -8,12 +8,14 @@ guides.models
 3. GuidePage: 专题指南详情页，继承 CustomBasePage，全面贯彻方案 A【彻底脱水模式】：
    - 正文 body 外置于 MongoDB，PostgreSQL 主表列保持 2 字节 []；
    - 决策一：超过 1 年未技术复核（last_reviewed_at >= 365 天）的文章顶部轻提示；
-   - 决策二：存草稿宽松；正式发布时强校验必须绑定 Topic 且至少包含 1 个 step 步骤块；
-   - 支持多作者 (people.Person)、统一标签 (taxonomy.Tag)、有序关联指南 (GuideRelatedPage)。
+   - 决策二：存草稿宽松；正式发布时强校验必须绑定 Topic 且至少包含 1 个 step 步骤块（配备 GuidePageAdminForm 与 publish 守卫）；
+   - 支持多作者 (people.Person)、统一标签 (taxonomy.Tag)、有序关联指南 (GuideRelatedPage)；
+   - 包含 MEDIA-REF-01 媒体引用注册与步骤目录 steps_toc。
 """
 
-from datetime import timedelta
+from datetime import datetime, date, timedelta
 import json
+import logging
 from uuid import UUID
 from django.db import models
 from django.core.exceptions import ValidationError
@@ -24,11 +26,17 @@ from taggit.models import TaggedItemBase
 from wagtail.models import Page, Orderable
 from wagtail.fields import StreamField
 from wagtail.admin.panels import FieldPanel, InlinePanel, MultiFieldPanel
-from wagtail.snippets.models import register_snippet
+from wagtail.admin.forms import WagtailAdminPageForm
 
 from content_lifecycle.models import CustomBasePage
+from content_lifecycle.access import AccessContext, AccessMode
 from media_library.models import CustomImage
 from people.models import Person
+from external_content.store import MongoContentStore
+from external_content.revision import bind_pointers_to_revision_content
+from .blocks import GuideStreamBlock
+
+logger = logging.getLogger(__name__)
 
 CONTRIBUTION_ROLE_CHOICES = [
     ("primary_author", "主笔作者"),
@@ -36,9 +44,6 @@ CONTRIBUTION_ROLE_CHOICES = [
     ("reviewer", "技术审校"),
     ("translator", "翻译"),
 ]
-from external_content.store import MongoContentStore
-from external_content.revision import bind_pointers_to_revision_content
-from .blocks import GuideStreamBlock
 
 DIFFICULTY_CHOICES = [
     ("beginner", "🟢 入门初阶"),
@@ -47,11 +52,24 @@ DIFFICULTY_CHOICES = [
 ]
 
 
+class GuidePageAdminForm(WagtailAdminPageForm):
+    """
+    Wagtail 8.1 专栏定制后台表单。
+    精细识别“保存草稿/预览”与“公开发布/提交审核”动作，解决原生 Page.live 默认 True 的校验冲突。
+    """
+    def defer_required_fields(self):
+        super().defer_required_fields()
+        # Wagtail 8.1 在点击“保存草稿”及表单预览验证时自动调用此方法
+        self.instance._is_deferred_draft_validation = True
+
+    def _post_clean(self):
+        if not self.is_deferred_validation:
+            self.instance._is_publishing_validation = True
+        super()._post_clean()
+
+
 class GuideTopic(models.Model):
-    """
-    技术专栏专题主题（Wagtail Snippet）。
-    作为专题指南的一级分类维度（如：PostgreSQL 性能调优、Wagtail 8 架构实战）。
-    """
+    """技术专栏专题主题（Wagtail Snippet）"""
     name = models.CharField(max_length=100, verbose_name="主题名称")
     slug = models.SlugField(max_length=100, unique=True, allow_unicode=True, verbose_name="URL 标识符")
     description = models.TextField(blank=True, verbose_name="主题适用场景与介绍")
@@ -137,6 +155,26 @@ class GuideIndexPage(CustomBasePage):
         verbose_name = "技术专栏聚合页"
         verbose_name_plural = "技术专栏聚合页"
 
+    def get_context(self, request, *args, **kwargs):
+        context = super().get_context(request, *args, **kwargs)
+        # 获取有效上线的直接子页面（过滤已回收页面）
+        qs = [
+            p for p in self.get_children().live().specific()
+            if not getattr(p, "is_recycled", False) and isinstance(p, GuidePage)
+        ]
+        topic_slug = request.GET.get("topic")
+        difficulty = request.GET.get("difficulty")
+        if topic_slug:
+            qs = [p for p in qs if getattr(p, "topic", None) and p.topic.slug == topic_slug]
+        if difficulty:
+            qs = [p for p in qs if getattr(p, "difficulty", None) == difficulty]
+
+        context["guides"] = qs
+        context["all_topics"] = GuideTopic.objects.all()
+        context["selected_topic"] = topic_slug
+        context["selected_difficulty"] = difficulty
+        return context
+
 
 class GuidePage(CustomBasePage):
     """
@@ -144,6 +182,8 @@ class GuidePage(CustomBasePage):
     继承 CustomBasePage（自动享有 30 天原树受控回收站保护与防误删门禁）。
     正文 body 彻底脱水外置于 MongoDB。
     """
+    base_form_class = GuidePageAdminForm
+
     topic = models.ForeignKey(
         GuideTopic,
         null=True,
@@ -220,39 +260,77 @@ class GuidePage(CustomBasePage):
         verbose_name = "专题指南详情"
         verbose_name_plural = "专题指南详情"
 
+    def _validate_publish_gate(self):
+        """决策二核心发布门禁校验"""
+        errors = {}
+        if not self.topic:
+            errors["topic"] = "公开发布前必须绑定所属技术专栏主题 (Topic)！"
+        has_step = any(b.block_type == "step" for b in self.body) if self.body else False
+        if not has_step:
+            errors["body"] = "专题指南在正式发布前必须包含至少一个【操作步骤】(step) 积木！"
+        if errors:
+            raise ValidationError(errors)
+
     def clean(self):
-        """
-        决策二：业务门禁校验。
-        草稿态宽容；但在正式上线（live=True）时强制校验绑定主题与包含至少一个实操步骤！
-        """
         super().clean()
-        if self.live:
-            errors = {}
-            if not self.topic:
-                errors["topic"] = "公开发布前必须绑定所属技术专栏主题 (Topic)！"
-            has_step = any(b.block_type == "step" for b in self.body) if self.body else False
-            if not has_step:
-                errors["body"] = "专题指南在正式发布前必须包含至少一个【操作步骤】(step) 积木！"
-            if errors:
-                raise ValidationError(errors)
+        # 若处于草稿延迟校验模式（点击“保存草稿”或“预览”），永远宽容放行
+        if getattr(self, "_is_deferred_draft_validation", False):
+            return
+        # 若在后台点击发布（Publish / Submit），或非后台表单调用且已处于上线态
+        if getattr(self, "_is_publishing_validation", False) or (not hasattr(self, "_is_deferred_draft_validation") and self.live):
+            self._validate_publish_gate()
+
+    def publish(self, revision=None, user=None, changed=True, log_action=True, previous_revision=None, **kwargs):
+        """编程接口发布守卫：防止跳过后台表单直接通过 revision.publish() 上线空壳文章"""
+        target_obj = revision.as_object() if revision else self
+        target_obj._validate_publish_gate()
+        return super().publish(
+            revision=revision,
+            user=user,
+            changed=changed,
+            log_action=log_action,
+            previous_revision=previous_revision,
+            **kwargs,
+        )
 
     def is_outdated(self) -> tuple[bool, int, str]:
-        """
-        决策一：技术复核时效检查。
-        超过 1 年 (365 天) 未复核时返回警示信息。
-        """
+        """决策一：技术复核时效检查（容忍 datetime 与 date）"""
         if self.last_reviewed_at:
+            rev_date = self.last_reviewed_at.date() if isinstance(self.last_reviewed_at, datetime) else self.last_reviewed_at
             now_date = timezone.now().date()
-            diff_days = (now_date - self.last_reviewed_at).days
+            diff_days = (now_date - rev_date).days
             if diff_days >= 365:
                 years = max(1, diff_days // 365)
                 return True, diff_days, f"⚠️ 本指南最后技术复核于 {years} 年前，部分依赖包版本可能有更新，请结合官方文档参考。"
         return False, 0, ""
 
+    def get_steps_toc(self) -> list[dict[str, str]]:
+        """从 body 积木中提取操作步骤目录 (TOC)"""
+        toc = []
+        if self.body:
+            for b in self.body:
+                if b.block_type == "step":
+                    val = b.value if isinstance(b.value, dict) else (b.block.get_prep_value(b.value) if hasattr(b.block, "get_prep_value") else {})
+                    num = str(val.get("step_number") or len(toc) + 1)
+                    toc.append({
+                        "step_number": num,
+                        "title": str(val.get("title") or f"步骤 {num}"),
+                        "anchor": f"step-{num}",
+                    })
+        return toc
+
+    def get_admin_display_title(self):
+        """后台列表与版本差异对比 (RevisionsCompareView) 时动态水合正文"""
+        if not getattr(self, "_hydrated_from_revision", False) and (not getattr(self, "body", None) or len(getattr(self, "body", [])) == 0):
+            try:
+                self.hydrate_from_mongo(access_context=AccessContext(mode=AccessMode.PUBLIC))
+            except Exception:
+                pass
+        return self.draft_title or self.title
+
     def hydrate_from_mongo(self, access_context=None):
         """方案 A【彻底脱水模式】：从 MongoDB 按生效版本指针精准水合恢复正文积木"""
         from external_content.revision import get_effective_page_content
-        from content_lifecycle.access import AccessContext, AccessMode
         from .blocks import GuideStreamBlock
         if access_context is None:
             mode = AccessMode.PUBLIC if (self.live and self.live_revision_id) else AccessMode.PREVIEW_DRAFT
@@ -266,8 +344,7 @@ class GuidePage(CustomBasePage):
                     body_block = GuideStreamBlock()
                     self.body = body_block.to_python(data["body"])
         except Exception as exc:
-            import logging
-            logging.getLogger(__name__).warning("Failed to hydrate GuidePage %s from MongoDB: %s", self.id, exc)
+            logger.warning("Failed to hydrate GuidePage %s from MongoDB: %s", self.id, exc)
         finally:
             if store:
                 store.close()
@@ -276,7 +353,6 @@ class GuidePage(CustomBasePage):
         """后台编辑或预览时，从最新草稿版本指针中水合正文"""
         page = super().get_latest_revision_as_object()
         if not getattr(page, "_hydrated_from_revision", False) and hasattr(page, "hydrate_from_mongo"):
-            from content_lifecycle.access import AccessContext, AccessMode
             page.hydrate_from_mongo(access_context=AccessContext(mode=AccessMode.PREVIEW_DRAFT))
             page._hydrated_from_revision = True
         return page
@@ -290,7 +366,7 @@ class GuidePage(CustomBasePage):
         self.body = raw_body
 
     def with_content_json(self, content):
-        """Wagtail 8.1 官方反序列化入口：按指针精准从 MongoDB 还原正文"""
+        """Wagtail 8.1 官方反序列化入口：按指针精准从 MongoDB 还原正文（严格抛出哈希错误）"""
         content_dict = content if isinstance(content, dict) else json.loads(content)
         obj = super().with_content_json(content)
 
@@ -312,8 +388,6 @@ class GuidePage(CustomBasePage):
                         )
                         if res and res.payload:
                             obj.body = GuideStreamBlock().to_python(res.payload)
-            except Exception:
-                pass
             finally:
                 if store:
                     store.close()
@@ -332,7 +406,7 @@ class GuidePage(CustomBasePage):
         overwrite_revision=None,
         **kwargs,
     ):
-        """保存修订版本：外置 MongoDB 正文 + 脱水 Revision + 草稿滑动窗口修剪"""
+        """保存修订版本：外置 MongoDB 正文 + 脱水 Revision + MEDIA-REF-01 注册 + 草稿滑动窗口修剪"""
         raw_body = self.body
         if overwrite_revision:
             if overwrite_revision.id == self.live_revision_id or getattr(overwrite_revision, "approved_go_live_at", None) is not None:
@@ -385,6 +459,30 @@ class GuidePage(CustomBasePage):
                 GuidePage.objects.filter(id=self.id).update(body=[])
                 self.body = raw_body
 
+                # 登记媒体引用到 MEDIA-REF-01 (封面图与步骤配图)
+                try:
+                    from media_library.references import MediaReferenceTracker
+                    from content_blocks.contracts import MediaReference
+                    refs = []
+                    if self.featured_image:
+                        refs.append(MediaReference(
+                            asset_id=str(self.featured_image.public_id),
+                            asset_type="image",
+                            block_path="featured_image",
+                        ))
+                    if raw_body:
+                        for i, child in enumerate(raw_body):
+                            block = getattr(child, "block", None)
+                            if block and hasattr(block, "extract_media_refs"):
+                                refs.extend(block.extract_media_refs(child.value, path=f"body.{i}"))
+                    MediaReferenceTracker.register_revision_references(
+                        page_id=self.id,
+                        revision_id=revision.id,
+                        references=refs,
+                    )
+                except Exception as ref_exc:
+                    logger.debug("Failed to register media refs for GuidePage %s: %s", self.id, ref_exc)
+
                 # 草稿修剪契约 (RECYCLE-RETENTION-03)
                 was_ever_published = bool(
                     self.first_published_at
@@ -430,7 +528,6 @@ class GuidePage(CustomBasePage):
 
     def get_context(self, request, *args, **kwargs):
         if not getattr(self, "_hydrated_from_revision", False) and (not getattr(self, "body", None) or len(getattr(self, "body", [])) == 0):
-            from content_lifecycle.access import AccessContext, AccessMode
             is_preview = getattr(request, "is_preview", False) or getattr(request, "in_preview_panel", False)
             mode = AccessMode.PREVIEW_DRAFT if is_preview else AccessMode.PUBLIC
             self.hydrate_from_mongo(access_context=AccessContext(user=getattr(request, "user", None), mode=mode))
@@ -439,4 +536,10 @@ class GuidePage(CustomBasePage):
         is_outdated, days, warning_msg = self.is_outdated()
         context["is_outdated"] = is_outdated
         context["outdated_warning"] = warning_msg
+        context["steps_toc"] = self.get_steps_toc()
+        # 过滤未发布或已回收的关联指南
+        context["active_related_guides"] = [
+            r for r in self.related_guides.select_related("related_page").all()
+            if r.related_page.live and not getattr(r.related_page.specific, "is_recycled", False)
+        ]
         return context

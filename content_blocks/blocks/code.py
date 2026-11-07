@@ -26,6 +26,18 @@ from content_blocks.contracts import (
 from content_blocks.sanitizer import sanitize_html
 
 
+def highlight_code(raw_code: str, lang: str = "text") -> str:
+    """使用 Pygments 生成语法高亮 HTML 片段"""
+    if not raw_code:
+        return ""
+    try:
+        lexer = get_lexer_by_name(lang, stripall=True)
+    except Exception:
+        lexer = TextLexer(stripall=True)
+    formatter = HtmlFormatter(nowrap=True, classprefix="hl-")
+    return pygments.highlight(raw_code, lexer, formatter)
+
+
 LANGUAGE_CHOICES = [
     ("python", "Python"),
     ("javascript", "JavaScript"),
@@ -76,14 +88,7 @@ class CustomCodeBlock(blocks.StructBlock):
         lang = value.get("language") or "text"
         mode = value.get("mode") or "display"
 
-        # 使用 Pygments 进行安全语法高亮
-        try:
-            lexer = get_lexer_by_name(lang, stripall=True)
-        except Exception:
-            lexer = TextLexer(stripall=True)
-
-        formatter = HtmlFormatter(nowrap=True, classprefix="hl-")
-        highlighted_code = pygments.highlight(raw_code, lexer, formatter)
+        highlighted_code = highlight_code(raw_code, lang)
 
         safe_title = html.escape(title)
         encoded_code = urllib.parse.quote(raw_code)
