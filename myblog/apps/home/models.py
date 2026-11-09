@@ -9,6 +9,7 @@ class HomePage(Page):
         "blog.BlogPage",
         "guides.GuideIndexPage",
         "portfolio.PortfolioIndexPage",
+        "taxonomy.TagIndexPage",
     ]
 
     def get_context(self, request, *args, **kwargs):

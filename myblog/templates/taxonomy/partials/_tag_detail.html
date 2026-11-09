@@ -1,0 +1,97 @@
+<div class="tag-detail-shell">
+  <header class="tag-detail-header mb-4 p-4 bg-white rounded border shadow-sm">
+    <div class="d-flex justify-content-between align-items-start mb-2">
+      <div>
+        <h1 class="fw-bold text-dark mb-1 d-inline-flex align-items-center">
+          #{{ data.tag.name }}
+        </h1>
+        <span class="badge bg-primary text-white ms-2">{{ data.scope_total_count }} 篇公开内容</span>
+      </div>
+      {% if data.feed_url %}
+        <a href="{{ data.feed_url }}" class="btn btn-sm btn-outline-warning text-dark d-inline-flex align-items-center" title="订阅该标签 RSS 动态">
+          <span>📡 RSS 订阅</span>
+        </a>
+      {% endif %}
+    </div>
+
+    {% if data.tag_meta.description %}
+      <p class="text-muted small mb-0">{{ data.tag_meta.description }}</p>
+    {% endif %}
+  </header>
+
+  <!-- 决策二-A: 顶部多类型分栏 Tab (全部/博客/指南/项目) -->
+  <div class="tag-type-tabs-container mb-3 border-bottom">
+    <ul class="nav nav-tabs border-0" id="tag-type-tabs">
+      {% for tab in data.type_tabs %}
+        <li class="nav-item">
+          <a class="nav-link {% if tab.is_active %}active fw-bold text-primary{% else %}text-muted{% endif %}"
+             href="?type={{ tab.slug }}"
+             data-type="{{ tab.slug }}">
+            {{ tab.label }} <span class="badge rounded-pill {% if tab.is_active %}bg-primary text-white{% else %}bg-light text-muted border{% endif %} ms-1">{{ tab.count }}</span>
+          </a>
+        </li>
+      {% endfor %}
+    </ul>
+  </div>
+
+  <!-- 标签内混合检索与排序过滤栏 -->
+  <form id="tag-filter-form" method="get" action="{{ data.canonical_url }}" class="tag-filter-bar mb-4 p-3 bg-white rounded border shadow-sm">
+    <input type="hidden" name="type" id="tag-active-type-input" value="{{ data.active_type }}">
+    <input type="hidden" name="cursor" id="tag-cursor-input" value="">
+
+    <div class="row g-2 align-items-center mb-2">
+      <div class="col-12 col-md-6">
+        <div class="input-group">
+          <input type="text" name="q" id="tag-query-input" class="form-control" placeholder="在 #{{ data.tag.name }} 下深度检索标题与正文..." value="{{ data.active_filters.q }}">
+          <button class="btn btn-primary" type="submit">搜索</button>
+        </div>
+      </div>
+
+      <div class="col-6 col-md-3">
+        <select name="sort" class="form-select form-select-sm" id="tag-sort-select">
+          <option value="authored_desc" {% if data.active_filters.sort == "authored_desc" %}selected{% endif %}>成文日期：新 &rarr; 旧</option>
+          <option value="authored_asc" {% if data.active_filters.sort == "authored_asc" %}selected{% endif %}>成文日期：旧 &rarr; 新</option>
+          <option value="relevance" {% if data.active_filters.sort == "relevance" %}selected{% endif %}>匹配相关度优先</option>
+        </select>
+      </div>
+
+      <div class="col-6 col-md-3 text-end">
+        <a href="{{ data.canonical_url }}" class="btn btn-sm btn-outline-secondary">重置</a>
+      </div>
+    </div>
+
+    <div class="row g-2 align-items-center pt-2 border-top">
+      <div class="col-auto">
+        <div class="form-check form-check-inline small">
+          <input class="form-check-input" type="checkbox" name="title_only" id="tag-title-only-check" value="1" {% if data.active_filters.title_only %}checked{% endif %}>
+          <label class="form-check-label text-muted" for="tag-title-only-check">仅搜标题</label>
+        </div>
+      </div>
+
+      <div class="col-auto ms-auto d-flex align-items-center gap-1">
+        <span class="small text-muted">成文日期:</span>
+        <input type="date" name="date_from" class="form-control form-control-sm" style="width: 140px;" value="{{ data.active_filters.date_from }}">
+        <span class="small text-muted">-</span>
+        <input type="date" name="date_to" class="form-control form-control-sm" style="width: 140px;" value="{{ data.active_filters.date_to }}">
+      </div>
+    </div>
+  </form>
+
+  <!-- 结果列表渲染区 -->
+  <div id="tag-results-container">
+    {% if data.view_model.total_count == 0 %}
+      <div class="text-center py-5 text-muted bg-white rounded border">
+        <p class="fs-5 mb-1">未找到符合条件的内容</p>
+        <small>建议尝试清除关键词或切换其他类型分栏 Tab 查看。</small>
+      </div>
+    {% else %}
+      <div class="tag-items-list">
+        {% for item in data.view_model.items %}
+          {% include "discovery/listing/_listing_card.html" with item=item %}
+        {% endfor %}
+      </div>
+
+      {% include "discovery/listing/_listing_pagination.html" with view_model=data.view_model %}
+    {% endif %}
+  </div>
+</div>

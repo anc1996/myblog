@@ -22,17 +22,30 @@ def apply_public_eligibility_filter(candidates: QuerySet) -> QuerySet:
     仅保留当前在 PostgreSQL 中 live=True、非别名、路径与深度匹配的正式发布页面，
     并剔除被已回收或私有受限祖先阻断的内容。
     """
-    # 1. 联合校验当前 Wagtail Page 实体状态
+    # 1. 联合校验当前 Wagtail Page 实体状态与生效版本 (BLK-02)
     valid_page_exists = Page.objects.filter(
         pk=OuterRef("page_id"),
         live=True,
         alias_of_id__isnull=True,
+        live_revision_id=OuterRef("effective_revision_id"),
         path=OuterRef("root_path"),
         depth=OuterRef("depth"),
     )
-    qs = candidates.filter(Exists(valid_page_exists))
+    qs = candidates.filter(index_generation=1).filter(Exists(valid_page_exists))
 
-    # 2. 检查私有权限限制 (PageViewRestriction) 祖先节点路径
+    # 2. 检查处于受控回收状态的页面路径 (BLK-02)
+    recycled_page_ids = RecycleEntry.objects.filter(
+        batch__status__in=["recycled", "restoring"]
+    ).values("page_id")
+    recycled_paths = list(
+        Page.objects.filter(pk__in=recycled_page_ids).values_list("path", flat=True)
+    )
+    if recycled_paths:
+        for rp in recycled_paths:
+            if rp:
+                qs = qs.exclude(root_path__startswith=rp)
+
+    # 3. 检查私有权限限制 (PageViewRestriction) 祖先节点路径
     restricted_paths = list(
         PageViewRestriction.objects.values_list("page__path", flat=True)
     )

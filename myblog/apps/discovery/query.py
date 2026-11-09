@@ -16,8 +16,10 @@
 
 import base64
 from datetime import date
+import html
 import json
 import logging
+import re
 from typing import Any
 from django.db import connection, transaction
 from django.db.models import Q
@@ -32,6 +34,7 @@ from discovery.ranking import (
     compute_query_fingerprint,
     encode_keyset_cursor,
     decode_keyset_cursor,
+    compare_keyset_order,
 )
 from discovery.models import (
     ContentDiscoveryEpoch,
@@ -67,12 +70,12 @@ def _decode_cursor(cursor_str: str | None) -> tuple[int | None, int]:
 
 
 def _extract_highlight(text: str, query_term: str, window_size: int = 120) -> str:
-    """从原文提取包含关键词的高亮摘要片段"""
+    """从原文提取包含关键词的高亮摘要片段 (带 HTML 转义免疫 XSS，安全注入 mark 标签)"""
     if not text or not query_term:
-        return text[:window_size] if text else ""
+        return html.escape(text[:window_size] if text else "")
     idx = text.lower().find(query_term.lower())
     if idx == -1:
-        return text[:window_size]
+        return html.escape(text[:window_size])
     start = max(0, idx - 40)
     end = min(len(text), idx + len(query_term) + 80)
     snippet = text[start:end]
@@ -80,7 +83,10 @@ def _extract_highlight(text: str, query_term: str, window_size: int = 120) -> st
         snippet = "..." + snippet
     if end < len(text):
         snippet = snippet + "..."
-    return snippet
+    escaped_snippet = html.escape(snippet)
+    escaped_term = html.escape(query_term)
+    pattern = re.compile(re.escape(escaped_term), re.IGNORECASE)
+    return pattern.sub(lambda m: f"<mark>{m.group(0)}</mark>", escaped_snippet)
 
 
 class ContentQuery:
@@ -106,6 +112,11 @@ class ContentQuery:
             date_to=spec.date_to,
             sort=spec.sort,
             page_size=page_size,
+            site_id=spec.site_id,
+            tag_ids=spec.tag_ids,
+            tag_mode=spec.tag_mode,
+            expand=spec.expand,
+            secondary=spec.secondary,
             extra_filters=spec.extra_filters,
         )
 
@@ -179,10 +190,6 @@ class ContentQuery:
         # 站点过滤
         if spec.site_id is not None:
             candidates = candidates.filter(site_id=spec.site_id)
-
-        # 类型过滤
-        if spec.type_keys:
-            candidates = candidates.filter(type_key__in=spec.type_keys)
 
         # 页面树层级范围过滤 (descendants / children / include_root)
         navigation_items: list[dict[str, Any]] = []
@@ -280,13 +287,21 @@ class ContentQuery:
         doc_item_mode_map: dict[int, str] = {}
 
         if not raw_q:
-            # 无关键词：纯 FILTER 模式
+            # 无关键词：纯 FILTER 模式 (先计算跨类型分桶统计，再按 type_keys 切片，BLK-03 / R04)
+            facets_data = compute_facets(candidates, spec.facets)
+            archive_data = compute_archive_groups(candidates)
+
+            # 应用当前选中的类型过滤
+            filtered_candidates = candidates
+            if spec.type_keys:
+                filtered_candidates = filtered_candidates.filter(type_key__in=spec.type_keys)
+
             match_mode = "FILTER"
-            total_count = candidates.count()
+            total_count = filtered_candidates.count()
             if spec.sort == "authored_asc":
-                ordered_qs = candidates.order_by("authored_on", "page_id")
+                ordered_qs = filtered_candidates.order_by("authored_on", "page_id").prefetch_related("search_tags")
             else:
-                ordered_qs = candidates.order_by("-authored_on", "-page_id")
+                ordered_qs = filtered_candidates.order_by("-authored_on", "-page_id").prefetch_related("search_tags")
 
             # Keyset 或 Offset 分页
             if is_keyset and keyset_payload:
@@ -306,9 +321,6 @@ class ContentQuery:
 
             has_more = len(paged_docs) > page_size
             items_to_render = paged_docs[:page_size]
-
-            facets_data = compute_facets(candidates, spec.facets)
-            archive_data = compute_archive_groups(candidates)
 
             items = [
                 SearchResultItem(
@@ -348,7 +360,20 @@ class ContentQuery:
                     next_cursor = _encode_cursor(current_epoch, offset + page_size)
 
             if (is_keyset and keyset_payload) or offset > 0:
-                previous_cursor = "prev:available"
+                if items_to_render:
+                    first_doc = items_to_render[0]
+                    if is_keyset or spec.include_listing_scope:
+                        previous_cursor = encode_keyset_cursor(
+                            epoch=current_epoch,
+                            direction="prev",
+                            tier_rank=TIER_RANK_FILTER,
+                            score_key=0,
+                            authored_on=first_doc.authored_on,
+                            page_id=first_doc.page_id,
+                            fingerprint=query_fp,
+                        )
+                    else:
+                        previous_cursor = _encode_cursor(current_epoch, max(0, offset - page_size))
 
             return QueryResult(
                 items=items,
@@ -433,11 +458,23 @@ class ContentQuery:
             matched_doc_ids = doc_ids_B + doc_ids_C_extra
             match_mode = "B" if doc_ids_B else ("C" if doc_ids_C_extra else "B")
 
-        # 3. 排序与分页
+        # 3. 排序与分桶统计 (跨类型先算分桶，再按 type_keys 切片，BLK-03 / R04)
         matched_docs_qs = PublishedSearchDocument.objects.filter(id__in=matched_doc_ids).prefetch_related(
             "search_tags", "chunks"
         )
         doc_dict = {d.id: d for d in matched_docs_qs}
+
+        # 先在跨类型全集上计算 facets 与归档统计
+        final_hit_qs = PublishedSearchDocument.objects.filter(id__in=matched_doc_ids)
+        facets_data = compute_facets(final_hit_qs, spec.facets)
+        archive_data = compute_archive_groups(final_hit_qs)
+
+        # 过滤当前选中的类型
+        if spec.type_keys:
+            matched_doc_ids = [
+                did for did in matched_doc_ids
+                if doc_dict.get(did) and doc_dict[did].type_key in spec.type_keys
+            ]
 
         # 严格等级优先排序：match_tier ASC -> authored_on DESC -> page_id DESC
         sort_direction = -1 if spec.sort != "authored_asc" else 1
@@ -454,7 +491,7 @@ class ContentQuery:
         sorted_doc_ids = sorted(matched_doc_ids, key=sort_key)
         total_count = len(sorted_doc_ids)
 
-        # Keyset 游标定位
+        # Keyset 游标定位 (使用 compare_keyset_order 全序比较，修复 authored_asc 排序逆序，BLK-03)
         if is_keyset and keyset_payload:
             bound_tr = keyset_payload["tr"]
             bound_sk = keyset_payload["sk"]
@@ -469,7 +506,7 @@ class ContentQuery:
                 s_key = 100 - doc_tier_map.get(did, 0) * 20
                 row_tuple = (t_rank, s_key, doc.authored_on, doc.page_id)
                 bound_tuple = (bound_tr, bound_sk, bound_ao, bound_pid)
-                if row_tuple < bound_tuple:
+                if compare_keyset_order(row_tuple, bound_tuple, sort=spec.sort, direction=keyset_payload.get("dir", "next")):
                     filtered_ids.append(did)
             paged_ids = filtered_ids[: page_size + 1]
         else:
@@ -483,7 +520,10 @@ class ContentQuery:
         items: list[SearchResultItem] = []
         for doc in paged_docs:
             item_mode = doc_item_mode_map.get(doc.id, match_mode)
-            first_chunk = doc.chunks.first()
+            chunks_list = list(doc.chunks.all())
+            if spec.search_fields == "title":
+                chunks_list = [c for c in chunks_list if c.field_name == "title"]
+            first_chunk = chunks_list[0] if chunks_list else None
             chunk_text = first_chunk.normalized_text if first_chunk else doc.summary
             highlight_snippet = _extract_highlight(chunk_text, norm_q)
 
@@ -507,11 +547,6 @@ class ContentQuery:
                 )
             )
 
-        # 5. 精确分桶与归档统计
-        final_hit_qs = PublishedSearchDocument.objects.filter(id__in=matched_doc_ids)
-        facets_data = compute_facets(final_hit_qs, spec.facets)
-        archive_data = compute_archive_groups(final_hit_qs)
-
         next_cursor = None
         previous_cursor = None
         if has_more and items:
@@ -532,7 +567,22 @@ class ContentQuery:
                 next_cursor = _encode_cursor(current_epoch, offset + page_size)
 
         if (is_keyset and keyset_payload) or offset > 0:
-            previous_cursor = "prev:available"
+            if items:
+                first_item = items[0]
+                first_mode = first_item.match_mode
+                f_tr = MATCH_MODE_TO_TIER_RANK.get(first_mode, 3)
+                if is_keyset or spec.include_listing_scope:
+                    previous_cursor = encode_keyset_cursor(
+                        epoch=current_epoch,
+                        direction="prev",
+                        tier_rank=f_tr,
+                        score_key=first_item.score_key,
+                        authored_on=first_item.authored_on,
+                        page_id=first_item.page_id,
+                        fingerprint=query_fp,
+                    )
+                else:
+                    previous_cursor = _encode_cursor(current_epoch, max(0, offset - page_size))
 
         return QueryResult(
             items=items,

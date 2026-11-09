@@ -44,15 +44,25 @@ def compute_query_fingerprint(
     date_to: date | None,
     sort: str,
     page_size: int,
+    site_id: int | None = None,
+    tag_ids: list[int] | None = None,
+    tag_mode: str = "ANY",
+    expand: str = "auto",
+    secondary: str = "none",
     extra_filters: dict[str, Any] | None = None,
 ) -> str:
     """计算当前查询条件的唯一规范化指纹 (SHA-256 前16位)"""
     data = {
         "q": (q or "").strip().lower(),
         "search_fields": search_fields or "all",
+        "site_id": site_id,
         "root_page_id": root_page_id,
         "tree_scope": tree_scope or "descendants",
         "type_keys": sorted(type_keys or []),
+        "tag_ids": sorted(tag_ids or []),
+        "tag_mode": tag_mode or "ANY",
+        "expand": expand or "auto",
+        "secondary": secondary or "none",
         "date_from": date_from.isoformat() if date_from else None,
         "date_to": date_to.isoformat() if date_to else None,
         "sort": sort or "relevance",
@@ -131,3 +141,29 @@ def decode_keyset_cursor(
         return False, None, "reset"
 
     return True, payload, None
+
+
+def compare_keyset_order(
+    row_tuple: tuple[int, int, date, int],
+    bound_tuple: tuple[int, int, date, int],
+    sort: str,
+    direction: str = "next",
+) -> bool:
+    """
+    Keyset 游标边界比较函数 (BLK-03 / D1-A)：
+    row_tuple: (tier_rank, score_key, authored_on, page_id)
+    bound_tuple: (bound_tr, bound_sk, bound_ao, bound_pid)
+    """
+    r_tr, r_sk, r_ao, r_pid = row_tuple
+    b_tr, b_sk, b_ao, b_pid = bound_tuple
+
+    if sort == "authored_asc":
+        # 等级与相关度降序，日期与ID升序：通过负号转为纯升序全序比较
+        r_key = (-r_tr, -r_sk, r_ao, r_pid)
+        b_key = (-b_tr, -b_sk, b_ao, b_pid)
+        return r_key > b_key if direction == "next" else r_key < b_key
+    else:
+        # 全降序全序比较
+        r_key = (r_tr, r_sk, r_ao, r_pid)
+        b_key = (b_tr, b_sk, b_ao, b_pid)
+        return r_key < b_key if direction == "next" else r_key > b_key

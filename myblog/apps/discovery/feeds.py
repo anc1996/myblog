@@ -10,6 +10,7 @@ discovery.feeds
 5. SARGable 时间线归档：PostgreSQL TruncMonth 聚合与左闭右开日期区间过滤。
 """
 
+import hashlib
 import html
 import re
 from datetime import date, datetime, time, timezone as dt_timezone
@@ -163,7 +164,8 @@ def public_feed_view(request: HttpRequest, dimension: str = "all", slug: str | N
     # 1. 主库极速核验弱 ETag（零 XML 拼接开销）
     epoch = ContentDiscoveryEpoch.get_current_epoch_readonly()
     site_today = timezone.localdate().isoformat()
-    weak_etag = f'W/"feed:v1:s{site_id or 0}:e{epoch}:{dimension}:{slug or "all"}:{fmt}:{site_today}"'
+    slug_token = hashlib.sha256(slug.encode("utf-8")).hexdigest()[:12] if slug else "all"
+    weak_etag = f'W/"feed:v1:s{site_id or 0}:e{epoch}:{dimension}:{slug_token}:{fmt}:{site_today}"'
 
     # 校验条件请求
     conditional_response = get_conditional_response(request, etag=weak_etag)

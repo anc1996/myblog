@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% load static wagtailcore_tags %}
+
+{% block title %}
+  {% if mode == "detail" and data.tag %}
+    #{{ data.tag.name }} - 标签内容检索 - {{ page.title }}
+  {% elif mode == "missing" %}
+    未找到标签内容 - {{ page.title }}
+  {% else %}
+    {{ page.title }} - 全站标签词云与索引目录
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="tag-page-container" style="max-width: 960px; margin: 30px auto; padding: 0 20px;">
+  {# 面包屑导航 #}
+  <nav class="tag-breadcrumbs mb-4" aria-label="面包屑导航">
+    <a href="/" class="text-muted text-decoration-none small">首页</a>
+    <span class="text-muted small">/</span>
+    {% if mode == "directory" %}
+      <span class="text-dark small fw-bold" aria-current="page">{{ page.title }}</span>
+    {% else %}
+      <a href="{{ page.url }}" class="text-muted text-decoration-none small">{{ page.title }}</a>
+      <span class="text-muted small">/</span>
+      {% if mode == "detail" and data.tag %}
+        <span class="text-dark small fw-bold" aria-current="page">#{{ data.tag.name }}</span>
+      {% else %}
+        <span class="text-dark small fw-bold" aria-current="page">#{{ data.tag_slug }}</span>
+      {% endif %}
+    {% endif %}
+  </nav>
+
+  <div id="tag-dynamic-content-area">
+    {% if mode == "detail" %}
+      {% include "taxonomy/partials/_tag_detail.html" %}
+    {% elif mode == "missing" %}
+      {% include "taxonomy/partials/_tag_missing.html" %}
+    {% else %}
+      {% include "taxonomy/partials/_tag_directory.html" %}
+    {% endif %}
+  </div>
+</div>
+
+<script src="{% static 'taxonomy/js/tag_controller.js' %}"></script>
+{% endblock %}

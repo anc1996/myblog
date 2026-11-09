@@ -1,0 +1,24 @@
+<div class="tag-missing-shell text-center py-5 p-4 bg-white rounded border shadow-sm">
+  <div class="mb-3 fs-1">🏷️</div>
+  <h3 class="fw-bold text-dark mb-2">未找到与标签 #{{ data.tag_slug }} 相关的公开内容</h3>
+  <p class="text-muted small mb-4">
+    该标签可能尚未包含已发布的公开文章，或已被合并/调整。
+  </p>
+
+  {% if data.recommended_tags %}
+    <div class="tag-recommendations mb-4 text-start p-3 bg-light rounded border mx-auto" style="max-width: 600px;">
+      <h6 class="fw-bold text-secondary mb-3">为您推荐以下活跃技术标签：</h6>
+      <div class="d-flex flex-wrap gap-2">
+        {% for rec in data.recommended_tags %}
+          <a href="{{ rec.url }}" class="btn btn-sm btn-outline-primary rounded-pill text-decoration-none">
+            #{{ rec.name }} <span class="badge bg-primary text-white ms-1">{{ rec.count }}</span>
+          </a>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
+
+  <a href="{{ data.directory_url }}" class="btn btn-primary">
+    &larr; 返回全站标签大厅浏览全部标签
+  </a>
+</div>

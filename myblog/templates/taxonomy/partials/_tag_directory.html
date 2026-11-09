@@ -1,0 +1,72 @@
+<div class="tag-directory-shell">
+  <header class="tag-directory-header mb-4">
+    <h1 class="fw-bold text-dark mb-2">{{ page.title }}</h1>
+    {% if page.intro %}
+      <p class="text-muted lead fs-6 mb-3">{{ page.intro }}</p>
+    {% endif %}
+
+    <!-- 标签即时快速搜索过滤框 (决策三-A) -->
+    <div class="tag-search-box p-3 bg-white rounded border shadow-sm mb-4">
+      <div class="input-group">
+        <span class="input-group-text bg-light border-end-0">🔍</span>
+        <input type="text" id="tag-directory-filter-input" class="form-control border-start-0" placeholder="快速筛选标签名称（输入中英文实时过滤）..." value="{{ view_model.search_query }}">
+      </div>
+    </div>
+  </header>
+
+  {% if view_model.is_empty %}
+    <div class="text-center py-5 text-muted bg-white rounded border">
+      <p class="fs-5 mb-1">暂无匹配的活跃标签</p>
+      <small>仅统计包含至少 1 篇已发布公开内容的有效标签。</small>
+    </div>
+  {% else %}
+    <!-- 热门推荐标签云 Top 20 (决策三-A) -->
+    {% if view_model.top_tags %}
+      <section class="tag-popular-cloud mb-5 p-4 bg-white rounded border shadow-sm">
+        <div class="d-flex align-items-center mb-3">
+          <span class="badge bg-danger text-white me-2">🔥 热门标签</span>
+          <h5 class="fw-bold mb-0 text-dark">全站高频技术标签 Top 20</h5>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+          {% for tag in view_model.top_tags %}
+            <a href="{{ tag.url }}" class="btn btn-sm btn-outline-primary rounded-pill d-inline-flex align-items-center tag-cloud-item text-decoration-none">
+              <span>#{{ tag.name }}</span>
+              <span class="badge bg-primary text-white rounded-pill ms-2">{{ tag.count }}</span>
+            </a>
+          {% endfor %}
+        </div>
+      </section>
+    {% endif %}
+
+    <!-- A-Z 快速字母跳转导航栏 -->
+    <div class="tag-alphabet-nav sticky-top bg-light p-2 rounded border mb-4 d-flex flex-wrap gap-1 justify-content-center">
+      {% for letter, tags in view_model.grouped_tags.items %}
+        <a href="#tag-group-{{ letter }}" class="btn btn-sm btn-outline-secondary px-2 py-1 text-decoration-none fw-semibold">
+          {{ letter }}
+        </a>
+      {% endfor %}
+    </div>
+
+    <!-- A-Z 首字母详细分组列表 -->
+    <section class="tag-alphabet-groups">
+      {% for letter, tags in view_model.grouped_tags.items %}
+        <div class="tag-group-section mb-4 p-3 bg-white rounded border shadow-sm" id="tag-group-{{ letter }}">
+          <div class="d-flex align-items-center border-bottom pb-2 mb-3">
+            <h4 class="fw-bold text-primary mb-0 me-2">{{ letter }}</h4>
+            <small class="text-muted">({{ tags|length }} 个标签)</small>
+          </div>
+          <div class="row g-2">
+            {% for tag in tags %}
+              <div class="col-6 col-md-4 col-lg-3 tag-card-wrapper" data-tag-name="{{ tag.name|lower }}">
+                <a href="{{ tag.url }}" class="d-flex justify-content-between align-items-center p-2 rounded border text-decoration-none text-dark hover-bg-light">
+                  <span class="fw-medium text-truncate">#{{ tag.name }}</span>
+                  <span class="badge bg-light text-muted border ms-1">{{ tag.count }}</span>
+                </a>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      {% endfor %}
+    </section>
+  {% endif %}
+</div>
