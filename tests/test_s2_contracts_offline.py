@@ -10,12 +10,17 @@ S2 公共接口与数据契约离线测试（零数据库/网络 IO 守卫）。
 """
 
 import os
+import sys
 from pathlib import Path
 import unittest
 from uuid import uuid4
 from datetime import date, datetime
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
+if str(PROJECT_DIR) not in sys.path:
+    sys.path.insert(0, str(PROJECT_DIR))
+from myblog.bootstrap import configure_app_imports
+configure_app_imports()
 
 
 class S2ContractsOfflineTests(unittest.TestCase):
@@ -190,7 +195,7 @@ class S2ContractsOfflineTests(unittest.TestCase):
         self.assertTrue(isinstance(adapter, TypeAdapterContract))
 
     def test_import_paths_are_strictly_within_workspace(self):
-        """路径守卫断言：确保 4 个模块均加载自本项目根目录"""
+        """路径守卫断言：确保 4 个模块均加载自本项目 myblog/apps/ 目录"""
         import content_blocks
         import external_content
         import content_lifecycle
@@ -198,8 +203,8 @@ class S2ContractsOfflineTests(unittest.TestCase):
 
         for mod in [content_blocks, external_content, content_lifecycle, discovery]:
             self.assertTrue(
-                Path(mod.__file__).resolve().is_relative_to(PROJECT_DIR.resolve()),
-                f"{mod} is not loaded from workspace root",
+                Path(mod.__file__).resolve().is_relative_to((PROJECT_DIR / "myblog" / "apps").resolve()),
+                f"{mod} is not loaded from myblog/apps directory",
             )
 
 

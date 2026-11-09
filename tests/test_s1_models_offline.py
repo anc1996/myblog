@@ -71,7 +71,7 @@ class S1ModelsDefinitionTests(unittest.TestCase):
         self.assertTrue(issubclass(User, AbstractUser))
         # 验证导入来源为本项目目录
         user_file = Path(User.__module__.replace(".", "/") + ".py")
-        self.assertTrue(Path(PROJECT_DIR / "identity" / "models.py").exists())
+        self.assertTrue((PROJECT_DIR / "myblog" / "apps" / "identity" / "models.py").exists())
 
     def test_custom_image_and_rendition_structure(self):
         from wagtail.images.models import AbstractImage, AbstractRendition
@@ -144,10 +144,10 @@ class S1ModelsDefinitionTests(unittest.TestCase):
         from media_library.storage import ProtectedRustFSStorage
 
         self.assertTrue(
-            Path(identity.__file__).resolve().is_relative_to(PROJECT_DIR.resolve())
+            Path(identity.__file__).resolve().is_relative_to((PROJECT_DIR / "myblog" / "apps").resolve())
         )
         self.assertTrue(
-            Path(media_library.__file__).resolve().is_relative_to(PROJECT_DIR.resolve())
+            Path(media_library.__file__).resolve().is_relative_to((PROJECT_DIR / "myblog" / "apps").resolve())
         )
         self.assertTrue(
             issubclass(ProtectedRustFSStorage, object)

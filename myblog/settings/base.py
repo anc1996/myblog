@@ -13,11 +13,18 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 from pathlib import Path
 import os
+import sys
 
 from dotenv import dotenv_values
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 BASE_DIR = PROJECT_DIR.parent
+
+# 统一自举导入路径：确保 BASE_DIR 与 APPS_DIR 注入 sys.path (E-01)
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+from myblog.bootstrap import configure_app_imports
+APPS_DIR = configure_app_imports()
 
 
 # Quick-start development settings - unsuitable for production

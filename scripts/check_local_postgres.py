@@ -49,7 +49,7 @@ def main():
     from django.db import connections
     import home
 
-    if not Path(home.__file__).resolve().is_relative_to(ROOT):
+    if not Path(home.__file__).resolve().is_relative_to((ROOT / "myblog" / "apps").resolve()):
         raise RuntimeError("Unexpected application import path")
     django.setup()
     try:
