@@ -161,6 +161,54 @@ def recycle_page_discovery(page_id: int) -> None:
         ContentDiscoveryEpoch.increment_epoch()
 
 
+def sync_subtree_tree_metadata(root_page: Any) -> int:
+    """
+    当栏目节点移动或 slug 改名时，在 PostgreSQL 端批量同步其所有后代页面的树元数据 (B-02)。
+    仅更新 root_path, depth, url_path，绝不重新读取 MongoDB 或重新切分 PublishedSearchChunk。
+    """
+    from wagtail.models import Page
+
+    root_id = getattr(root_page, "id", None)
+    if not root_id:
+        return 0
+
+    # 1. 重新投影根节点自身
+    project_page_to_discovery(root_page)
+
+    # 2. 获取当前数据库中 root_page 下属的全部活页后代
+    db_root = Page.objects.filter(id=root_id).first()
+    if not db_root:
+        return 0
+
+    descendants = Page.objects.filter(
+        path__startswith=db_root.path,
+        depth__gt=db_root.depth,
+    ).values("id", "path", "depth", "url_path")
+
+    updated_count = 0
+    with transaction.atomic():
+        for d in descendants:
+            page_id = d["id"]
+            # 获取规范化公开 URL
+            url_path = d["url_path"]
+            if url_path.startswith("/home/"):
+                url_path = url_path[5:]
+            if not url_path.startswith("/"):
+                url_path = "/" + url_path
+
+            cnt = PublishedSearchDocument.objects.filter(page_id=page_id).update(
+                root_path=d["path"],
+                depth=d["depth"],
+                url_path=url_path,
+            )
+            updated_count += cnt
+
+        ContentDiscoveryEpoch.increment_epoch()
+
+    logger.info("sync_subtree_tree_metadata completed for root=%s, updated %d descendants", root_id, updated_count)
+    return updated_count
+
+
 def rebuild_all_discovery_documents() -> int:
     """全量重建所有合法上线页面的搜索副本"""
     from wagtail.models import Page

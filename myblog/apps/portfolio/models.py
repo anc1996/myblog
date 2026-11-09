@@ -24,6 +24,7 @@ from wagtail.admin.panels import FieldPanel, MultiFieldPanel, InlinePanel
 
 from content_lifecycle.models import CustomBasePage
 from external_content.store import MongoContentStore
+from discovery.listing import HierarchicalListingMixin, ListingPolicy
 from portfolio.blocks import PortfolioStreamBlock
 
 logger = logging.getLogger(__name__)
@@ -197,11 +198,16 @@ class ExternalStreamPageMixin:
                 store.close()
 
 
-class PortfolioIndexPage(CustomBasePage):
+class PortfolioIndexPage(HierarchicalListingMixin, CustomBasePage):
     """作品集与开源项目大厅聚合页"""
     parent_page_types = ["home.HomePage"]
     subpage_types = ["portfolio.ProjectPage"]
     allow_comments = False
+    listing_policy = ListingPolicy(
+        type_keys=("project",),
+        facet_keys=("tags",),
+        navigation_type_keys=("portfolio_index",),
+    )
 
     intro = models.TextField(blank=True, verbose_name="大厅介绍导语")
 

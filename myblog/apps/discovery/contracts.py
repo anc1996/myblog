@@ -77,6 +77,9 @@ class QuerySpec:
     sort: str = "relevance"  # 'relevance' | 'authored_desc' | 'authored_asc'
     expand: str = "auto"     # 'auto' | 'off' | 'on' (控制模式 C)
     secondary: str = "none"  # 'none' | 'words' (SEARCH-MODE-02: 手动展开模式 B)
+    search_fields: str = "all"  # 'all' | 'title'
+    include_listing_scope: bool = False  # 是否为栏目/大厅严格列表模式 (D4-A / B-03)
+    navigation_cursor: str | None = None  # 子栏目导航翻页游标 (D4-A)
     facets: list[str] = field(default_factory=list)
     page_size: int = 20
     cursor: str | None = None
@@ -108,6 +111,11 @@ class QueryResult:
     facets: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     archive_groups: list[dict[str, Any]] = field(default_factory=list)
     next_cursor: str | None = None
+    previous_cursor: str | None = None  # D1-A: 签名 keyset 游标上一页
+    navigation_items: list[dict[str, Any]] = field(default_factory=list)  # D4-A: 直接子栏目导航项
+    navigation_next_cursor: str | None = None
+    navigation_previous_cursor: str | None = None
+    navigation_total_count: int = 0
     match_policy: str = "default"
     expansion_used: bool = False
     secondary_used: bool = False

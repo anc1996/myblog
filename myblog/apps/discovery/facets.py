@@ -62,6 +62,17 @@ def compute_facets(qs, requested_facets: list[str]) -> dict[str, list[dict[str, 
             if item["authored_on__year"] is not None
         ]
 
+    # 4. 专属筛选器注册分桶动态聚合 (A-03)
+    try:
+        from discovery.listing.registry import get_listing_filter_by_facet_key
+        for f_key in requested_facets:
+            if f_key not in ("types", "tags", "years"):
+                filter_def = get_listing_filter_by_facet_key(f_key)
+                if filter_def:
+                    facets_result[f_key] = filter_def.compute_facet(qs)
+    except Exception:
+        pass
+
     return facets_result
 
 

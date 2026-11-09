@@ -1,0 +1,47 @@
+<article class="listing-card card mb-3 shadow-sm border-0 bg-white">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-start mb-1">
+      <h5 class="card-title mb-0">
+        <a href="{{ item.url }}" class="text-dark text-decoration-none hover-primary fw-bold">
+          {{ item.title }}
+        </a>
+      </h5>
+      <span class="badge bg-light text-secondary border small">{{ item.authored_on|date:"Y-m-d" }}</span>
+    </div>
+
+    {% if item.column_metadata.difficulty_label %}
+      <div class="mb-2">
+        <span class="badge bg-info text-dark small me-1">难度: {{ item.column_metadata.difficulty_label }}</span>
+        {% if item.column_metadata.topic_name %}
+          <span class="badge bg-secondary small">专题: {{ item.column_metadata.topic_name }}</span>
+        {% endif %}
+      </div>
+    {% endif %}
+
+    {% if item.column_metadata.project_status_label %}
+      <div class="mb-2">
+        <span class="badge bg-success small me-1">状态: {{ item.column_metadata.project_status_label }}</span>
+        {% if item.column_metadata.primary_language %}
+          <span class="badge bg-dark small me-1">{{ item.column_metadata.primary_language }}</span>
+        {% endif %}
+      </div>
+    {% endif %}
+
+    <p class="card-text text-muted small mb-2 line-clamp-2">
+      {% if item.highlights %}
+        {{ item.highlights.0.snippet|safe }}
+      {% else %}
+        {{ item.summary|default:"暂无导语介绍" }}
+      {% endif %}
+    </p>
+
+    <div class="d-flex justify-content-between align-items-center">
+      <div class="listing-tags">
+        {% for t in item.tags %}
+          <span class="badge bg-light text-muted small me-1">#{{ t.name }}</span>
+        {% endfor %}
+      </div>
+      <a href="{{ item.url }}" class="btn btn-sm btn-link text-decoration-none p-0">阅读全文 &rarr;</a>
+    </div>
+  </div>
+</article>

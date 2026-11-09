@@ -1,0 +1,25 @@
+<div id="listing-results-container">
+  {% if view_model.cursor_reset %}
+    <div class="alert alert-warning alert-dismissible fade show small mb-3" role="alert">
+      内容库已发生更新，已自动为您重置回当前筛选条件的首页。
+      <button type="button" class="btn-close btn-close-white" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+  {% endif %}
+
+  {% include "discovery/listing/_listing_subcategories.html" %}
+
+  {% if view_model.is_empty %}
+    <div class="text-center py-5 text-muted bg-white rounded border">
+      <p class="fs-5 mb-1">未找到符合条件的内容</p>
+      <small>建议尝试缩短检索词、勾选“包含子栏目”或清除特定日期/筛选条件。</small>
+    </div>
+  {% else %}
+    <div class="listing-items">
+      {% for item in view_model.items %}
+        {% include "discovery/listing/_listing_card.html" with item=item %}
+      {% endfor %}
+    </div>
+
+    {% include "discovery/listing/_listing_pagination.html" %}
+  {% endif %}
+</div>

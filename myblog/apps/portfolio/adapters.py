@@ -83,6 +83,7 @@ class ProjectPageAdapter:
 
         extra_data = {
             "project_status": getattr(page, "project_status", "maintained"),
+            "project_status_label": page.get_project_status_display() if hasattr(page, "get_project_status_display") else getattr(page, "project_status", "maintained"),
             "primary_language": getattr(page, "primary_language", "Python"),
             "star_count": getattr(page, "star_count", 0),
             "license_name": getattr(page, "license_name", "MIT"),
@@ -179,4 +180,5 @@ class PortfolioIndexPageAdapter:
             text_segments=segments,
             tag_ids=[],
             tags_data=[],
+            extra_data={"intro": intro_text},
         )

@@ -11,10 +11,10 @@ Wagtail 页面生命周期与全站内容发现信号监听器。
 import logging
 from django.dispatch import receiver
 from django.db.models.signals import post_save, post_delete, m2m_changed
-from wagtail.signals import page_published, page_unpublished, post_page_move
+from wagtail.signals import page_published, page_unpublished, post_page_move, page_slug_changed
 from wagtail.models import PageViewRestriction, Site
 from taggit.models import Tag
-from discovery.projection import project_page_to_discovery, unpublish_page_discovery
+from discovery.projection import project_page_to_discovery, unpublish_page_discovery, sync_subtree_tree_metadata
 from discovery.models import ContentDiscoveryEpoch
 
 logger = logging.getLogger(__name__)
@@ -40,12 +40,20 @@ def on_page_unpublished(sender, instance, **kwargs):
 
 @receiver(post_page_move)
 def on_page_moved(sender, instance, **kwargs):
-    """页面在树中移动：重新投影并原子自增 epoch"""
+    """页面在树中移动：同步子树元数据并原子自增 epoch (B-02)"""
     try:
-        project_page_to_discovery(instance)
-        ContentDiscoveryEpoch.increment_epoch()
+        sync_subtree_tree_metadata(instance)
     except Exception as exc:
         logger.exception("Failed to handle page_move for page %s: %s", getattr(instance, "id", None), exc)
+
+
+@receiver(page_slug_changed)
+def on_page_slug_changed(sender, instance, **kwargs):
+    """页面 slug 发生变更：同步子树 URL 与元数据 (B-02)"""
+    try:
+        sync_subtree_tree_metadata(instance)
+    except Exception as exc:
+        logger.exception("Failed to handle page_slug_changed for page %s: %s", getattr(instance, "id", None), exc)
 
 
 @receiver([post_save, post_delete], sender=PageViewRestriction)

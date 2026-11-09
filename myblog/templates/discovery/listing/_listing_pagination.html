@@ -1,0 +1,27 @@
+<div class="listing-pagination d-flex justify-content-between align-items-center pt-3 border-top mt-4">
+  <div class="text-muted small">
+    共匹配到 <strong>{{ view_model.total_count }}</strong> 篇内容
+  </div>
+
+  <div class="btn-group">
+    {% if view_model.previous_cursor %}
+      <button type="button" class="btn btn-sm btn-outline-primary listing-page-prev-btn" data-cursor="{{ view_model.previous_cursor }}">
+        &larr; 上一页
+      </button>
+    {% else %}
+      <button type="button" class="btn btn-sm btn-outline-secondary disabled" disabled>
+        &larr; 上一页
+      </button>
+    {% endif %}
+
+    {% if view_model.next_cursor %}
+      <button type="button" class="btn btn-sm btn-outline-primary listing-page-next-btn" data-cursor="{{ view_model.next_cursor }}">
+        下一页 &rarr;
+      </button>
+    {% else %}
+      <button type="button" class="btn btn-sm btn-outline-secondary disabled" disabled>
+        下一页 &rarr;
+      </button>
+    {% endif %}
+  </div>
+</div>

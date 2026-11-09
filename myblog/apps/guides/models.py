@@ -31,6 +31,7 @@ from wagtail.admin.forms import WagtailAdminPageForm
 from content_lifecycle.models import CustomBasePage
 from content_lifecycle.access import AccessContext, AccessMode
 from media_library.models import CustomImage
+from discovery.listing import HierarchicalListingMixin, ListingPolicy
 from people.models import Person
 from external_content.store import MongoContentStore
 from external_content.revision import bind_pointers_to_revision_content
@@ -131,9 +132,15 @@ class GuideRelatedPage(Orderable):
         verbose_name_plural = "关联技术指南"
 
 
-class GuideIndexPage(CustomBasePage):
+class GuideIndexPage(HierarchicalListingMixin, CustomBasePage):
     """专题指南聚合大厅页面（支持主题与难度聚合筛选）"""
     allow_comments = False
+    listing_policy = ListingPolicy(
+        type_keys=("guide",),
+        filter_keys=("guides.topic", "guides.difficulty"),
+        facet_keys=("topics", "difficulties", "tags"),
+        navigation_type_keys=("guide_index",),
+    )
     intro = models.TextField(blank=True, verbose_name="专栏聚合大厅简介")
     featured_topic = models.ForeignKey(
         GuideTopic,
@@ -155,26 +162,6 @@ class GuideIndexPage(CustomBasePage):
     class Meta:
         verbose_name = "技术专栏聚合页"
         verbose_name_plural = "技术专栏聚合页"
-
-    def get_context(self, request, *args, **kwargs):
-        context = super().get_context(request, *args, **kwargs)
-        # 获取有效上线的直接子页面（过滤已回收页面）
-        qs = [
-            p for p in self.get_children().live().specific()
-            if not getattr(p, "is_recycled", False) and isinstance(p, GuidePage)
-        ]
-        topic_slug = request.GET.get("topic")
-        difficulty = request.GET.get("difficulty")
-        if topic_slug:
-            qs = [p for p in qs if getattr(p, "topic", None) and p.topic.slug == topic_slug]
-        if difficulty:
-            qs = [p for p in qs if getattr(p, "difficulty", None) == difficulty]
-
-        context["guides"] = qs
-        context["all_topics"] = GuideTopic.objects.all()
-        context["selected_topic"] = topic_slug
-        context["selected_difficulty"] = difficulty
-        return context
 
 
 class GuidePage(CustomBasePage):

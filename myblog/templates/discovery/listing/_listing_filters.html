@@ -1,0 +1,48 @@
+<form id="listing-filter-form" method="get" action="{{ page.url }}" class="listing-filter-bar mb-4 p-3 bg-white rounded border shadow-sm">
+  <!-- 隐藏游标参数 -->
+  <input type="hidden" name="cursor" id="listing-cursor-input" value="">
+
+  <div class="row g-2 align-items-center mb-2">
+    <div class="col-12 col-md-6">
+      <div class="input-group">
+        <input type="text" name="q" id="listing-query-input" class="form-control" placeholder="在当前栏目中搜索（支持标题与全文检索）..." value="{{ view_model.active_filters.q }}">
+        <button class="btn btn-primary" type="submit" id="listing-search-submit-btn">搜索</button>
+      </div>
+    </div>
+
+    <div class="col-6 col-md-3">
+      <select name="sort" class="form-select form-select-sm" id="listing-sort-select">
+        <option value="authored_desc" {% if view_model.active_filters.sort == "authored_desc" %}selected{% endif %}>成文日期：新 &rarr; 旧</option>
+        <option value="authored_asc" {% if view_model.active_filters.sort == "authored_asc" %}selected{% endif %}>成文日期：旧 &rarr; 新</option>
+        <option value="relevance" {% if view_model.active_filters.sort == "relevance" %}selected{% endif %}>按匹配相关度优先</option>
+      </select>
+    </div>
+
+    <div class="col-6 col-md-3 text-end">
+      <a href="{{ page.url }}" class="btn btn-sm btn-outline-secondary" id="listing-reset-btn">重置筛选</a>
+    </div>
+  </div>
+
+  <div class="row g-2 align-items-center pt-2 border-top">
+    <div class="col-auto">
+      <div class="form-check form-check-inline small">
+        <input class="form-check-input" type="checkbox" name="title_only" id="title-only-check" value="1" {% if view_model.active_filters.title_only %}checked{% endif %}>
+        <label class="form-check-label text-muted" for="title-only-check">仅搜标题</label>
+      </div>
+    </div>
+
+    <div class="col-auto">
+      <div class="form-check form-check-inline small">
+        <input class="form-check-input" type="checkbox" name="include_descendants" id="include-descendants-check" value="1" {% if view_model.active_filters.include_descendants %}checked{% endif %}>
+        <label class="form-check-label text-muted" for="include-descendants-check">包含子分类内容</label>
+      </div>
+    </div>
+
+    <div class="col-auto ms-auto d-flex align-items-center gap-1">
+      <span class="small text-muted">成文日期:</span>
+      <input type="date" name="date_from" class="form-control form-control-sm" style="width: 140px;" value="{{ view_model.active_filters.date_from }}">
+      <span class="small text-muted">-</span>
+      <input type="date" name="date_to" class="form-control form-control-sm" style="width: 140px;" value="{{ view_model.active_filters.date_to }}">
+    </div>
+  </div>
+</form>

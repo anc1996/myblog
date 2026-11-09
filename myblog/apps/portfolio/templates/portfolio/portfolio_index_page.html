@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% load static wagtailcore_tags %}
+
+{% block title %}{{ page.title }}{% endblock %}
+
+{% block content %}
+<div class="portfolio-index-container" style="max-width:960px;margin:30px auto;padding:0 20px;">
+    {# 面包屑导航 #}
+    {% if breadcrumbs %}
+    <nav class="portfolio-breadcrumbs mb-3" aria-label="面包屑导航">
+        <a href="/" class="text-muted text-decoration-none small">首页</a>
+        {% for ancestor in breadcrumbs %}
+            <span class="text-muted small">/</span>
+            <a href="{{ ancestor.url }}" class="text-muted text-decoration-none small">{{ ancestor.title }}</a>
+        {% endfor %}
+        <span class="text-muted small">/</span>
+        <span class="text-dark small fw-bold" aria-current="page">{{ page.title }}</span>
+    </nav>
+    {% endif %}
+
+    <header class="portfolio-header mb-4">
+        <h1 class="portfolio-title fw-bold text-dark">{{ page.title }}</h1>
+        {% if page.intro %}
+            <p class="text-muted lead fs-6">{{ page.intro }}</p>
+        {% endif %}
+    </header>
+
+    <section class="portfolio-listing-section">
+        {% include "discovery/listing/_listing_filters.html" %}
+        {% include "discovery/listing/_listing_results.html" %}
+    </section>
+</div>
+<script src="{% static 'discovery/js/listing_controller.js' %}"></script>
+{% endblock %}

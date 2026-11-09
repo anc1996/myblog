@@ -10,5 +10,7 @@ class GuidesConfig(AppConfig):
         # 注册指南与聚合页到 discovery 全站搜索适配器表
         from discovery.registry import register_type_adapter
         from .adapters import GuidePageAdapter, GuideIndexPageAdapter
+        from .listing import register_guide_listing_filters
         register_type_adapter(GuidePageAdapter())
         register_type_adapter(GuideIndexPageAdapter())
+        register_guide_listing_filters()

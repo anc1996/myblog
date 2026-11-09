@@ -24,6 +24,7 @@ from wagtail.admin.panels import FieldPanel, InlinePanel, MultiFieldPanel
 from content_lifecycle.models import CustomBasePage
 from media_library.models import CustomImage
 from people.models import Person
+from discovery.listing import HierarchicalListingMixin, ListingPolicy
 from blog.blocks import BlogIntroBlocks, BlogBodyBlocks
 
 
@@ -83,9 +84,14 @@ class BlogPageGalleryImage(Orderable):
         verbose_name_plural = "图集图片"
 
 
-class BlogIndexPage(CustomBasePage):
+class BlogIndexPage(HierarchicalListingMixin, CustomBasePage):
     """博客栏目 / 目录页面，可递归多层嵌套"""
     allow_comments = False
+    listing_policy = ListingPolicy(
+        type_keys=("blog_page",),
+        navigation_type_keys=("blog_index",),
+        facet_keys=("tags",),
+    )
     authored_on = models.DateField(
         default=timezone.now,
         verbose_name="成文日期",
@@ -106,25 +112,6 @@ class BlogIndexPage(CustomBasePage):
     class Meta:
         verbose_name = "博客栏目"
         verbose_name_plural = "博客栏目"
-
-    def get_context(self, request, *args, **kwargs):
-        context = super().get_context(request, *args, **kwargs)
-        # 真实有效面包屑导航 (过滤回收节点与根节点)
-        ancestors = []
-        for ancestor in self.get_ancestors():
-            if ancestor.is_root():
-                continue
-            if getattr(ancestor, "is_recycled", False):
-                continue
-            ancestors.append(ancestor)
-        context["breadcrumbs"] = ancestors
-
-        # 下属已发布且未回收的直接子栏目与文章
-        raw_children = self.get_children().live().specific()
-        context["children_pages"] = [
-            p for p in raw_children if not getattr(p, "is_recycled", False)
-        ]
-        return context
 
 
 class BlogPage(CustomBasePage):

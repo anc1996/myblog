@@ -96,6 +96,9 @@ class GuidePageAdapter:
             "topic_slug": topic_slug,
             "topic_name": topic_name,
             "difficulty": getattr(page, "difficulty", "intermediate"),
+            "difficulty_label": page.get_difficulty_display() if hasattr(page, "get_difficulty_display") else getattr(page, "difficulty", "intermediate"),
+            "last_reviewed_at": page.last_reviewed_at.isoformat() if getattr(page, "last_reviewed_at", None) else None,
+            "estimated_minutes": getattr(page, "estimated_minutes", None),
             "last_published_at": page.last_published_at.isoformat() if getattr(page, "last_published_at", None) else None,
         }
 
@@ -165,6 +168,14 @@ class GuideIndexPageAdapter:
         doc_uuid = str(getattr(page, "document_uuid", ""))
         url_path = page.get_url() if hasattr(page, "get_url") else getattr(page, "url_path", "")
         intro_text = str(getattr(page, "intro", "")).strip()
+        featured_topic_data = {}
+        ft = getattr(page, "featured_topic", None)
+        if ft:
+            featured_topic_data = {
+                "name": getattr(ft, "name", ""),
+                "slug": getattr(ft, "slug", ""),
+                "description": getattr(ft, "description", ""),
+            }
 
         segments = [
             TextSegment(field_name="title", text=title),
@@ -183,4 +194,5 @@ class GuideIndexPageAdapter:
             text_segments=segments,
             tag_ids=[],
             tags_data=[],
+            extra_data={"intro": intro_text, "featured_topic": featured_topic_data},
         )

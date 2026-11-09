@@ -185,4 +185,5 @@ class BlogIndexPageAdapter:
             text_segments=segments,
             tag_ids=[],
             tags_data=[],
+            extra_data={"intro": intro_text},
         )
