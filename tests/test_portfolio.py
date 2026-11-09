@@ -57,6 +57,16 @@ class PortfolioSystemTestCase(unittest.TestCase):
             bio="开源贡献者",
         )
 
+        # 创建关联配套博客文章 (验证场景 B: FeaturedPostsBlock 跨页面关联)
+        from blog.models import BlogPage
+        self.related_post = BlogPage(
+            title=f"搜索引擎底层原理解析-{uuid.uuid4().hex[:6]}",
+            slug=f"search-internals-{uuid.uuid4().hex[:6]}",
+            authored_on=date(2026, 11, 4),
+        )
+        self.home.add_child(instance=self.related_post)
+        self.related_post.save_revision().publish()
+
         # 1. 创建作品集大厅
         self.portfolio_index = PortfolioIndexPage(
             title="开源作品集大厅",
@@ -101,6 +111,14 @@ class PortfolioSystemTestCase(unittest.TestCase):
                     },
                 ),
                 ("markdown", {"markdown_text": "### 架构设计\n系统采用事件驱动与流式脱水模型。"}),
+                (
+                    "featured_posts",
+                    {
+                        "heading": "项目关联技术架构文章",
+                        "description": "深入解析该项目的核心实现细节",
+                        "posts": [self.related_post],
+                    },
+                ),
             ],
         )
         self.portfolio_index.add_child(instance=self.project)
@@ -117,6 +135,7 @@ class PortfolioSystemTestCase(unittest.TestCase):
             PublishedSearchDocument.objects.filter(page_id=self.project.id).delete()
             self.project.delete(allow_physical_purge=True)
             self.portfolio_index.delete(allow_physical_purge=True)
+            self.related_post.delete(allow_physical_purge=True)
             self.author.delete()
         except Exception:
             pass
@@ -144,6 +163,7 @@ class PortfolioSystemTestCase(unittest.TestCase):
         self.assertIn("tech_stack", block_types)
         self.assertIn("repository", block_types)
         self.assertIn("markdown", block_types)
+        self.assertIn("featured_posts", block_types)
 
     def test_universal_feed_and_archive_integration(self):
         """验证多页面即插即用：ProjectPage 零核心侵入自动接入 RSS/Atom 与时间线归档"""
@@ -190,6 +210,8 @@ class PortfolioSystemTestCase(unittest.TestCase):
         proj_data = data_detail["data"]
         self.assertEqual(proj_data["title"], self.project_title)
         self.assertIn("架构设计", proj_data["safe_html"])
+        self.assertIn("项目关联技术架构文章", proj_data["safe_html"])
+        self.assertIn(self.related_post.title, proj_data["safe_html"])
         self.assertGreater(len(proj_data["blocks"]), 0)
 
     def test_project_recycle_and_restore(self):

@@ -111,12 +111,60 @@ class ScreenshotGalleryBlock(blocks.StructBlock):
         return refs
 
 
+class FeaturedPostsBlock(blocks.StructBlock):
+    """展示与该项目相关的精选/配套博客文章列表（支持 PageChooser 跨模型关联）"""
+    heading = blocks.CharBlock(max_length=120, default="相关技术文章与架构演进", label="模块标题")
+    description = blocks.TextBlock(required=False, rows=2, label="导语说明")
+    posts = blocks.ListBlock(blocks.PageChooserBlock(page_type="blog.BlogPage"), label="选择关联博客文章")
+
+    class Meta:
+        icon = "folder-open-inverse"
+        label = "关联博客文章推荐"
+
+    def render_clean(self, value: Any, context: Any = None):
+        from content_blocks.sanitizer import sanitize_html
+        from content_blocks.contracts import BlockRenderResult
+
+        heading = html.escape(value.get("heading") or "相关技术文章与架构演进")
+        desc = html.escape(value.get("description") or "")
+        posts_html = []
+        for post in value.get("posts") or []:
+            if post and getattr(post, "live", False) and not getattr(post, "is_recycled", False):
+                title = html.escape(post.title)
+                url = html.escape(post.url)
+                date_str = post.authored_on.strftime("%Y-%m-%d") if getattr(post, "authored_on", None) else ""
+                posts_html.append(
+                    f'<li class="featured-post-item">'
+                    f'<a href="{url}" class="featured-post-link">{title}</a>'
+                    f'{f"<span class=\"featured-post-date\">{date_str}</span>" if date_str else ""}'
+                    f'</li>'
+                )
+        items_html = "".join(posts_html)
+        html_out = (
+            f'<div class="featured-posts-widget">'
+            f'<h4 class="featured-posts-heading">{heading}</h4>'
+            f'{f"<p class=\"featured-posts-desc\">{desc}</p>" if desc else ""}'
+            f'<ul class="featured-posts-list">{items_html}</ul>'
+            f'</div>'
+        )
+        return BlockRenderResult(html=sanitize_html(html_out), is_safe=True)
+
+    def extract_text(self, value: Any):
+        from content_blocks.contracts import BlockTextExtraction
+        heading = value.get("heading") or ""
+        desc = value.get("description") or ""
+        titles = [p.title for p in (value.get("posts") or []) if p]
+        text = f"{heading} {desc} {' '.join(titles)}".strip()
+        return BlockTextExtraction(plain_text=text, logical_segments=[text] if text else [])
+
+
 class PortfolioStreamBlock(blocks.StreamBlock):
     """作品集与开源项目主积木流"""
     # 专属积木
     tech_stack = blocks.ListBlock(TechStackBlock(), label="核心技术栈列表", group="项目专属")
     repository = RepositoryBlock(label="代码仓库与在线演示", group="项目专属")
     gallery = ScreenshotGalleryBlock(label="界面截图画廊", group="项目专属")
+    featured_posts = FeaturedPostsBlock(label="关联博客文章推荐", group="项目专属")
 
     # 通用内容积木 (从 content_blocks 引入)
     rich_text = CustomRichTextBlock(label="富文本段落", group="排版内容")
