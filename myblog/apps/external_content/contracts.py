@@ -39,11 +39,11 @@ class IdempotencyConflictError(ExternalContentError):
 @dataclass(frozen=True)
 class FieldVersionPointer:
     """记录在 PostgreSQL Wagtail Revision 中的版本指针"""
-    document_uuid: UUID
-    field_name: str  # 'intro' | 'body'
-    version_id: str
-    schema_version: int
-    content_hash: str  # SHA-256
+    document_uuid: UUID  # 页面全局逻辑唯一标识，页面重命名、移动或回收恢复均保持不变
+    field_name: str  # 脱水外置的具体字段名（如 'body' 或 'intro'）
+    version_id: str  # 指向 MongoDB 中具体不可变版本的唯一标识符（UUID）
+    schema_version: int  # 该版本正文对应的架构版本号（默认从 1 开始），用于结构升级解析
+    content_hash: str  # 正文载荷的 SHA-256 哈希值，从 Mongo 读回时用于校验防篡改与一致性
 
 
 @dataclass(frozen=True)
