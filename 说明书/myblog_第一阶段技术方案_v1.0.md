@@ -1,7 +1,7 @@
 # myblog 第一阶段技术实现方案与架构规范 (v1.0)
 
 > **版本定位**：从早期“设计方案”全面升级为“落地实现方案”，记录自 Git 提交 `a3f21dc` 修订以来的最新完整系统实现与全量架构资产。
-> **验证状态**：**已全量代码实现、迁移落库并实测通过 (103 项单测 + 36 项 Wagtail 8.1 生命周期演练 100% PASS)**。
+> **验证状态**：**已全量代码实现、迁移落库并实测通过 (121 项单测 + 36 项 Wagtail 8.1 生命周期演练 100% PASS)**。
 > **运行环境**：Python 3.13 / Django 6.1.2 / Wagtail 8.1 / PostgreSQL 18.6 (psycopg 3.3.7) / MongoDB 9.0.4 / Redis 8.10.3 / RustFS 1.0.4。
 > **绑定宿主**：WSL2 `192.168.20.5:8000` (允许 `0.0.0.0:8000` 跨主机调试，已配置 `CSRF_TRUSTED_ORIGINS`)。
 > **应用目录架构**：**对齐 wagtailblog2 最佳工程实践，全站 16 个业务子应用收拢于 `myblog/myblog/apps/*`，与 `settings/`、`static/`、`templates/` 同级**。
@@ -283,9 +283,53 @@ graph LR
 |---|---|---|---|
 | **Django 系统检查** | `python manage.py check` | `0 issues (0 silenced)` | **完全合规** |
 | **全站自动化单元测试** | `python -m unittest discover -s tests` | **Ran 103 tests in 32.279s -> OK** | **100% 通过** |
+| **全站自动化单元测试** | `python -m unittest discover -s tests` | **Ran 121 tests in 43.027s -> OK** | **100% 通过** |
 | **订阅与归档专项测试** | `python -m unittest tests/test_feed_and_archive.py` | **Ran 7 tests in 12.352s -> OK** | **100% 通过** |
+| **层级列表检索专项测试** | `python -m unittest tests/test_listing_framework.py` | **Ran 8 tests in 12.117s -> OK** | **100% 通过** |
+| **标签大厅与跨类型检索** | `python -m unittest tests/test_tag_discovery.py` | **Ran 8 tests in 8.731s -> OK** | **100% 通过** |
+| **时间线归档专项测试** | `python -m unittest tests/test_timeline.py` | **Ran 2 tests in 2.242s -> OK** | **100% 通过** |
 | **作品集专项测试** | `python -m unittest tests/test_portfolio.py` | **Ran 4 tests in 3.838s -> OK** | **100% 通过** |
 | **全局设置专项测试** | `python -m unittest tests/test_site_settings.py` | **Ran 3 tests in 2.325s -> OK** | **100% 通过** |
 | **Wagtail 8.1 生命周期演练** | `python myblog-side-lifecycle-audit-20261105.py` | **36 项演练全部 PASS (0 FAIL, 0 ERROR)** | **100% 通过** |
 | **跨存储对账工具** | `python manage.py reconcile_cross_storage --audit` | SQL/Mongo/S3/Discovery 四方一致性核验通过 | **完整无缺失** |
 | **过期回收站物理清理** | `python manage.py purge_expired_recycled_pages --days 30` | 自动扫描超期页面并安全异步清理 Mongo 快照 | **运转正常** |
+
+---
+
+## 十、 全站层级列表与多维检索通用框架 (`discovery.listing`)
+
+彻底消除业务栏目页中的重复过滤逻辑，提供全站即插即用的通用列表能力：
+1. **极简接入**：`BlogIndexPage`、`GuideIndexPage` 与 `PortfolioIndexPage` 仅需声明 6~8 行 `listing_policy`（内容类型白名单、子栏目开关、专属筛选键与分桶统计键），自动获得全套能力；
+2. **列表零 MongoDB 访问**：卡片所需的标题、简介、成文日期、封面与标签 100% 来自 PostgreSQL `PublishedSearchDocument`，列表与翻页请求对 MongoDB 调用恒为 0；
+3. **双模同构 (D3-A)**：首屏 SSR 服务端直出保障 SEO，筛选与翻页走 AJAX 局部更新并同步 URL (`history.pushState`)；搜索输入框常驻外部，绝不重绘，彻底保护中文拼音输入法与焦点；
+4. **签名 Keyset 游标 (D1-A)**：统一全降序排序键 `(tier_rank DESC, score_key DESC, authored_on DESC, page_id DESC)`，带签名防篡改 `v2:` 游标，海量文章深度翻页毫秒级响应；
+5. **生命周期守卫加固 (B-01~B-03)**：`HierarchicalListingMixin.serve_preview()` 注入 `is_preview=True` 避免后台新建草稿 404；`sync_subtree_tree_metadata()` 在父栏目移动或改名时批量更新子孙树元数据，不回源 MongoDB。
+
+---
+
+## 十一、 全站标签大厅与跨类型检索系统 (`taxonomy` & `discovery`)
+
+打破单一模型孤岛，构建打通全站内容横向维度的“知识图谱”枢纽：
+1. **优雅 RESTful 路由 (D1-A)**：`TagIndexPage` 继承 `RoutablePageMixin`，统一支撑标签大厅 `/tags/` 与标签详情 `/tags/<slug>/`；
+2. **全站标签大厅 (模式一)**：展示全站前 20 热门推荐标签云、A-Z 首字母分组（使用 `initial_group_rank` 彻底解决 `#` 组 ASCII 逆序丢数 BLK-04）、标签名即时搜索过滤；
+3. **单标签跨类型聚合与 Tab 分栏 (模式二 / D2-A)**：单页面同时汇聚 `BlogPage`、`GuidePage` 与 `ProjectPage`，顶部提供 `全部 (N) | 博客文章 (N) | 技术指南 (N) | 开源项目 (N)` 无刷切换，单快照保证各类型数字绝对稳定；
+4. **缺失标签友好导流 (模式三 / BLK-05)**：访问不存在或公开文档数为 0 的标签返回 200 友好推荐页，绝对禁止从数据库泄漏未发布草稿的私有标签全名与描述；
+5. **安全与 RSS 兼容 (BLK-05/06)**：摘要高亮经 `html.escape()` 原文转义后再注入 `<mark>` 彻底免疫 XSS；标签订阅路由支持 `<str:slug>/` 中文 Unicode 标签并哈希生成纯 ASCII ETag。
+
+---
+
+## 十二、 全局门户大厅、响应式导航与前台评论交互
+
+系统从“后端功能完整”正式迈向“前台体验商业级可用”：
+1. **全局响应式导航与页脚 (`base.html`)**：
+   - 顶部导航条：动态读取 `site_settings.NavigationSettings`，未配置时默认提供首页、技术专栏、专题指南、开源作品、全站标签、时间线归档、全站搜索与订阅入口；移动端自适应纯 CSS 汉堡菜单；
+   - 全局页脚：自动展示 `site_settings.FooterSettings` 的关于导语、版权声明、ICP 备案号、公安联网备案号与社交链接；
+2. **首页综合技术门户 (`home_page.html`)**：
+   - Hero 标语导引区 + 快速操作入口；
+   - 左右双栏布局：左侧主栏展示最新发布文章流与博客目录，右侧边栏穿插热门标签云（直达 `/tags/<slug>/`）、精选专题指南、开源实战项目与 RSS/Atom 订阅；
+3. **前台文章评论互动组件 (`_comment_section.html` & `comments_widget.js`)**：
+   - 无需刷新整页，支持 AJAX 异步提交评论与两层扁平回复；
+   - 自动适配已登录用户与访客昵称；
+   - 提交后友好提示“评论已提交审核”；支持点赞点踩即时互动与蜜罐防垃圾爬虫；
+4. **年月时间线归档 (`/timeline/`)**：
+   - 提供独立归档大厅，按年份与月份卡片结构化折叠浏览，秒级扫描只读快照。
