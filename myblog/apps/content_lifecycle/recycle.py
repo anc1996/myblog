@@ -32,7 +32,26 @@ class RecycleService:
     @classmethod
     def recycle_page_or_subtree(cls, page: Page, actor: Any = None) -> RecycleBatch:
         """
-        回收单页或整棵子树（原树占位模型）。
+        【核心算法 1】：回收单页或整棵子树（原树占位回收模型）。
+
+        【教学点与设计哲学】：
+        为什么不直接执行 DELETE FROM wagtailcore_page？
+        因为 Wagtail 使用了 django-treebeard 维护页面树结构。一旦执行物理删除，节点以及子节点的
+        path、depth、numchild 将被打乱重算，未来想“原位恢复”将极其复杂甚至引发树形错乱。
+
+        【原树占位机制】：
+        1. 保持节点在树形物理位置不动，仅将 is_recycled 置为 True；
+        2. 自动撤销发布 (live=False)，清空定时排期 (approved_go_live_at=None)；
+        3. 遍历整棵子树，为每一个被回收的页面建立 RecycleEntry 详尽快照；
+        4. 发送 page.recycled 事务性 Outbox 事件，通知全站搜索与 RSS 立即下架。
+
+        【参数与变量解析】：
+        - page (Page): 触发删除的目标根页面对象；
+        - actor (Any): 操作人实体（通常为 request.user），记录在审计批次中；
+        - descendants: 递归获取目标页面的所有子孙后代节点；
+        - all_nodes: 目标根节点 + 全部有效子孙节点的集合；
+        - batch (RecycleBatch): 记录本次回收动作的批次主记录；
+        - entry (RecycleEntry): 对应每个页面的元数据快照（包含原父节点、原 slug、原兄弟排序等）。
         """
         with content_mutation_guard(timeout_seconds=3):
             db_page = Page.objects.select_for_update().get(id=page.id).specific
@@ -133,10 +152,19 @@ class RecycleService:
     @classmethod
     def plan_restore(cls, batch_id: UUID | str) -> dict[str, Any]:
         """
-        评估恢复冲突与前提条件：
-        1. 检查原父节点是否存在且处于活跃状态；
-        2. 检查原 slug 是否在原父节点下已被新页面占用；
-        3. 检查页面层级与子页面类型约束。
+        【核心算法 2】：评估恢复冲突与推演预检（Plan Restore 演练机制）。
+
+        【教学点】：
+        当用户在几天甚至几周后点击“一键恢复”时，原来的树形环境可能已经发生了剧烈变化！
+        在真正执行写库前，必须进行 Dry-Run 预检推演：
+        - 冲突 1：父节点异常（parent_missing_or_recycled）。原父页面也被删了，子页面恢复到哪里去？
+        - 冲突 2：URL 路径冲突（slug_collision）。在原位置下，别人后来新建了一篇同 slug 名字的文章，怎么恢复？
+
+        【参数与变量解析】：
+        - batch_id (UUID | str): 待恢复的回收批次 UUID；
+        - entries (list[RecycleEntry]): 按“由浅入深 (original_depth ASC)”排序的快照列表（确保先恢复父级再恢复子级）；
+        - conflicts (list[dict]): 扫描出的冲突列表。若为空说明可以零阻碍直接一键恢复；若不为空则引导用户改名或重选父节点；
+        - suggested_slug: 当发生 slug 碰撞时，系统自动推导生成的候选安全别名（例如 "slug-restored"）。
         """
         batch = RecycleBatch.objects.get(batch_id=batch_id)
         entries = list(batch.entries.order_by("original_depth", "sibling_order"))
@@ -216,13 +244,23 @@ class RecycleService:
         target_parent_id: int | None = None,
     ) -> dict[str, Any]:
         """
-        执行受控页面恢复 (Restore)：
-        1. 严格在 content_mutation_guard(timeout_seconds=3) 内执行；
-        2. 解决冲突（改名或迁移父节点）；
-        3. 落实 Argon 审计修复：先改内存 slug (clean=False) 再执行树移动；
-        4. 显式调用 page.set_url_path(parent) 与 page.save(clean=False) 同步主表与子表；
-        5. 强制保持未发布草稿态 (live=False、has_unpublished_changes=True、live_revision=None)；
-        6. 生成全新草稿修订版本，不覆盖历史版本。
+        【核心算法 3】：精准恢复单页或整棵子树到原树物理位置。
+
+        【教学点与四大安全准则】：
+        1. 零未解冲突容忍：若存在未解决的冲突，严格抛出 ValidationError 拒绝盲目恢复；
+        2. 严格恢复为未发布草稿态（Draft-Only 铁律）：
+           恢复后的页面强制保持 live=False、has_unpublished_changes=True、live_revision=None，
+           绝不允许恢复瞬间直接自动发布到互联网，必须由编辑者人工核验后再手动点击发布；
+        3. 历史链条完整性：不篡改历史 Revision 和 Mongo 版本，而是生成全新的 "myblog.restore_draft" 修订记录；
+        4. Argon [B-01] 树形移动保护：若由于改名需要移动树节点，先在内存中更新 slug (clean=False) 再执行 move，
+           防止触发 Wagtail 原生针对旧 slug 的误报冲突崩溃。
+
+        【参数与变量解析】：
+        - batch_id: 批次 UUID；
+        - actor: 执行恢复的操作人实体；
+        - slug_overrides: 冲突改名映射字典 {page_id: "new-safe-slug"}；
+        - target_parent_id: 当原父节点遗失时指定的新父页面 ID；
+        - restored_pages: 成功恢复的页面信息清单。
         """
         slug_overrides = slug_overrides or {}
 
@@ -414,13 +452,15 @@ class RecycleService:
     @classmethod
     def purge_page_or_subtree(cls, page_id: int, actor: Any = None, batch_id: Any = None) -> dict[str, Any]:
         """
-        受控永久销毁单页或整棵子树（Purge）：
-        1. 必须在 content_mutation_guard(timeout_seconds=3) 内执行；
-        2. 收集目标节点及其所有子节点的 (page_id, document_uuid)；
-        3. 同一事务写入 page.purged OutboxEvent（携带 document_uuid）；
-        4. 清理关联的 RecycleEntry、PublishedSearchDocument；
-        5. 调用 Wagtail 原生 node.delete(allow_physical_purge=True) 执行物理删除；
-        6. 后续由 Outbox 异步任务按 document_uuid 彻底擦除 MongoDB 中的全部历史版本。
+        【核心算法 4】：受控永久销毁单页或整棵子树（Purge 彻底物理销毁）。
+
+        【教学点与不可逆物理清理】：
+        当页面在回收站中度过了 30 天保留期，或管理员明确授权“彻底销毁”时调用：
+        1. 强互斥锁守护：在 content_mutation_guard(timeout_seconds=3) 内执行，排他锁定全局操作锁；
+        2. 事务性 Outbox 保证：在同一个本地事务中将状态置为 purged，并写入 page.purged 事件（携带 document_uuid）；
+        3. 跨存储异步抹除：稍后由 OutboxProcessor 负责调用 MongoContentStore.purge_document_versions()，
+           物理清空外部 MongoDB 中的所有不可变正文快照，并级联清理媒体引用表；
+        4. 本地数据库硬删除：调用 Wagtail 原生 node.delete(allow_physical_purge=True) 执行物理抹除。
         """
         with content_mutation_guard(timeout_seconds=3):
             if batch_id:

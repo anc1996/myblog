@@ -185,6 +185,18 @@ class RecycleBatch(models.Model):
         ordering = ["-recycled_at"]
 
     def actions(self):
+        """
+        【Wagtail 管理后台操作列动态按钮生成】
+
+        【教学点】：
+        在 Wagtail Snippet/ModelAdmin 列表页中，通过在模型中定义方法并指定 short_description，
+        可以直接为每一行动态渲染交互按钮。
+
+        【状态分支与变量说明】：
+        - restore_url (str): 解析一键恢复视图的 URL（路由指向 recycle_bin:restore，带当前批次主键 self.pk）；
+        - purge_url (str): 解析彻底销毁视图的 URL（路由指向 recycle_bin:purge，带当前批次主键 self.pk）；
+        - mark_safe: Django 安全模块，将拼接的 HTML 标记为安全，避免被模板引擎转义为纯文本。
+        """
         from django.utils.safestring import mark_safe
         from django.urls import reverse
         if self.status == "recycled":
@@ -205,7 +217,14 @@ class RecycleBatch(models.Model):
     actions.short_description = "回收站操作"
 
     def retention_status(self):
-        """显示 30 天保留倒计时（<=3 天标红预警）"""
+        """
+        【30 天保留期倒计时计算与动态视觉预警】
+
+        【教学点与变量说明】：
+        - elapsed_days (int): 已在回收站中滞留的天数（当前时区感知时间 timezone.now() 减去回收时间 self.recycled_at 的天数）；
+        - remaining_days (int): 距离 30 天最终物理硬删除还剩下的天数，通过 max(0, 30 - elapsed_days) 保证不出现负数；
+        - 临界保护逻辑：当剩余天数 <= 3 天时，动态注入内联红色加粗警示标签，提醒管理员数据即将永久灭失。
+        """
         if self.status != "recycled":
             return "-"
         from django.utils import timezone

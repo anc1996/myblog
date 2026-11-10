@@ -278,12 +278,26 @@ def register_recycle_batch_viewset():
 
 @hooks.register("construct_explorer_page_queryset")
 def hide_recycled_pages_in_explorer(parent_page, queryset, request):
+    """
+    【钩子 1：管理后台资源管理器页面树隔离】
+
+    【教学点】：
+    当编辑者浏览 Wagtail 页面树形目录时，通过本钩子动态排除已被回收的页面。
+    这样既保留了数据库中的原树物理节点，又确保管理后台视觉上清爽干净。
+    """
     recycled_pks = RecycleEntry.objects.filter(status__in=["recycled", "restoring"]).values_list("page_id", flat=True)
     return queryset.exclude(id__in=recycled_pks)
 
 
 @hooks.register("construct_page_chooser_queryset")
 def hide_recycled_pages_in_chooser(queryset, request):
+    """
+    【钩子 2：页面选择器弹窗隔离】
+
+    【教学点】：
+    当作者在 StreamField 积木中（例如精选关联文章积木 FeaturedPostsBlock）挑选关联页面时，
+    通过本钩子过滤掉回收站页面，杜绝外链引用到失效废弃内容。
+    """
     recycled_pks = RecycleEntry.objects.filter(status__in=["recycled", "restoring"]).values_list("page_id", flat=True)
     return queryset.exclude(id__in=recycled_pks)
 
@@ -291,9 +305,12 @@ def hide_recycled_pages_in_chooser(queryset, request):
 @hooks.register("before_serve_page")
 def block_recycled_pages_front_serve(page, request, serve_args, serve_kwargs):
     """
-    前台访问拦截与编辑引导契约：
-    1. 未登录/普通访客访问已回收页面：100% 返回 HTTP 404，保护内容隐私与 SEO；
-    2. 已登录后台编辑人员访问：返回专属友好提示面板，告知何时被移入回收站，并提供一键恢复直达按钮。
+    【钩子 3：公网路由交付前哨拦截（双态防御机制）】
+
+    【教学点】：
+    当前台 HTTP 请求到达具体页面前，检查该页面自身或其任一祖先是否已被移入回收站：
+    1. 匿名公众读者：100% 返回标准的 HTTP 404 Not Found，保护站点隐私与 SEO，不暴露内部系统状态；
+    2. 已登录后台工作人员：展示专属警示面板，告知被移入回收站的具体时间，并提供跳转后台一键恢复的直达链接。
     """
     is_recycled = getattr(page, "is_recycled", False)
     if not is_recycled:
@@ -330,6 +347,14 @@ def block_recycled_pages_front_serve(page, request, serve_args, serve_kwargs):
 
 @hooks.register("before_delete_page")
 def intercept_admin_page_delete(request, page):
+    """
+    【钩子 4：单页面原生删除拦截 —— 将物理硬删拦截为受控回收】
+
+    【教学点】：
+    Wagtail 默认的页面删除按钮会执行物理级 SQL DELETE。
+    本钩子在删除执行前拦截该 POST 请求，调用 RecycleService.recycle_page_or_subtree 执行原树软删除，
+    从而实现全站“彻底杜绝物理误删”。
+    """
     if request.method != "POST":
         return None
 
@@ -354,6 +379,15 @@ def intercept_admin_page_delete(request, page):
 
 @hooks.register("before_bulk_action")
 def intercept_admin_bulk_page_delete(request, action_type, objects, bulk_action):
+    """
+    【钩子 5：批量删除操作拦截】
+
+    【教学点与算法优化】：
+    当管理员在页面表格勾选多篇页面执行“批量删除”时：
+    1. 拓扑剪枝（Top-Level Filtering）：如果同时勾选了父栏目和它的子文章，代码通过祖先集合运算
+       (ancestor_ids & selected_ids)，仅提取出最外层的顶层节点；
+    2. 统一转入回收站：交由 RecycleService 自动级联整棵子树，避免重复回收引发的冲突报错。
+    """
     if action_type != "delete" or request.method != "POST":
         return None
 
@@ -391,6 +425,10 @@ def intercept_admin_bulk_page_delete(request, action_type, objects, bulk_action)
 
 @hooks.register("register_log_actions")
 def register_myblog_log_actions(actions):
+    """
+    【钩子 6：Wagtail 审计日志动作类型扩展】
+    在 Wagtail 原生审计日志中注册回收站动作标识，实现企业级操作溯源。
+    """
     actions.register_action(
         "myblog.recycle",
         "移入回收站",
