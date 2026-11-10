@@ -495,29 +495,32 @@ class RecycleService:
                         raise PermissionDenied("当前用户无权永久销毁此页面")
             purged_summaries = []
 
-            for node in reversed(all_nodes):
-                nid = node.id
-                doc_uuid = str(getattr(node, "document_uuid", ""))
+            from content_lifecycle.models import authorize_physical_purge
 
-                # 1. 写入事务性 Outbox 事件，触发 MongoDB 异步全版本销毁
-                OutboxEvent.objects.create(
-                    event_type="page.purged",
-                    page_id=nid,
-                    payload={"document_uuid": doc_uuid, "title": node.title},
-                )
+            with authorize_physical_purge():
+                for node in reversed(all_nodes):
+                    nid = node.id
+                    doc_uuid = str(getattr(node, "document_uuid", ""))
 
-                # 2. 清理搜索副本、回收站快照条目与媒体引用记录
-                PublishedSearchDocument.objects.filter(page_id=nid).delete()
-                RecycleEntry.objects.filter(page_id=nid).delete()
-                try:
-                    from media_library.models import MediaReferenceRecord
-                    MediaReferenceRecord.objects.filter(page_id=nid).delete()
-                except Exception:
-                    pass
+                    # 1. 写入事务性 Outbox 事件，触发 MongoDB 异步全版本销毁
+                    OutboxEvent.objects.create(
+                        event_type="page.purged",
+                        page_id=nid,
+                        payload={"document_uuid": doc_uuid, "title": node.title},
+                    )
 
-                # 3. 物理执行 Wagtail ORM 删除
-                node.delete(allow_physical_purge=True)
-                purged_summaries.append({"page_id": nid, "document_uuid": doc_uuid})
+                    # 2. 清理搜索副本、回收站快照条目与媒体引用记录
+                    PublishedSearchDocument.objects.filter(page_id=nid).delete()
+                    RecycleEntry.objects.filter(page_id=nid).delete()
+                    try:
+                        from media_library.models import MediaReferenceRecord
+                        MediaReferenceRecord.objects.filter(page_id=nid).delete()
+                    except Exception:
+                        pass
+
+                    # 3. 物理执行 Wagtail ORM 删除
+                    node.delete(allow_physical_purge=True)
+                    purged_summaries.append({"page_id": nid, "document_uuid": doc_uuid})
 
             purged_ids = [n["page_id"] for n in purged_summaries]
             RecycleBatch.objects.filter(root_page_id__in=purged_ids, status="recycled").update(status="purged")

@@ -10,6 +10,7 @@ comments.services
 5. react_comment: 点赞/点踩互斥切换，F() 原子增减与非负约束。
 """
 
+import hashlib
 import logging
 from datetime import timedelta
 from django.db import transaction
@@ -18,8 +19,18 @@ from django.db.models.functions import Greatest
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.utils import timezone
 
-from .models import Comment, CommentVersion, CommentReaction
-from .sanitizer import sanitize_comment_html
+from .models import (
+    Comment,
+    CommentVersion,
+    CommentReaction,
+    CommentReviewAction,
+    PageCommentSettings,
+    CommentGovernanceSubject,
+    CommentGovernanceBatch,
+    CommentGovernanceItem,
+    CommentMutationReceipt,
+)
+from .sanitizer import sanitize_comment_html, inspect_links_and_sanitize
 
 logger = logging.getLogger(__name__)
 
@@ -38,12 +49,42 @@ class CommentService:
         ip_address: str | None = None,
         user_agent: str | None = None,
         auto_approve: bool = False,
+        request_key: str | None = None,
     ) -> Comment:
         """发表新评论或二级回复"""
         if not raw_content or not raw_content.strip():
             raise ValidationError("评论正文不能为空。")
 
+        # 1. 检查发评主体是否受限 (24h 治理限制)
+        if cls.is_subject_restricted(author=author, ip_address=ip_address):
+            raise ValidationError("您当前已被系统限制发表评论，请稍后再试。")
+
+        # 2. 检查页面级评论开关 (PageCommentSettings)
+        settings_obj = PageCommentSettings.objects.filter(page_id=page.id).first()
+        if settings_obj and not settings_obj.allow_comments:
+            close_msg = f"（说明：{settings_obj.close_reason}）" if settings_obj.close_reason else ""
+            raise ValidationError(f"该页面已关闭评论互动{close_msg}。")
+        if settings_obj and settings_obj.auto_moderate_new:
+            auto_approve = False
+
+        # 3. 幂等校验 (MutationReceipt)
+        subject_key = f"user:{author.id}" if author and getattr(author, "is_authenticated", False) else f"ip:{ip_address or 'unknown'}"
+        content_digest = hashlib.sha256(raw_content.encode("utf-8")).hexdigest()
+        if request_key:
+            receipt = CommentMutationReceipt.objects.filter(
+                subject_key=subject_key,
+                action="post_comment",
+                request_key=request_key,
+            ).first()
+            if receipt and receipt.result_comment_id:
+                existing = Comment.objects.filter(id=receipt.result_comment_id).first()
+                if existing:
+                    return existing
+
         safe_html = sanitize_comment_html(raw_content)
+        safe_html, external_links = inspect_links_and_sanitize(raw_content)
+        if external_links >= 2:
+            auto_approve = False
         now = timezone.now()
         edit_window = now + timedelta(minutes=5)
 
@@ -82,6 +123,8 @@ class CommentService:
                 page_document_uuid=getattr(page, "document_uuid", None),
                 page_title_snapshot=getattr(page, "title", ""),
                 author=author,
+                author_subject_key=subject_key,
+                guest_name=guest_name or "",
                 parent=root_comment,
                 reply_to_comment=actual_reply_to,
                 replied_to_user=replied_to_user,
@@ -90,6 +133,7 @@ class CommentService:
                 can_edit_until=edit_window,
                 ip_address=ip_address,
                 user_agent=user_agent or "",
+                pending_submitted_at=now,
             )
             # 使用 super 绕过软删除检查直接创建
             super(Comment, comment).save()
@@ -101,10 +145,11 @@ class CommentService:
                 raw_content=raw_content,
                 safe_html=safe_html,
                 status="pending",
+                risk_reasons=["external_links_threshold"] if external_links >= 2 else [],
             )
-            comment.latest_version_id = version.id
-            comment.pending_version_id = version.id
-            comment.save(update_fields=["latest_version_id", "pending_version_id"])
+            comment.latest_version = version
+            comment.pending_version = version
+            comment.save(update_fields=["latest_version", "pending_version", "pending_submitted_at"])
 
             # 若满足自动审批策略（如超级管理员），即时审批生效
             if auto_approve or (author and author.is_superuser):
@@ -116,15 +161,38 @@ class CommentService:
                 )
                 comment.refresh_from_db()
 
+            if request_key:
+                CommentMutationReceipt.objects.get_or_create(
+                    subject_key=subject_key,
+                    action="post_comment",
+                    request_key=request_key,
+                    defaults={
+                        "request_hash": content_digest,
+                        "result_comment_id": comment.id,
+                    },
+                )
+
             return comment
 
     @classmethod
-    def edit_comment(cls, comment_id: int, author, new_raw_content: str) -> CommentVersion:
+    def edit_comment(
+        cls,
+        comment_id: int,
+        author,
+        new_raw_content: str,
+        expected_version_id: int | None = None,
+        expected_generation: int | None = None,
+        ip_address: str | None = None,
+    ) -> CommentVersion:
         """5 分钟安全编辑窗口内提交新版本 (C-03)"""
+        # 检查主体受限
+        if cls.is_subject_restricted(author=author, ip_address=ip_address):
+            raise ValidationError("您当前已被系统限制编辑评论，请稍后再试。")
+
         if not new_raw_content or not new_raw_content.strip():
             raise ValidationError("修改后的评论内容不能为空。")
 
-        safe_html = sanitize_comment_html(new_raw_content)
+        safe_html, _ = inspect_links_and_sanitize(new_raw_content)
 
         with transaction.atomic():
             comment = Comment.objects.select_for_update().get(id=comment_id)
@@ -134,6 +202,16 @@ class CommentService:
                 raise ValidationError("评论已超出 5 分钟安全编辑时限，不可修改。")
             if comment.status == "deleted":
                 raise ValidationError("已删除的评论不可编辑。")
+            if expected_generation is not None and comment.state_generation != expected_generation:
+                raise ValidationError("编辑版本冲突：评论状态已被改变，请刷新后再编辑。")
+            if expected_version_id and comment.latest_version_id != expected_version_id:
+                raise ValidationError("编辑版本冲突：已有更新的草稿被提交，请刷新后再编辑。")
+
+            # 校验页面设置
+            if comment.page_id:
+                settings_obj = PageCommentSettings.objects.filter(page_id=comment.page_id).first()
+                if settings_obj and not settings_obj.allow_comments:
+                    raise ValidationError("该页面已关闭评论互动，无法修改评论。")
 
             # 将当前残留的 pending 版本置为 superseded (已替代)
             CommentVersion.objects.filter(comment=comment, status="pending").update(status="superseded")
@@ -146,6 +224,7 @@ class CommentService:
                 .first()
                 or 1
             )
+            now = timezone.now()
             new_version = CommentVersion.objects.create(
                 comment=comment,
                 version_number=max_ver + 1,
@@ -154,9 +233,12 @@ class CommentService:
                 status="pending",
             )
 
-            comment.latest_version_id = new_version.id
-            comment.pending_version_id = new_version.id
-            comment.save(update_fields=["latest_version_id", "pending_version_id", "updated_at"])
+            # D7-A: approved_version 保持原 V1 不变，pending_version 指向新 V2
+            comment.latest_version = new_version
+            comment.pending_version = new_version
+            comment.pending_submitted_at = now
+            comment.state_generation += 1
+            comment.save(update_fields=["latest_version", "pending_version", "pending_submitted_at", "state_generation", "updated_at"])
 
             # 管理员本人编辑自动通过
             if author and author.is_superuser:
@@ -176,6 +258,9 @@ class CommentService:
         action: str,  # 'approve' | 'reject' | 'hide'
         reviewer=None,
         expected_version_id: int | None = None,
+        expected_generation: int | None = None,
+        reason: str = "",
+        ip_address: str | None = None,
     ) -> Comment:
         """
         审核批准/驳回/隐藏评论。
@@ -198,7 +283,12 @@ class CommentService:
             comment = locked_map[comment_id]
             root = locked_map.get(comment.parent_id) if comment.parent_id else None
 
+            if expected_generation is not None and comment.state_generation != expected_generation:
+                raise ValidationError("审核冲突：该评论已被并发操作修改，请刷新后再审核！")
+
             was_visible = bool(comment.is_publicly_visible)
+            prev_status = comment.status
+            applied_version_number = None
 
             # 2. 执行批准 (approve)
             if action == "approve":
@@ -215,33 +305,57 @@ class CommentService:
                 target_ver.reviewed_at = now
                 target_ver.reviewed_by = reviewer
                 target_ver.save(update_fields=["status", "reviewed_at", "reviewed_by"])
+                applied_version_number = target_ver.version_number
 
-                comment.approved_version_id = target_ver.id
-                comment.pending_version_id = None
+                # 其他待审版本标记已被替代
+                CommentVersion.objects.filter(comment=comment, status="pending").exclude(id=target_ver.id).update(status="superseded")
+
+                comment.approved_version = target_ver
+                comment.pending_version = None
                 comment.status = "active"
                 comment.is_publicly_visible = True
-                comment.save(update_fields=["approved_version_id", "pending_version_id", "status", "is_publicly_visible", "updated_at"])
+                comment.state_generation += 1
+                comment.save(update_fields=["approved_version", "pending_version", "status", "is_publicly_visible", "state_generation", "updated_at"])
 
             # 3. 执行驳回 (reject)
             elif action == "reject":
                 if expected_version_id:
+                    if comment.pending_version_id and comment.pending_version_id != expected_version_id:
+                        raise ValidationError("驳回冲突：该待审版本已被更新或替换！")
                     CommentVersion.objects.filter(id=expected_version_id, comment_id=comment.id).update(
                         status="rejected", reviewed_at=now, reviewed_by=reviewer
                     )
-                if comment.pending_version_id == expected_version_id:
-                    comment.pending_version_id = None
+                if expected_version_id and comment.pending_version_id == expected_version_id:
+                    comment.pending_version = None
+                elif not expected_version_id:
+                    comment.pending_version = None
 
                 # 若该评论未曾有过已批准版本，整体置为 rejected
-                if not comment.approved_version_id:
+                if not comment.approved_version:
                     comment.status = "rejected"
                     comment.is_publicly_visible = False
-                comment.save(update_fields=["pending_version_id", "status", "is_publicly_visible", "updated_at"])
+                comment.state_generation += 1
+                comment.save(update_fields=["pending_version", "status", "is_publicly_visible", "state_generation", "updated_at"])
 
             # 4. 执行隐藏/下架 (hide)
             elif action == "hide":
                 comment.status = "rejected"
                 comment.is_publicly_visible = False
-                comment.save(update_fields=["status", "is_publicly_visible", "updated_at"])
+                comment.is_pinned = False
+                comment.state_generation += 1
+                comment.save(update_fields=["status", "is_publicly_visible", "is_pinned", "state_generation", "updated_at"])
+
+            # 审计日志记录
+            CommentReviewAction.objects.create(
+                comment=comment,
+                actor=reviewer if reviewer and getattr(reviewer, "is_authenticated", False) else None,
+                action=action,
+                version_number=applied_version_number,
+                previous_status=prev_status,
+                new_status=comment.status,
+                reason=reason,
+                ip_address=ip_address,
+            )
 
             # 5. C-04 核心计数公式：基于 is_publicly_visible 状态跃迁累加差值
             now_visible = bool(comment.is_publicly_visible)
@@ -256,7 +370,13 @@ class CommentService:
             return comment
 
     @classmethod
-    def soft_delete_comment(cls, comment_id: int, actor) -> Comment:
+    def soft_delete_comment(
+        cls,
+        comment_id: int,
+        actor,
+        reason: str = "author",
+        ip_address: str | None = None,
+    ) -> Comment:
         """软删除评论（作者自删或管理员下架）"""
         with transaction.atomic():
             c_simple = Comment.objects.get(id=comment_id)
@@ -273,12 +393,36 @@ class CommentService:
             if not (is_author or is_moderator):
                 raise PermissionDenied("无权删除此评论。")
 
+            del_reason = reason if reason in ("author", "moderator", "risk_control") else ("author" if is_author else "moderator")
             was_visible = bool(comment.is_publicly_visible)
-            comment.status = "deleted"
-            comment.is_publicly_visible = False
-            comment.save(update_fields=["status", "is_publicly_visible", "updated_at"])
+            prev_status = comment.status
+            now = timezone.now()
 
-            # 若为子回复软删，父评论 reply_count 减 1
+            comment.status = "deleted"
+            comment.deletion_reason = del_reason
+            comment.deleted_at = now
+            comment.deleted_by = actor if getattr(actor, "is_authenticated", False) else None
+            comment.is_publicly_visible = False
+            comment.is_pinned = False
+            comment.state_generation += 1
+            comment.save(update_fields=[
+                "status", "deletion_reason", "deleted_at", "deleted_by",
+                "is_publicly_visible", "is_pinned", "state_generation", "updated_at"
+            ])
+
+            # 记录审计日志
+            CommentReviewAction.objects.create(
+                comment=comment,
+                actor=actor if getattr(actor, "is_authenticated", False) else None,
+                action=f"delete_{del_reason}",
+                version_number=comment.approved_version.version_number if comment.approved_version else None,
+                previous_status=prev_status,
+                new_status="deleted",
+                reason=f"软删除: {del_reason}",
+                ip_address=ip_address,
+            )
+
+            # 若为子回复软删且此前可见，父评论 reply_count 减 1
             if root and was_visible:
                 Comment.objects.filter(id=root.id).update(reply_count=Greatest(F("reply_count") - 1, 0))
 
@@ -347,3 +491,122 @@ class CommentService:
                 comment.refresh_from_db()
 
             return {"like_count": comment.like_count, "dislike_count": comment.dislike_count}
+
+    @classmethod
+    def toggle_pin_comment(cls, comment_id: int, actor, ip_address: str | None = None) -> Comment:
+        """置顶/取消置顶评论 (仅管理员或被授权人)"""
+        is_moderator = getattr(actor, "is_superuser", False) or (actor and actor.has_perm("comments.moderate_comment"))
+        if not is_moderator:
+            raise PermissionDenied("无权置顶评论。")
+
+        with transaction.atomic():
+            comment = Comment.objects.select_for_update().get(id=comment_id)
+            if comment.status != "active" or not comment.is_publicly_visible:
+                raise ValidationError("仅正常且已公开的评论可以置顶。")
+
+            comment.is_pinned = not comment.is_pinned
+            comment.state_generation += 1
+            comment.save(update_fields=["is_pinned", "state_generation", "updated_at"])
+
+            CommentReviewAction.objects.create(
+                comment=comment,
+                actor=actor,
+                action="pin" if comment.is_pinned else "unpin",
+                version_number=comment.approved_version.version_number if comment.approved_version else None,
+                previous_status=comment.status,
+                new_status=comment.status,
+                reason="管理员置顶切换",
+                ip_address=ip_address,
+            )
+            return comment
+
+    # ================= 社区治理与主体限制 =================
+
+    @classmethod
+    def restrict_subject(
+        cls,
+        kind: str,
+        subject_key: str,
+        hours: int = 24,
+        reason: str = "",
+        actor=None,
+    ) -> CommentGovernanceSubject:
+        """对指定用户或IP实施临时限制 (默认24小时)"""
+        if kind not in ("user", "ip"):
+            raise ValidationError("非法的治理主体类型。")
+        now = timezone.now()
+        target_until = now + timedelta(hours=hours)
+
+        with transaction.atomic():
+            obj, created = CommentGovernanceSubject.objects.select_for_update().get_or_create(
+                kind=kind,
+                subject_key=subject_key,
+                defaults={
+                    "restricted_until": target_until,
+                    "reason": reason,
+                    "updated_by": actor,
+                },
+            )
+            if not created:
+                # 取最远时间
+                obj.restricted_until = max(obj.restricted_until, target_until)
+                obj.generation += 1
+                obj.reason = reason
+                obj.updated_by = actor
+                obj.save(update_fields=["restricted_until", "generation", "reason", "updated_by", "updated_at"])
+            return obj
+
+    @classmethod
+    def lift_restriction(cls, kind: str, subject_key: str, actor=None) -> bool:
+        """提前解除指定用户或IP的治理限制"""
+        now = timezone.now()
+        updated = CommentGovernanceSubject.objects.filter(
+            kind=kind,
+            subject_key=subject_key,
+            restricted_until__gt=now,
+        ).update(restricted_until=now, updated_by=actor)
+        return updated > 0
+
+    @classmethod
+    def is_subject_restricted(cls, author=None, ip_address: str | None = None) -> bool:
+        """查询主体是否当前处于治理限制期"""
+        now = timezone.now()
+        if author and getattr(author, "is_authenticated", False):
+            if CommentGovernanceSubject.objects.filter(
+                kind="user",
+                subject_key=f"user:{author.id}",
+                restricted_until__gt=now,
+            ).exists():
+                return True
+        if ip_address:
+            if CommentGovernanceSubject.objects.filter(
+                kind="ip",
+                subject_key=f"ip:{ip_address}",
+                restricted_until__gt=now,
+            ).exists():
+                return True
+        return False
+
+    @classmethod
+    def batch_hide_comments(cls, actor, comment_ids: list[int], reason: str = "批量风控隐藏") -> dict[str, int]:
+        """全站跨页面批量隐藏违规评论 (按 id 升序加锁防死锁，每批最多 100 条)"""
+        success_count = 0
+        conflict_count = 0
+        fail_count = 0
+
+        for cid in sorted(set(comment_ids))[:100]:
+            try:
+                cls.moderate_comment(
+                    comment_id=cid,
+                    action="hide",
+                    reviewer=actor,
+                    reason=reason,
+                )
+                success_count += 1
+            except ValidationError:
+                conflict_count += 1
+            except Exception as e:
+                logger.error("批量隐藏评论 #%d 失败: %s", cid, e)
+                fail_count += 1
+
+        return {"success": success_count, "conflict": conflict_count, "failed": fail_count}

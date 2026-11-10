@@ -170,6 +170,7 @@ class GuidePage(CustomBasePage):
     继承 CustomBasePage（自动享有 30 天原树受控回收站保护与防误删门禁）。
     正文 body 彻底脱水外置于 MongoDB。
     """
+    supports_comments = True
     base_form_class = GuidePageAdminForm
 
     topic = models.ForeignKey(

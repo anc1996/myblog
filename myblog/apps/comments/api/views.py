@@ -12,6 +12,7 @@ comments.api.views
 """
 
 import json
+from django.db.models import Q
 from django.http import JsonResponse
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.views.decorators.http import require_http_methods
@@ -48,15 +49,17 @@ def list_comments_api(request, page_id: int):
     page_size_str = request.GET.get("page_size", "10")
     page_size = max(1, min(int(page_size_str) if page_size_str.isdigit() else 10, 50))
 
+    # D6-A: 正常公开根评论 + 作者自删占位根评论（仅当有回复时）
     qs = Comment.objects.filter(
-        page=page,
-        parent__isnull=True,
-        is_publicly_visible=True,
+        Q(page=page, parent__isnull=True) & (
+            (Q(status="active", is_publicly_visible=True))
+            | (Q(status="deleted", deletion_reason="author", reply_count__gt=0))
+        )
     )
     if sort == "hot":
-        qs = qs.order_by("-like_count", "-created_at")
+        qs = qs.order_by("-is_pinned", "-like_count", "-created_at", "-id")
     else:
-        qs = qs.order_by("-created_at")
+        qs = qs.order_by("-is_pinned", "-created_at", "-id")
 
     total_count = qs.count()
     offset = (page_num - 1) * page_size
@@ -79,20 +82,41 @@ def list_comments_api(request, page_id: int):
 
     items = []
     for c in comments:
-        items.append({
-            "id": c.id,
-            "author": {
-                "id": c.author_id,
-                "username": c.author.username if c.author else "匿名/已注销",
-            },
-            "safe_html": ver_map.get(c.approved_version_id, "（内容已归档）"),
-            "like_count": c.like_count,
-            "dislike_count": c.dislike_count,
-            "reply_count": c.reply_count,
-            "user_reaction": user_reactions.get(c.id, 0),
-            "created_at": c.created_at.strftime("%Y-%m-%d %H:%M:%S"),
-            "is_editable": c.is_editable if (request.user.is_authenticated and c.author_id == request.user.id) else False,
-        })
+        if c.status == "deleted" and c.deletion_reason == "author":
+            # D6-A: 作者自删根占位条
+            items.append({
+                "id": c.id,
+                "kind": "author_deleted",
+                "message": "该评论已由作者自行删除",
+                "author": {"id": None, "username": "（已删除）"},
+                "safe_html": "",
+                "like_count": 0,
+                "dislike_count": 0,
+                "reply_count": c.reply_count,
+                "user_reaction": 0,
+                "created_at": c.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                "is_editable": False,
+                "is_pinned": False,
+                "state_generation": c.state_generation,
+            })
+        else:
+            items.append({
+                "id": c.id,
+                "kind": "comment",
+                "author": {
+                    "id": c.author_id,
+                    "username": c.author.username if c.author else (c.guest_name or "访客"),
+                },
+                "safe_html": ver_map.get(c.approved_version_id, "（内容已归档）"),
+                "like_count": c.like_count,
+                "dislike_count": c.dislike_count,
+                "reply_count": c.reply_count,
+                "user_reaction": user_reactions.get(c.id, 0),
+                "created_at": c.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                "is_editable": c.is_editable if (request.user.is_authenticated and c.author_id == request.user.id) else False,
+                "is_pinned": c.is_pinned,
+                "state_generation": c.state_generation,
+            })
 
     total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 1
     resp = _cors_json_response({
@@ -114,7 +138,12 @@ def list_replies_api(request, root_id: int):
     if request.method == "OPTIONS":
         return _cors_json_response({})
 
-    root = Comment.objects.filter(id=root_id, parent__isnull=True, is_publicly_visible=True).first()
+    root = Comment.objects.filter(
+        Q(id=root_id, parent__isnull=True) & (
+            Q(is_publicly_visible=True)
+            | Q(status="deleted", deletion_reason="author", reply_count__gt=0)
+        )
+    ).first()
     if not root or not root.page_id:
         return _cors_json_response({"status": "error", "code": 404, "message": "根评论不存在或已被隐藏"}, status=404)
 
@@ -147,7 +176,7 @@ def list_replies_api(request, root_id: int):
             "id": r.id,
             "author": {
                 "id": r.author_id,
-                "username": r.author.username if r.author else "匿名/已注销",
+                "username": r.author.username if r.author else (r.guest_name or "访客"),
             },
             "replied_to_user": {
                 "id": r.replied_to_user_id,
@@ -202,6 +231,7 @@ def post_comment_api(request, page_id: int):
     raw_content = request.POST.get("content", "").strip()
     parent_id = request.POST.get("parent_id")
     reply_to_id = request.POST.get("reply_to_comment_id")
+    request_key = request.POST.get("request_key")
 
     pid = int(parent_id) if parent_id and parent_id.isdigit() else None
     rid = int(reply_to_id) if reply_to_id and reply_to_id.isdigit() else None
@@ -219,6 +249,7 @@ def post_comment_api(request, page_id: int):
             reply_to_comment_id=rid,
             ip_address=ip,
             user_agent=ua,
+            request_key=request_key,
         )
         return _cors_json_response({
             "status": "success",
@@ -240,8 +271,21 @@ def edit_comment_api(request, comment_id: int):
         return _cors_json_response({"status": "error", "code": 401, "message": "请登录后再编辑评论"}, status=401)
 
     new_content = request.POST.get("content", "").strip()
+    expected_version_id = request.POST.get("expected_version_id")
+    expected_generation = request.POST.get("expected_generation")
+    exp_ver = int(expected_version_id) if expected_version_id and expected_version_id.isdigit() else None
+    exp_gen = int(expected_generation) if expected_generation and expected_generation.isdigit() else None
+    ip = get_client_ip(request)
+
     try:
-        ver = CommentService.edit_comment(comment_id, request.user, new_content)
+        ver = CommentService.edit_comment(
+            comment_id,
+            request.user,
+            new_content,
+            expected_version_id=exp_ver,
+            expected_generation=exp_gen,
+            ip_address=ip,
+        )
         return _cors_json_response({
             "status": "success",
             "data": {
@@ -277,7 +321,7 @@ def react_comment_api(request, comment_id: int):
     if not request.user.is_authenticated:
         return _cors_json_response({"status": "error", "code": 401, "message": "请登录后再参与互动"}, status=401)
 
-    reaction_val = request.POST.get("reaction")
+    reaction_val = request.POST.get("reaction") or request.POST.get("reaction_type")
     try:
         r_type = int(reaction_val)
     except (TypeError, ValueError):

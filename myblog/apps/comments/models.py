@@ -12,6 +12,7 @@ comments.models
 """
 
 import hashlib
+import uuid
 from datetime import timedelta
 from django.conf import settings
 from django.db import models
@@ -39,7 +40,7 @@ class Comment(models.Model):
         "wagtailcore.Page",
         null=True,
         blank=True,
-        on_delete=models.SET_NULL,
+        on_delete=models.CASCADE,
         related_name="site_comments",
         verbose_name="所属页面",
     )
@@ -55,6 +56,8 @@ class Comment(models.Model):
         related_name="site_comments",
         verbose_name="评论作者",
     )
+    author_subject_key = models.CharField(max_length=64, blank=True, db_index=True, verbose_name="稳定主体标识")
+    guest_name = models.CharField(max_length=50, blank=True, verbose_name="访客显示昵称")
 
     # 3. 扁平两级反嵌套结构 (C-05)
     parent = models.ForeignKey(
@@ -93,10 +96,63 @@ class Comment(models.Model):
     status = models.CharField(max_length=16, choices=STATUS_CHOICES, default="pending", db_index=True, verbose_name="生命周期状态")
     is_publicly_visible = models.BooleanField(default=False, db_index=True, verbose_name="当前前台是否公开可见")
 
-    # 5. 版本指针
-    latest_version_id = models.IntegerField(null=True, blank=True, verbose_name="最新提交版本ID")
-    approved_version_id = models.IntegerField(null=True, blank=True, verbose_name="当前生效批准版本ID")
-    pending_version_id = models.IntegerField(null=True, blank=True, verbose_name="当前待审版本ID")
+    DELETION_REASON_CHOICES = [
+        ("author", "作者自删"),
+        ("moderator", "管理下架"),
+        ("risk_control", "风控拦截"),
+    ]
+    deletion_reason = models.CharField(max_length=16, blank=True, choices=DELETION_REASON_CHOICES, db_index=True, verbose_name="删除原因")
+    deleted_at = models.DateTimeField(null=True, blank=True, verbose_name="软删除时间")
+    deleted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        verbose_name="执行删除人",
+    )
+    is_pinned = models.BooleanField(default=False, db_index=True, verbose_name="是否官方置顶")
+    is_official = models.BooleanField(default=False, db_index=True, verbose_name="是否站方/作者回复")
+    state_generation = models.PositiveIntegerField(default=1, verbose_name="状态代次序号")
+    pending_submitted_at = models.DateTimeField(null=True, blank=True, verbose_name="待审版本提交时间")
+
+    # 5. 版本指针 (B-01: on_delete=DO_NOTHING 避免 Collector 置空导致 CheckConstraint 报错)
+    latest_version = models.ForeignKey(
+        "CommentVersion",
+        null=True,
+        blank=True,
+        on_delete=models.DO_NOTHING,
+        related_name="+",
+        verbose_name="最新提交版本",
+    )
+    approved_version = models.ForeignKey(
+        "CommentVersion",
+        null=True,
+        blank=True,
+        on_delete=models.DO_NOTHING,
+        related_name="+",
+        verbose_name="当前生效批准版本",
+    )
+    pending_version = models.ForeignKey(
+        "CommentVersion",
+        null=True,
+        blank=True,
+        on_delete=models.DO_NOTHING,
+        related_name="+",
+        verbose_name="当前待审版本",
+    )
+
+    @property
+    def latest_version_id(self):
+        return self.latest_version.id if self.latest_version else None
+
+    @property
+    def approved_version_id(self):
+        return self.approved_version.id if self.approved_version else None
+
+    @property
+    def pending_version_id(self):
+        return self.pending_version.id if self.pending_version else None
 
     # 6. 原子计数 (CheckConstraint 保护非负)
     like_count = models.PositiveIntegerField(default=0, verbose_name="点赞数")
@@ -118,6 +174,7 @@ class Comment(models.Model):
         ordering = ["-created_at"]
         permissions = [
             ("moderate_comment", "可以审核、批准、驳回或隐藏全站评论"),
+            ("govern_comment_globally", "可以全站批量治理与封禁发评人"),
         ]
         constraints = [
             models.CheckConstraint(
@@ -132,11 +189,32 @@ class Comment(models.Model):
         indexes = [
             models.Index(fields=["page", "is_publicly_visible", "created_at"], name="comm_page_vis_idx"),
             models.Index(fields=["parent", "is_publicly_visible", "created_at"], name="comm_parent_vis_idx"),
+            # B-04 / Argon 17.3 优化：单一复合部分索引，0 内存排序合并
+            models.Index(
+                fields=["page", "is_pinned", "created_at", "id"],
+                condition=Q(parent__isnull=True) & Q(approved_version__isnull=False) & (
+                    (Q(status="active") & Q(is_publicly_visible=True))
+                    | (Q(status="deleted") & Q(deletion_reason="author"))
+                ),
+                name="comm_root_thread_idx",
+            ),
+            # 待审队列快速索引
+            models.Index(
+                fields=["created_at", "id"],
+                condition=Q(pending_version__isnull=False),
+                name="comm_pending_idx",
+            ),
+            # 单篇后台全状态管理索引
+            models.Index(
+                fields=["page", "status", "created_at", "id"],
+                name="comm_page_admin_idx",
+            ),
         ]
 
     def delete(self, *args, allow_physical_purge=False, **kwargs):
-        """禁止普通物理删除，强制通过业务服务软删除 (C-06)"""
-        if not allow_physical_purge:
+        """禁止普通物理删除，强制通过业务服务软删除 (C-06 / D5-B)"""
+        from content_lifecycle.models import is_purge_authorized
+        if not allow_physical_purge and not is_purge_authorized():
             raise PermissionDenied("禁止物理硬删评论记录！必须调用 CommentService.soft_delete_comment 执行软删除。")
         return super().delete(*args, **kwargs)
 
@@ -169,6 +247,9 @@ class CommentVersion(models.Model):
     raw_content = models.TextField(verbose_name="原始内容(Markdown)")
     safe_html = models.TextField(verbose_name="安全渲染HTML(nh3净化)")
     content_hash = models.CharField(max_length=64, db_index=True, verbose_name="内容SHA-256哈希")
+    renderer_version = models.CharField(max_length=32, blank=True, default="nh3-0.3.5", verbose_name="渲染器规则版本")
+    risk_reasons = models.JSONField(default=list, blank=True, verbose_name="风控/待审触发原因")
+    risk_policy_version = models.CharField(max_length=32, blank=True, default="v1.0", verbose_name="风控规则版本")
 
     STATUS_CHOICES = [
         ("pending", "待审核"),
@@ -197,6 +278,11 @@ class CommentVersion(models.Model):
             models.UniqueConstraint(
                 fields=["comment", "version_number"],
                 name="uniq_comment_version_num",
+            ),
+            models.UniqueConstraint(
+                fields=["comment"],
+                condition=models.Q(status="pending"),
+                name="uniq_comment_one_pending_version",
             ),
         ]
 
@@ -246,3 +332,177 @@ class CommentReaction(models.Model):
     def __str__(self):
         action = "赞" if self.reaction_type == 1 else "踩"
         return f"{self.user.username} {action} Comment #{self.comment_id}"
+
+
+class CommentReviewAction(models.Model):
+    """评论审核与治理追加式审计日志模型"""
+    comment = models.ForeignKey(
+        Comment,
+        on_delete=models.CASCADE,
+        related_name="audit_logs",
+        verbose_name="目标评论",
+    )
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        verbose_name="操作人",
+    )
+    action = models.CharField(max_length=32, verbose_name="操作动作")
+    version_number = models.PositiveIntegerField(null=True, blank=True, verbose_name="目标版本号")
+    previous_status = models.CharField(max_length=16, verbose_name="操作前状态")
+    new_status = models.CharField(max_length=16, verbose_name="操作后状态")
+    reason = models.TextField(blank=True, verbose_name="审核原因/批注")
+    ip_address = models.GenericIPAddressField(null=True, blank=True, verbose_name="操作人IP")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="操作时间")
+
+    class Meta:
+        verbose_name = "评论审核审计日志"
+        verbose_name_plural = "评论审核审计日志"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        actor_name = self.actor.username if self.actor else "系统"
+        return f"Audit: {actor_name} {self.action} on Comment #{self.comment_id} at {self.created_at}"
+
+
+class PageCommentSettings(models.Model):
+    """单篇页面评论运行控制模型 (就地开关、单篇状态代次)"""
+    page = models.OneToOneField(
+        "wagtailcore.Page",
+        on_delete=models.CASCADE,
+        related_name="comment_settings",
+        verbose_name="所属页面",
+    )
+    allow_comments = models.BooleanField(default=True, verbose_name="允许发表评论")
+    close_reason = models.CharField(max_length=255, blank=True, verbose_name="关评公告说明")
+    auto_moderate_new = models.BooleanField(default=False, verbose_name="新评论强制人工复核")
+    state_generation = models.PositiveIntegerField(default=1, verbose_name="状态代次")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="最后配置时间")
+
+    class Meta:
+        verbose_name = "单篇页面评论配置"
+        verbose_name_plural = "单篇页面评论配置"
+
+    def __str__(self):
+        return f"CommentSettings for Page #{self.page_id} (allowed={self.allow_comments})"
+
+
+class CommentGovernanceSubject(models.Model):
+    """治理主体限制模型 (24小时禁言/风控限制)"""
+    KIND_CHOICES = [
+        ("user", "用户"),
+        ("ip", "IP地址"),
+    ]
+    kind = models.CharField(max_length=8, choices=KIND_CHOICES, verbose_name="主体类别")
+    subject_key = models.CharField(max_length=64, db_index=True, verbose_name="规范化主体标识")  # user:<id> 或 ip:<ip>
+    restricted_until = models.DateTimeField(db_index=True, verbose_name="限制截止时间")
+    generation = models.PositiveIntegerField(default=1, verbose_name="主体代次")
+    reason = models.CharField(max_length=255, blank=True, verbose_name="治理原因")
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        verbose_name="操作人",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="创建时间")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="最后更新时间")
+
+    class Meta:
+        verbose_name = "评论治理主体限制"
+        verbose_name_plural = "评论治理主体限制"
+        constraints = [
+            models.UniqueConstraint(fields=["kind", "subject_key"], name="uniq_comment_gov_subject"),
+        ]
+
+    def __str__(self):
+        return f"GovSubject {self.kind}:{self.subject_key} until {self.restricted_until}"
+
+
+class CommentGovernanceBatch(models.Model):
+    """全站跨页面批量治理批次模型"""
+    batch_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False, verbose_name="批次UUID")
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        verbose_name="执行人",
+    )
+    action = models.CharField(max_length=32, verbose_name="批量治理动作")  # e.g., 'batch_hide'
+    filter_summary = models.JSONField(default=dict, blank=True, verbose_name="筛选条件摘要")
+    snapshot_time = models.DateTimeField(auto_now_add=True, verbose_name="快照截止时间")
+    progress = models.CharField(max_length=16, default="running", verbose_name="批次进度")  # running, completed, partial_failed
+    success_count = models.PositiveIntegerField(default=0, verbose_name="成功条数")
+    conflict_count = models.PositiveIntegerField(default=0, verbose_name="冲突跳过数")
+    failure_count = models.PositiveIntegerField(default=0, verbose_name="失败条数")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="创建时间")
+
+    class Meta:
+        verbose_name = "评论批量治理批次"
+        verbose_name_plural = "评论批量治理批次"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Batch #{self.batch_id} ({self.action}): {self.success_count} success, {self.conflict_count} conflict"
+
+
+class CommentGovernanceItem(models.Model):
+    """批量治理具体条目明细模型"""
+    batch = models.ForeignKey(
+        CommentGovernanceBatch,
+        on_delete=models.CASCADE,
+        related_name="items",
+        verbose_name="所属批次",
+    )
+    comment = models.ForeignKey(
+        Comment,
+        on_delete=models.CASCADE,
+        related_name="governance_items",
+        verbose_name="目标评论",
+    )
+    expected_version = models.ForeignKey(
+        CommentVersion,
+        null=True,
+        blank=True,
+        on_delete=models.DO_NOTHING,  # B-01 闭环
+        related_name="+",
+        verbose_name="期望版本",
+    )
+    expected_generation = models.PositiveIntegerField(default=1, verbose_name="期望代次")
+    status = models.CharField(max_length=16, default="pending", verbose_name="处理状态")  # success, conflict, failed, skipped
+    result_message = models.CharField(max_length=255, blank=True, verbose_name="处理结果说明")
+
+    class Meta:
+        verbose_name = "批量治理明细项"
+        verbose_name_plural = "批量治理明细项"
+        constraints = [
+            models.UniqueConstraint(fields=["batch", "comment"], name="uniq_gov_batch_comment"),
+        ]
+
+    def __str__(self):
+        return f"GovItem {self.batch_id} -> Comment #{self.comment_id}: {self.status}"
+
+
+class CommentMutationReceipt(models.Model):
+    """评论写入请求幂等凭据表 (防止重复发评/重放攻击)"""
+    subject_key = models.CharField(max_length=64, db_index=True, verbose_name="主体标识")
+    action = models.CharField(max_length=32, verbose_name="动作")
+    request_key = models.CharField(max_length=64, db_index=True, verbose_name="请求幂等键")
+    request_hash = models.CharField(max_length=64, verbose_name="请求参数SHA256哈希")
+    result_comment_id = models.IntegerField(null=True, blank=True, verbose_name="结果评论ID")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="创建时间")
+
+    class Meta:
+        verbose_name = "评论写入幂等凭据"
+        verbose_name_plural = "评论写入幂等凭据"
+        constraints = [
+            models.UniqueConstraint(fields=["subject_key", "action", "request_key"], name="uniq_comm_mutation_receipt"),
+        ]
+
+    def __str__(self):
+        return f"Receipt {self.subject_key}:{self.action}:{self.request_key}"

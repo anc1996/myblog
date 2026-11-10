@@ -1,0 +1,54 @@
+{% extends "wagtailadmin/generic/index.html" %}
+{% load i18n %}
+
+{% block listing %}
+    <div class="comment-type-tabs" style="margin: 0 0 16px 0; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; background: #f8fafc; padding: 12px; border-radius: 6px; border: 1px solid #e2e8f0;">
+        <span style="font-weight: 600; color: #475569; margin-right: 4px;">📂 页面类型：</span>
+        <a href="?page_type=all{% if current_page_id %}&page_id={{ current_page_id }}{% endif %}" class="button button-small {% if current_page_type == 'all' and not current_status %}button-primary{% else %}button-secondary{% endif %}">全部 ({{ tab_counts.all }})</a>
+        <a href="?page_type=blog_page{% if current_page_id %}&page_id={{ current_page_id }}{% endif %}" class="button button-small {% if current_page_type == 'blog_page' %}button-primary{% else %}button-secondary{% endif %}">博客文章 ({{ tab_counts.blog_page }})</a>
+        <a href="?page_type=guide{% if current_page_id %}&page_id={{ current_page_id }}{% endif %}" class="button button-small {% if current_page_type == 'guide' %}button-primary{% else %}button-secondary{% endif %}">专题指南 ({{ tab_counts.guide }})</a>
+        <a href="?page_type=project{% if current_page_id %}&page_id={{ current_page_id }}{% endif %}" class="button button-small {% if current_page_type == 'project' %}button-primary{% else %}button-secondary{% endif %}">实战项目 ({{ tab_counts.project }})</a>
+        <a href="?status=pending{% if current_page_id %}&page_id={{ current_page_id }}{% endif %}" class="button button-small {% if current_status == 'pending' %}button-primary{% else %}button-secondary{% endif %}" style="margin-left: auto; {% if tab_counts.pending > 0 %}background:#f59e0b;color:#fff;border-color:#d97706;{% endif %}">⚠️ 待审核队列 ({{ tab_counts.pending }})</a>
+    </div>
+
+    {% if current_page_id %}
+    <div style="background: #e0f2fe; border: 1px solid #7dd3fc; color: #0369a1; padding: 8px 12px; border-radius: 6px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
+        <span>🔍 <strong>当前锁定单篇页面筛选：</strong>Page ID #{{ current_page_id }}</span>
+        <a href="?page_type={{ current_page_type }}" class="button button-small button-secondary" style="background: #fff;">清除单篇锁定</a>
+    </div>
+    {% endif %}
+
+    {% if current_author_key %}
+    <div style="background: #fef3c7; border: 1px solid #fcd34d; color: #92400e; padding: 8px 12px; border-radius: 6px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
+        <span>👤 <strong>发评主体溯源筛选：</strong>{{ current_author_key }}</span>
+        <a href="?page_type={{ current_page_type }}" class="button button-small button-secondary" style="background: #fff;">清除主体筛选</a>
+    </div>
+    {% endif %}
+
+    {{ block.super }}
+
+    <script>
+    document.addEventListener("DOMContentLoaded", function() {
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+        const csrfToken = getCookie("csrftoken");
+        if (csrfToken) {
+            document.querySelectorAll(".js-csrf-token").forEach(input => {
+                input.value = csrfToken;
+            });
+        }
+    });
+    </script>
+{% endblock %}

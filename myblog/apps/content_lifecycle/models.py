@@ -10,10 +10,35 @@
 6. update_aliases() 守卫: 排除已回收的 Alias 别名页面，防止源页面发布导致回收别名被动上线。
 """
 
+import contextvars
 import uuid
+from contextlib import contextmanager
 from django.db import models
 from django.core.exceptions import PermissionDenied
 from wagtail.models import Page
+
+
+_PURGE_AUTHORIZED = contextvars.ContextVar("is_purge_authorized", default=False)
+
+
+@contextmanager
+def authorize_physical_purge():
+    """
+    上下文管理器：授权执行受控的物理清空（Purge）。
+    在受控清理（RecycleService.purge_page_or_subtree）期间生效，
+    允许 CustomBasePage 以及通过外键级联删除的相关模型（如 Comment）执行真实的物理删除，
+    同时阻止未经授权的代码通过常规 ORM 操作绕过回收站直接物理删除。
+    """
+    token = _PURGE_AUTHORIZED.set(True)
+    try:
+        yield
+    finally:
+        _PURGE_AUTHORIZED.reset(token)
+
+
+def is_purge_authorized() -> bool:
+    """返回当前执行上下文是否已获得物理清空授权。"""
+    return _PURGE_AUTHORIZED.get()
 
 
 class CustomBasePage(Page):
@@ -45,19 +70,35 @@ class CustomBasePage(Page):
     is_recycled = models.BooleanField(
         default=False,       # 新建页面默认处于正常未回收状态 (False)
         editable=False,      # 禁止在编辑表单中人工勾选，必须通过回收站服务统一状态流转
-        db_index=True,       # 极高频过滤条件（所有公开查询都要 WHERE is_recycled=false），加索引消除全表扫描
+        db_index=True,       # 建立 B-Tree 索引，极高频过滤条件（所有公开查询都要 WHERE is_recycled=false），加索引消除全表扫描
         verbose_name="是否已移入回收站",
         help_text="原树占位标记；已回收页面不可发布、对公网不可见且在管理后台普通目录隐藏",
     )
 
     # 3. 类级别评论准入策略开关 (allow_comments)
     # 【原理与作用】：
-    # 这是类属性开关（默认为 True），赋予所有继承 CustomBasePage 的具体内容页面默认开启评论互动的资格。
-    # 为什么需要它？
-    # 某些聚合页面（如 BlogIndexPage 博客栏目大厅、TagIndexPage 标签大厅）不需要评论区，
-    # 它们只需在自己的子类中声明 `allow_comments = False`，即可零成本关闭该类页面的评论功能。
-    # 评论 API 准入守卫与前端模板会联合校验该属性：if not page.allow_comments 则拒绝发表并隐藏评论区。
-    allow_comments = True
+    # 遵循 RFC-020：抽象基类与聚合大厅默认不启用评论能力 (supports_comments=False)；
+    # BlogPage、GuidePage、ProjectPage 显式声明 supports_comments = True。
+    supports_comments = False
+    allow_comments = True  # 向后兼容属性
+
+    @classmethod
+    def get_edit_handler(cls):
+        handler = super().get_edit_handler()
+        if getattr(cls, "supports_comments", False):
+            tab_names = [getattr(c, "heading", "") for c in getattr(handler, "children", [])]
+            if "💬 评论与互动" not in tab_names:
+                try:
+                    from comments.panels import PageCommentGovernancePanel
+                    from wagtail.admin.panels import ObjectList, TabbedInterface
+
+                    comment_tab = ObjectList([PageCommentGovernancePanel()], heading="💬 评论与互动")
+                    children = list(handler.children) + [comment_tab]
+                    model_form_class = getattr(cls, "base_form_class", None)
+                    handler = TabbedInterface(children, base_form_class=model_form_class).bind_to_model(cls)
+                except Exception:
+                    pass
+        return handler
 
     class Meta:
         abstract = True
@@ -85,7 +126,7 @@ class CustomBasePage(Page):
 
     def delete(self, *args, **kwargs):
         """删除守卫：普通业务入口禁止直接物理删除，必须通过 RecycleService 回收"""
-        allow_physical_purge = kwargs.pop("allow_physical_purge", False)
+        allow_physical_purge = kwargs.pop("allow_physical_purge", False) or is_purge_authorized()
         if not allow_physical_purge:
             raise PermissionDenied(
                 f"禁止对页面 '{self.title}' (id={self.id}) 执行直接物理删除！"

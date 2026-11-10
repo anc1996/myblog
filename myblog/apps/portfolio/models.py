@@ -245,6 +245,7 @@ class ProjectPage(ExternalStreamPageMixin, CustomBasePage):
     """作品集项目详情页 (严格脱水 + 原树回收 + 通用评论)"""
     parent_page_types = ["portfolio.PortfolioIndexPage"]
     subpage_types = []
+    supports_comments = True
     allow_comments = True
 
     project_status = models.CharField(

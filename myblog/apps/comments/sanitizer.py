@@ -9,8 +9,11 @@ comments.sanitizer
 4. 正文限制最大 5,000 字符。
 """
 
-import markdown
+import re
+from urllib.parse import urlsplit
+from django.core.exceptions import ValidationError
 import nh3
+import markdown
 
 ALLOWED_COMMENT_TAGS = {
     "p", "br", "strong", "b", "em", "i", "s", "del",
@@ -27,17 +30,25 @@ ALLOWED_COMMENT_ATTRIBUTES = {
 ALLOWED_COMMENT_SCHEMES = {"http", "https"}
 
 
+def validate_comment_length(raw_text: str, max_chars: int = 2000) -> None:
+    """校验评论字数上限 (最大 2000 字符，拒绝静默截断，B-05)"""
+    if not raw_text or not raw_text.strip():
+        raise ValidationError("评论正文不能为空。")
+    if len(raw_text) > max_chars:
+        raise ValidationError(f"评论长度超出限制（当前 {len(raw_text)} 字符，最多允许 {max_chars} 字符）。")
+
+
 def sanitize_comment_html(raw_markdown_or_html: str) -> str:
     """对评论内容进行 Markdown 解析与严格白名单安全净化"""
     if not raw_markdown_or_html:
         return ""
 
-    # 1. 限制输入长度防 DoS
-    truncated = raw_markdown_or_html[:5000]
+    # 1. 校验长度 (最大 2000 字符)
+    validate_comment_length(raw_markdown_or_html, 2000)
 
     # 2. Markdown 转换为 HTML
     raw_html = markdown.markdown(
-        truncated,
+        raw_markdown_or_html,
         extensions=["fenced_code", "tables"],
         output_format="html5",
     )
@@ -50,3 +61,36 @@ def sanitize_comment_html(raw_markdown_or_html: str) -> str:
         url_schemes=ALLOWED_COMMENT_SCHEMES,
         link_rel="nofollow ugc noopener noreferrer",
     )
+
+
+def inspect_links_and_sanitize(raw_markdown_or_html: str, internal_hosts: set[str] | None = None) -> tuple[str, int]:
+    """
+    安全净化评论 HTML 并统计外链数量 (B-05 / 反垃圾门禁)。
+    返回: (safe_html, external_link_count)
+    若外链数 >= 2，调用方将自动标记进入人工待审队列。
+    """
+    safe_html = sanitize_comment_html(raw_markdown_or_html)
+
+    href_pattern = re.compile(r'href=["\']([^"\']+)["\']', re.IGNORECASE)
+    external_links = 0
+    clean_hosts = internal_hosts or {"localhost", "127.0.0.1", "192.168.20.5"}
+
+    for match in href_pattern.finditer(safe_html):
+        href = match.group(1).strip()
+        # 防御反斜杠与 userinfo 绕过 (B-05)
+        if "\\" in href or href.startswith("//"):
+            safe_html = safe_html.replace(match.group(0), 'href="#"')
+            continue
+        try:
+            parts = urlsplit(href)
+            if parts.username or parts.password:
+                safe_html = safe_html.replace(match.group(0), 'href="#"')
+                continue
+            if parts.scheme in ("http", "https"):
+                hostname = (parts.hostname or "").lower()
+                if hostname not in clean_hosts:
+                    external_links += 1
+        except Exception:
+            safe_html = safe_html.replace(match.group(0), 'href="#"')
+
+    return safe_html, external_links

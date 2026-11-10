@@ -1,0 +1,240 @@
+{% load i18n %}
+<div class="page-comment-governance-panel" style="padding: 16px; background: #fff; border-radius: 8px;">
+    {% if not page_id %}
+        <div class="help-block help-info" style="background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; padding: 16px; border-radius: 6px;">
+            <p style="margin: 0; font-size: 15px;">📌 <strong>提示：</strong>当前页面尚未保存草稿（暂无页面 ID）。在首次保存页面后，即可在此就地管理本页面的评论配置与互动审核。</p>
+        </div>
+    {% else %}
+        <!-- 1. 页面级运行设置 (B-03 隔离: 严禁使用 name 属性) -->
+        <div class="panel-section" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 16px; margin-bottom: 20px;">
+            <h3 style="margin-top: 0; margin-bottom: 12px; font-size: 16px; color: #1e293b; display: flex; align-items: center; gap: 8px;">
+                <span>⚙️</span> 单篇页面评论运行控制
+            </h3>
+            <div style="display: flex; flex-direction: column; gap: 12px;">
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 500;">
+                    <input type="checkbox" data-comment-field="allow_comments" {% if not comment_settings or comment_settings.allow_comments %}checked{% endif %} style="width: 18px; height: 18px;">
+                    <span>允许读者发表评论与回复互动</span>
+                </label>
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <label style="font-size: 13px; color: #64748b; white-space: nowrap;">关评公告说明：</label>
+                    <input type="text" data-comment-field="close_reason" value="{{ comment_settings.close_reason|default:'' }}" placeholder="关闭评论时向前台读者展示的提示（可选）" style="flex: 1; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 13px;">
+                </div>
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; color: #475569;">
+                    <input type="checkbox" data-comment-field="auto_moderate_new" {% if comment_settings and comment_settings.auto_moderate_new %}checked{% endif %} style="width: 16px; height: 16px;">
+                    <span>新提交评论强制进入人工待审队列（不走自动批准策略）</span>
+                </label>
+                <div style="display: flex; align-items: center; gap: 12px; margin-top: 4px;">
+                    <button type="button" id="btn-save-comment-settings" class="button button-small button-primary" style="background: #2563eb; color: #fff;">保存评论设置</button>
+                    <span id="status-comment-settings" style="font-size: 13px; font-weight: 500;"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 2. 就地单篇评论审核工作台 -->
+        <div class="panel-section" style="border: 1px solid #e2e8f0; border-radius: 6px; padding: 16px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <h3 style="margin: 0; font-size: 16px; color: #1e293b; display: flex; align-items: center; gap: 8px;">
+                    <span>💬</span> 本篇评论就地审核
+                </h3>
+                <div style="display: flex; gap: 6px;">
+                    <button type="button" class="button button-small button-secondary btn-filter-comm active" data-filter="all">全部</button>
+                    <button type="button" class="button button-small button-secondary btn-filter-comm" data-filter="pending">待审核</button>
+                    <button type="button" class="button button-small button-secondary btn-filter-comm" data-filter="active">已公开</button>
+                    <button type="button" class="button button-small button-secondary" id="btn-refresh-inpage-comments">刷新</button>
+                </div>
+            </div>
+            <div id="inpage-comments-container" style="min-height: 120px; font-size: 14px;">
+                <div style="color: #94a3b8; text-align: center; padding: 24px;">正在载入本篇评论列表...</div>
+            </div>
+        </div>
+
+        <script>
+        (function() {
+            const pageId = "{{ page_id }}";
+            if (!pageId) return;
+
+            function getCookie(name) {
+                let cookieValue = null;
+                if (document.cookie && document.cookie !== '') {
+                    const cookies = document.cookie.split(';');
+                    for (let i = 0; i < cookies.length; i++) {
+                        const cookie = cookies[i].trim();
+                        if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                            cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                            break;
+                        }
+                    }
+                }
+                return cookieValue;
+            }
+
+            // 1. 独立异步保存页面评论设置 (无 name 属性，不触发 Wagtail UnsavedController)
+            const saveBtn = document.getElementById("btn-save-comment-settings");
+            const statusSpan = document.getElementById("status-comment-settings");
+
+            if (saveBtn) {
+                saveBtn.addEventListener("click", function(e) {
+                    e.preventDefault();
+                    const allowComments = document.querySelector('[data-comment-field="allow_comments"]').checked;
+                    const closeReason = document.querySelector('[data-comment-field="close_reason"]').value;
+                    const autoModerate = document.querySelector('[data-comment-field="auto_moderate_new"]').checked;
+
+                    statusSpan.style.color = "#64748b";
+                    statusSpan.textContent = "保存中...";
+
+                    const formData = new URLSearchParams();
+                    formData.append("allow_comments", allowComments ? "true" : "false");
+                    formData.append("close_reason", closeReason);
+                    formData.append("auto_moderate_new", autoModerate ? "true" : "false");
+
+                    fetch(`/admin/comments/page-settings/${pageId}/`, {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/x-www-form-urlencoded",
+                            "X-CSRFToken": getCookie("csrftoken") || "",
+                            "X-Requested-With": "XMLHttpRequest",
+                        },
+                        body: formData.toString()
+                    })
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.status === "success") {
+                            statusSpan.style.color = "#16a34a";
+                            statusSpan.textContent = "✓ 评论设置已保存生效！";
+                            setTimeout(() => { statusSpan.textContent = ""; }, 3000);
+                        } else {
+                            statusSpan.style.color = "#dc2626";
+                            statusSpan.textContent = "保存失败：" + (data.message || "未知错误");
+                        }
+                    })
+                    .catch(err => {
+                        statusSpan.style.color = "#dc2626";
+                        statusSpan.textContent = "网络异常：" + err;
+                    });
+                });
+            }
+
+            // 2. 异步加载并渲染单篇评论列表
+            let currentFilter = "all";
+            const container = document.getElementById("inpage-comments-container");
+
+            function loadComments() {
+                fetch(`/admin/comments/page-comments/${pageId}/?filter=${currentFilter}`, {
+                    headers: { "X-Requested-With": "XMLHttpRequest" }
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (!data.items || data.items.length === 0) {
+                        container.innerHTML = '<div style="color: #94a3b8; text-align: center; padding: 24px;">暂无符合条件的评论记录。</div>';
+                        return;
+                    }
+                    let html = '<div style="display: flex; flex-direction: column; gap: 10px;">';
+                    data.items.forEach(c => {
+                        const isPending = !!c.pending_version_id;
+                        const statusBadge = isPending
+                            ? '<span style="background:#fef3c7;color:#92400e;padding:2px 6px;border-radius:4px;font-size:12px;font-weight:600;">待审核 V' + (c.pending_version_number || '') + '</span>'
+                            : (c.status === 'active'
+                                ? '<span style="background:#dcfce7;color:#166534;padding:2px 6px;border-radius:4px;font-size:12px;font-weight:600;">已公开</span>'
+                                : '<span style="background:#f1f5f9;color:#475569;padding:2px 6px;border-radius:4px;font-size:12px;">' + c.status + '</span>');
+
+                        const pinnedBadge = c.is_pinned ? '<span style="background:#e0e7ff;color:#3730a3;padding:2px 6px;border-radius:4px;font-size:12px;font-weight:600;">📌 置顶</span>' : '';
+
+                        html += `
+                        <div style="border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px; background: ${isPending ? '#fffdf5' : '#fff'}; display: flex; flex-direction: column; gap: 6px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 13px;">
+                                <div>
+                                    <strong>${c.author_name}</strong>
+                                    <span style="color: #94a3b8; margin-left: 6px;">${c.created_at}</span>
+                                    ${statusBadge} ${pinnedBadge}
+                                </div>
+                                <div style="display: flex; gap: 6px;">
+                                    ${isPending ? `
+                                    <button type="button" class="button button-small action-moderate-btn" data-id="${c.id}" data-action="approve" data-ver="${c.pending_version_id}" style="background:#16a34a;color:#fff;">批准</button>
+                                    <button type="button" class="button button-small action-moderate-btn" data-id="${c.id}" data-action="reject" data-ver="${c.pending_version_id}" style="background:#ea580c;color:#fff;">驳回</button>
+                                    ` : ''}
+                                    ${c.status === 'active' ? `
+                                    <button type="button" class="button button-small button-secondary action-moderate-btn" data-id="${c.id}" data-action="hide">隐藏</button>
+                                    <button type="button" class="button button-small button-secondary action-pin-btn" data-id="${c.id}">${c.is_pinned ? '取消置顶' : '置顶'}</button>
+                                    ` : ''}
+                                </div>
+                            </div>
+                            <div style="color: #334155; font-size: 14px; line-height: 1.5; background: #f8fafc; padding: 8px; border-radius: 4px;">
+                                ${c.content_snippet}
+                            </div>
+                        </div>`;
+                    });
+                    html += '</div>';
+                    container.innerHTML = html;
+                    bindActionButtons();
+                })
+                .catch(err => {
+                    container.innerHTML = '<div style="color: #dc2626; padding: 16px;">载入评论失败：' + err + '</div>';
+                });
+            }
+
+            function bindActionButtons() {
+                document.querySelectorAll(".action-moderate-btn").forEach(btn => {
+                    btn.addEventListener("click", function() {
+                        const cid = this.dataset.id;
+                        const action = this.dataset.action;
+                        const verId = this.dataset.ver || "";
+
+                        const formData = new URLSearchParams();
+                        formData.append("format", "json");
+                        if (verId) formData.append("expected_version_id", verId);
+
+                        fetch(`/admin/comments/${cid}/${action}/`, {
+                            method: "POST",
+                            headers: {
+                                "Content-Type": "application/x-www-form-urlencoded",
+                                "X-CSRFToken": getCookie("csrftoken") || "",
+                                "X-Requested-With": "XMLHttpRequest",
+                            },
+                            body: formData.toString()
+                        })
+                        .then(res => res.json())
+                        .then(res => {
+                            loadComments();
+                        })
+                        .catch(err => alert("操作异常: " + err));
+                    });
+                });
+
+                document.querySelectorAll(".action-pin-btn").forEach(btn => {
+                    btn.addEventListener("click", function() {
+                        const cid = this.dataset.id;
+                        fetch(`/admin/comments/${cid}/pin/`, {
+                            method: "POST",
+                            headers: {
+                                "Content-Type": "application/x-www-form-urlencoded",
+                                "X-CSRFToken": getCookie("csrftoken") || "",
+                                "X-Requested-With": "XMLHttpRequest",
+                            },
+                            body: "format=json"
+                        })
+                        .then(res => res.json())
+                        .then(res => {
+                            loadComments();
+                        })
+                        .catch(err => alert("置顶操作异常: " + err));
+                    });
+                });
+            }
+
+            document.querySelectorAll(".btn-filter-comm").forEach(btn => {
+                btn.addEventListener("click", function() {
+                    document.querySelectorAll(".btn-filter-comm").forEach(b => b.classList.remove("active"));
+                    this.classList.add("active");
+                    currentFilter = this.dataset.filter;
+                    loadComments();
+                });
+            });
+
+            const refreshBtn = document.getElementById("btn-refresh-inpage-comments");
+            if (refreshBtn) refreshBtn.addEventListener("click", loadComments);
+
+            loadComments();
+        })();
+        </script>
+    {% endif %}
+</div>

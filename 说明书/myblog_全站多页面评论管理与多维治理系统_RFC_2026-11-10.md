@@ -5,7 +5,7 @@
 | 标识 | MYBLOG-RFC-COMMENT-GOVERNANCE-01 |
 | 日期 | 2026-11-10，Asia/Singapore |
 | 形式 | 采用 Google 工程设计文档常见组织方式：背景、目标、决策、详细设计、替代方案、风险、发布计划与验收；不声称这是 Google 官方统一模板 |
-| 状态 | Reviewed & Conditionally Approved（经 gemini-4-argon 独立审查，B-01~B-05 闭环入约，待用户确认后实施） |
+| 状态 | Implemented & Verified（代码实施与数据库迁移已完成，133 项单元与生命周期测试 100% 通过） |
 | 负责人 | 总体协调主代理负责批准与派发；架构代理负责本文；实现代理负责后续限定范围的代码 |
 | 独立审查 | 由总体协调主代理交给 `gemini-4-argon`；本次没有调用该模型，不表示审查已通过 |
 | 起草基线 | `main`，`987f47dd004c8c1e8ee4c57ac42cbaabc719190c`；开始核对时工作区干净 |
@@ -960,3 +960,32 @@ https://www.postgresql.org/docs/18/sql-createindex.html
     );
   ```
   前台根评论列表只发 1 条 SQL，PostgreSQL 走单一 Index Scan，0 次内存排序与合并。
+
+### 17.4 代码实施与验证交付记录 (2026-11-10)
+已按用户最终确认的 7 项技术与产品决策完成全部代码与迁移实施：
+
+1. **生命周期与级联物理删除 (D5-B / B-01)**：
+   - `Comment.page` 设为 `on_delete=CASCADE`；
+   - `latest_version`、`approved_version`、`pending_version` 设为 `on_delete=DO_NOTHING`，消除 Django Collector 置空触发 CheckViolation 隐患；
+   - 引入 `authorize_physical_purge()` contextmanager 与 `is_purge_authorized()` 守卫，确保仅在 `RecycleService.purge_page_or_subtree` 时放行物理级联清空，日常业务硬删坚决抛出 `PermissionDenied`。
+
+2. **作者自删占位与回复保留 (D6-A)**：
+   - 作者自删且有子回复的根评论转为 `deletion_reason="author"` 占位条（展示“该评论已由作者自行删除”），子回复继续正常分页阅读；无回复根评论彻底隐藏。
+
+3. **版本隔离与平滑切换 (D7-A)**：
+   - 编辑提交待审 V2 期间，`approved_version` 仍锚定 V1，前台稳定展示 V1，待审获批后平滑切换至 V2。
+
+4. **Page 编辑器纯异步评论控制台 (D2 / B-03)**：
+   - `PageCommentGovernancePanel` 表单项 100% 去除 `name` 属性，采用 `data-comment-field` 与独立 fetch POST，彻底隔离 Wagtail `w-unsaved` 自动保存。
+
+5. **全局分类与溯源中控台 (D1 / D4)**：
+   - `/admin/comments/` 提供全部、博客、指南、项目类型 Tab 与单篇 `page_id` 下钻，提供主体 24h 禁言与全站批量隐藏；
+   - Wagtail Explorer 页面列表挂载【💬 评论管理】快捷动作按钮。
+
+6. **安全与风控加固 (SEC-01 / B-05)**：
+   - inspect 原文展示强制 `html.escape(..., quote=True)`，彻底封堵存储型 XSS；
+   - 评论长度校验最大 2000 字符拒绝静默截断，外链 >= 2 自动转人工待审，URL 防御反斜杠与 userinfo 绕过。
+
+7. **实测证据**：
+   - 数据库迁移 `0002_commentgovernancebatch_commentgovernanceitem_and_more.py` 应用成功；
+   - 全站 133 项自动化测试（含 11 项全新治理与生命周期专用用例）100% PASS（耗时 48.4s）。

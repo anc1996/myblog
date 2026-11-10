@@ -116,6 +116,8 @@ class BlogIndexPage(HierarchicalListingMixin, CustomBasePage):
 
 class BlogPage(CustomBasePage):
     """核心博客文章页面"""
+    supports_comments = True
+
     authored_on = models.DateField(
         default=timezone.now,
         verbose_name="成文日期",
