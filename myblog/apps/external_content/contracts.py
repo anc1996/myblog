@@ -49,14 +49,14 @@ class FieldVersionPointer:
 @dataclass(frozen=True)
 class FieldVersionPayload:
     """持久化在 MongoDB 中的完整不可变字段版本对象"""
-    version_id: str
-    document_uuid: UUID
-    model_label: str
-    field_name: str
-    schema_version: int
-    block_schema_versions: dict[str, int]
-    content_hash: str
-    payload: Any
-    created_at: datetime
-    operation_id: str
-    extra_metadata: dict[str, Any] = field(default_factory=dict)
+    version_id: str  # 版本的唯一标识符（UUID），用于精准索引和检索该不可变快照
+    document_uuid: UUID  # 页面全局逻辑唯一标识，页面移动、改名或回收恢复均保持不变
+    model_label: str  # 页面模型的类标签（如 "blog.BlogPage"），标识字段归属的模型类型
+    field_name: str  # 脱水外置的具体字段名（如 "body" 或 "intro"）
+    schema_version: int  # 整体字段数据结构的模式版本号，用于未来格式升级与数据兼容
+    block_schema_versions: dict[str, int]  # 各 StreamField 积木块的细粒度版本字典（如 {"code": 2, "rich_text": 1}）
+    content_hash: str  # 正文载荷的 SHA-256 哈希值，用于幂等去重与防篡改完整性核验
+    payload: Any  # 持久化在 Mongo 中的原始积木 JSON 数据（列表/字典结构），用于反序列化水合
+    created_at: datetime  # 该版本的创建时间戳（带时区的 UTC 时间）
+    operation_id: str  # 触发本次写操作的追踪 ID（如 Outbox 任务或 Trace ID），用于幂等防重与全链路对账
+    extra_metadata: dict[str, Any] = field(default_factory=dict)  # 扩展元数据字典（如字数统计、审计标记等），预留扩展空间
