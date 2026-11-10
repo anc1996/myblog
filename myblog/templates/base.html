@@ -1,4 +1,5 @@
-{% load static wagtailcore_tags wagtailuserbar %}
+{% load static wagtailcore_tags wagtailuserbar wagtailsettings_tags %}
+{% get_settings %}
 
 <!DOCTYPE html>
 <html lang="en">
@@ -34,7 +35,101 @@
     <body class="{% block body_class %}{% endblock %}">
         {% wagtailuserbar %}
 
+        {# 1. 全局顶部响应式导航栏 (决策一 A) #}
+        {% wagtail_site as current_site %}
+        <header class="site-header">
+            <div class="site-nav-container">
+                <a href="/" class="site-brand">
+                    <span class="site-logo">🚀</span>
+                    <span class="site-title">{{ current_site.site_name|default:"myblog" }}</span>
+                </a>
+                <input type="checkbox" id="nav-toggle-check" class="nav-toggle-check" aria-label="切换导航菜单">
+                <label for="nav-toggle-check" class="nav-toggle-btn" aria-label="打开导航菜单">☰</label>
+                <nav class="site-nav">
+                    {% if settings.site_settings.NavigationSettings.nav_items %}
+                        {% for item in settings.site_settings.NavigationSettings.nav_items %}
+                            <a href="{% if item.value.external_url %}{{ item.value.external_url }}{% elif item.value.target_page %}{% pageurl item.value.target_page %}{% else %}#{% endif %}" class="nav-link" {% if item.value.is_external %}target="_blank" rel="noopener"{% endif %}>
+                                {{ item.value.label }}
+                                {% if item.value.badge %}<span class="nav-badge">{{ item.value.badge }}</span>{% endif %}
+                            </a>
+                        {% endfor %}
+                    {% else %}
+                        <a href="/" class="nav-link">首页</a>
+                        <a href="/tech/" class="nav-link">技术专栏</a>
+                        <a href="/guides/" class="nav-link">专题指南</a>
+                        <a href="/portfolio/" class="nav-link">开源作品</a>
+                        <a href="/tags/" class="nav-link">全站标签</a>
+                        <a href="/timeline/" class="nav-link">时间线</a>
+                        <a href="/search/" class="nav-link nav-search-btn">🔍 搜索</a>
+                        <a href="/feeds/" class="nav-link" title="RSS / Atom 订阅">📡 订阅</a>
+                    {% endif %}
+                </nav>
+            </div>
+        </header>
+
+        {# 2. 页面主体内容 #}
+        <main class="site-main-content">
         {% block content %}{% endblock %}
+        </main>
+
+        {# 3. 全局页脚 (决策一 A) #}
+        <footer class="site-footer">
+            <div class="site-footer-container">
+                <div class="footer-row">
+                    <div class="footer-col footer-col-about">
+                        <h4 class="footer-title">{{ current_site.site_name|default:"myblog" }}</h4>
+                        <p class="footer-desc">
+                            {{ settings.site_settings.FooterSettings.about_text|default:"聚焦高并发内容系统、PostgreSQL 18、Wagtail 8 与现代分布式架构最佳实践。" }}
+                        </p>
+                        <div class="footer-social-links">
+                            {% if settings.site_settings.SocialMediaSettings.social_links %}
+                                {% for link in settings.site_settings.SocialMediaSettings.social_links %}
+                                    <a href="{{ link.value.url }}" class="social-link-item" target="_blank" rel="noopener" title="{{ link.value.label }}">
+                                        {{ link.value.label }}
+                                    </a>
+                                {% endfor %}
+                            {% else %}
+                                <a href="https://github.com/anc1996/myblog" class="social-link-item" target="_blank" rel="noopener">GitHub</a>
+                                <a href="/feeds/" class="social-link-item">RSS 订阅</a>
+                                <a href="/feeds/atom/" class="social-link-item">Atom 订阅</a>
+                                <a href="mailto:contact@example.com" class="social-link-item">电子邮箱</a>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="footer-col footer-col-links">
+                        <h5 class="footer-subtitle">核心大厅</h5>
+                        <ul class="footer-link-list">
+                            <li><a href="/">网站首页</a></li>
+                            <li><a href="/tech/">博客文章</a></li>
+                            <li><a href="/guides/">技术专栏</a></li>
+                            <li><a href="/portfolio/">开源作品</a></li>
+                        </ul>
+                    </div>
+                    <div class="footer-col footer-col-discovery">
+                        <h5 class="footer-subtitle">发现与归档</h5>
+                        <ul class="footer-link-list">
+                            <li><a href="/tags/">全站标签大厅</a></li>
+                            <li><a href="/timeline/">年月时间线归档</a></li>
+                            <li><a href="/search/">全站中文搜索</a></li>
+                            <li><a href="/admin/" target="_blank">管理后台登录</a></li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="footer-bottom">
+                    <div class="footer-copy">
+                        {{ settings.site_settings.FooterSettings.copyright_text|default:"© 2026 myblog. All Rights Reserved." }}
+                    </div>
+                    <div class="footer-records">
+                        {% if settings.site_settings.FooterSettings.icp_number %}
+                            <span class="record-item">{{ settings.site_settings.FooterSettings.icp_number }}</span>
+                        {% endif %}
+                        {% if settings.site_settings.FooterSettings.police_record_number %}
+                            <span class="record-item">{{ settings.site_settings.FooterSettings.police_record_number }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </footer>
 
         {# Global javascript #}
         <script type="text/javascript" src="{% static 'js/myblog.js' %}"></script>

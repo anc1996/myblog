@@ -175,15 +175,18 @@ def list_replies_api(request, root_id: int):
 @require_http_methods(["POST"])
 def post_comment_api(request, page_id: int):
     """发表新评论或回复"""
-    if not request.user.is_authenticated:
-        return _cors_json_response({"status": "error", "code": 401, "message": "请登录后再发表评论"}, status=401)
+    author = request.user if request.user.is_authenticated else None
+    guest_name = (request.POST.get("guest_name") or request.POST.get("author_name") or "").strip()
+    if not author and not guest_name:
+        return _cors_json_response({"status": "error", "code": 401, "message": "请填写昵称或登录后再发表评论"}, status=401)
 
     # 1. 蜜罐静默防御 (Honeypot)
     if request.POST.get("contact_website"):
         return _cors_json_response({"status": "success", "message": "评论已提交审核"})
 
     # 2. C-08 滑动窗口流控与 Fail-Closed 熔断
-    allowed, retry_after, err_code = check_comment_rate_limit(request, request.user, action="post")
+    user_for_rate_limit = author if author else request
+    allowed, retry_after, err_code = check_comment_rate_limit(request, user_for_rate_limit, action="post")
     if not allowed:
         code = 503 if err_code == "risk_control_unavailable" else 429
         resp = _cors_json_response({"status": "error", "code": code, "message": "操作过于频繁，请稍后重试。"}, status=code)
@@ -210,7 +213,8 @@ def post_comment_api(request, page_id: int):
     try:
         comment = CommentService.post_comment(
             page=page,
-            author=request.user,
+            author=author,
+            guest_name=guest_name,
             raw_content=raw_content,
             parent_id=pid,
             reply_to_comment_id=rid,

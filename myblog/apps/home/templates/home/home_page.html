@@ -3,121 +3,237 @@
 
 {% block body_class %}template-homepage{% endblock %}
 
-{% block title %}myblog - 首页{% endblock %}
+{% block title %}{{ page.title }} - 首页与综合技术门户{% endblock %}
 
 {% block extra_css %}
 <link rel="stylesheet" type="text/css" href="{% static 'blog/css/article.css' %}">
 <style>
-    .nav-bar {
+    .home-portal-shell {
+        max-width: 1080px;
+        margin: 30px auto;
+        padding: 0 20px;
+    }
+    .home-hero-banner {
+        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+        color: #ffffff;
+        padding: 40px 32px;
+        border-radius: 12px;
+        margin-bottom: 40px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    }
+    .home-hero-title {
+        font-size: 2rem;
+        font-weight: 800;
+        margin: 0 0 12px 0;
+    }
+    .home-hero-desc {
+        font-size: 1.05rem;
+        color: #cbd5e1;
+        max-width: 640px;
+        line-height: 1.6;
+        margin: 0 0 20px 0;
+    }
+    .home-hero-actions {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+    .home-grid-layout {
+        display: grid;
+        grid-template-columns: 2fr 1fr;
+        gap: 32px;
+    }
+    @media (max-width: 860px) {
+        .home-grid-layout {
+            grid-template-columns: 1fr;
+        }
+    }
+    .home-section-title {
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: #0f172a;
+        margin-bottom: 16px;
+        padding-bottom: 8px;
+        border-bottom: 2px solid #e2e8f0;
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding: 16px 0;
-        border-bottom: 1px solid #e2e8f0;
-        margin-bottom: 24px;
     }
-    .nav-logo {
-        font-size: 1.3rem;
-        font-weight: 700;
-        color: #0f172a;
-        text-decoration: none;
-    }
-    .nav-links a {
-        margin-left: 20px;
-        color: #2563eb;
-        text-decoration: none;
-        font-size: 14px;
-    }
-    .nav-links a:hover {
-        text-decoration: underline;
-    }
-    .quick-start-box {
-        background: #f8fafc;
+    .home-article-card {
+        background: #ffffff;
         border: 1px solid #e2e8f0;
-        border-radius: 6px;
-        padding: 16px 20px;
-        margin-bottom: 32px;
-        font-size: 14px;
-        color: #334155;
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 16px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
     }
-    .quick-start-box code {
-        background: #e2e8f0;
-        padding: 2px 6px;
-        border-radius: 4px;
-        font-family: monospace;
+    .home-article-card:hover {
+        box-shadow: 0 4px 8px -1px rgba(0,0,0,0.08);
+    }
+    .home-sidebar-widget {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 24px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
     }
 </style>
 {% endblock extra_css %}
 
 {% block content %}
-<div class="blog-article-container">
-    <nav class="nav-bar">
-        <a href="/" class="nav-logo">myblog</a>
-        <div class="nav-links">
-            <a href="/tech/">📁 技术专栏</a>
-            <a href="/search/">🔍 全站搜索</a>
-            <a href="/admin/" target="_blank">⚙️ 后台管理</a>
+<div class="home-portal-shell">
+    {# 1. Hero 标语导引区 #}
+    <div class="home-hero-banner">
+        <h1 class="home-hero-title">探索高并发与现代分布式技术</h1>
+        <p class="home-hero-desc">
+            基于 Django 6 + Wagtail 8.1 + PostgreSQL 18 构建，全面贯彻正文脱水、多维检索、不可变版本与全站知识图谱。
+        </p>
+        <div class="home-hero-actions">
+            <a href="/tech/" class="btn btn-primary" style="background:#2563eb;color:#fff;padding:8px 18px;border-radius:6px;text-decoration:none;font-weight:600;">浏览技术博客 &rarr;</a>
+            <a href="/guides/" class="btn btn-outline-light" style="border:1px solid #94a3b8;color:#fff;padding:8px 18px;border-radius:6px;text-decoration:none;font-weight:500;">查看专题指南</a>
+            <a href="/search/" class="btn btn-outline-light" style="border:1px solid #94a3b8;color:#fff;padding:8px 18px;border-radius:6px;text-decoration:none;font-weight:500;">全站中文搜索</a>
         </div>
-    </nav>
-
-    <div class="quick-start-box">
-        <strong>💡 快捷操作指南：</strong>
-        <ul style="margin: 8px 0 0 20px; padding: 0;">
-            <li><strong>前台阅读：</strong> 点击下方文章可进入单栏阅读、代码高亮、复杂表格与画廊灯箱；</li>
-            <li><strong>全站搜索：</strong> 访问 <a href="/search/" style="color:#2563eb;">/search/</a> 体验 Jieba 中文分词、原句匹配与多维度聚合；</li>
-            <li><strong>后台管理：</strong> 访问 <a href="/admin/" target="_blank" style="color:#2563eb;">/admin/</a>，账号 <code>admin</code> / 密码 <code>admin123456</code>。</li>
-        </ul>
     </div>
 
-    <section style="margin-bottom: 36px;">
-        <h2 style="font-size: 1.4rem; color: #0f172a; margin-bottom: 16px; border-bottom: 2px solid #e2e8f0; padding-bottom: 6px;">
-            最新发布文章
-        </h2>
-        {% if latest_articles %}
-        <ul style="list-style: none; padding: 0; margin: 0;">
-            {% for article in latest_articles %}
-            <li style="margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid #f1f5f9;">
-                <h3 style="margin: 0 0 6px 0; font-size: 1.25rem;">
-                    <a href="{% pageurl article %}" style="color: #0f172a; text-decoration: none;">
-                        {{ article.title }}
-                    </a>
-                </h3>
-                <div style="font-size: 13px; color: #64748b; margin-bottom: 8px;">
-                    成文日期：{{ article.authored_on|date:"Y年m月d日" }}
-                    {% if article.tags.all %}
-                        | 标签：
-                        {% for tag in article.tags.all %}
-                            <a href="/search/?tag={{ tag.id }}" style="color: #2563eb; text-decoration: none; margin-right: 4px;">#{{ tag.name }}</a>
-                        {% endfor %}
-                    {% endif %}
-                </div>
-                {% if article.intro %}
-                    <p style="margin: 0; font-size: 14px; color: #475569;">
-                        {{ article.intro.raw_text|default:article.title|truncatechars:150 }}
-                    </p>
-                {% endif %}
-            </li>
-            {% endfor %}
-        </ul>
-        {% else %}
-        <p style="color: #94a3b8;">暂无已发布文章。</p>
-        {% endif %}
-    </section>
-
-    {% if columns %}
-    <section>
-        <h2 style="font-size: 1.4rem; color: #0f172a; margin-bottom: 16px; border-bottom: 2px solid #e2e8f0; padding-bottom: 6px;">
-            专栏与目录
-        </h2>
-        <div style="display: flex; gap: 16px; flex-wrap: wrap;">
-            {% for col in columns %}
-            <div style="flex: 1; min-width: 200px; padding: 14px; border: 1px solid #e2e8f0; border-radius: 6px; background: #fafafa;">
-                <h4 style="margin: 0 0 6px 0;"><a href="{% pageurl col %}" style="color: #2563eb; text-decoration: none;">{{ col.title }}</a></h4>
-                <p style="margin: 0; font-size: 13px; color: #64748b;">{{ col.intro|truncatechars:80 }}</p>
+    <div class="home-grid-layout">
+        {# 左侧主栏：最新发布文章流 #}
+        <main class="home-main-col">
+            <div class="home-section-title">
+                <span>最新发布文章</span>
+                <a href="/tech/" style="font-size: 0.85rem; color: #2563eb; text-decoration: none;">查看全部文章 &rarr;</a>
             </div>
-            {% endfor %}
-        </div>
-    </section>
-    {% endif %}
+
+            {% if latest_articles %}
+                {% for article in latest_articles %}
+                <article class="home-article-card">
+                    <h3 style="margin: 0 0 8px 0; font-size: 1.25rem;">
+                        <a href="{% pageurl article %}" style="color: #0f172a; text-decoration: none; font-weight: 700;">
+                            {{ article.title }}
+                        </a>
+                    </h3>
+                    <div style="font-size: 13px; color: #64748b; margin-bottom: 10px;">
+                        <span>成文于 {{ article.authored_on|date:"Y年m月d日" }}</span>
+                        {% if article.tags.all %}
+                            <span style="margin-left: 8px;">
+                                {% for tag in article.tags.all %}
+                                    <a href="/tags/{{ tag.slug }}/" style="color: #2563eb; text-decoration: none; margin-right: 4px;">#{{ tag.name }}</a>
+                                {% endfor %}
+                            </span>
+                        {% endif %}
+                    </div>
+                    {% if article.intro %}
+                        <p style="margin: 0 0 12px 0; font-size: 14px; color: #475569; line-height: 1.6;">
+                            {{ article.intro.raw_text|default:article.title|truncatechars:150 }}
+                        </p>
+                    {% endif %}
+                    <a href="{% pageurl article %}" style="color: #2563eb; font-size: 13px; text-decoration: none; font-weight: 500;">阅读全文 &rarr;</a>
+                </article>
+                {% endfor %}
+            {% else %}
+                <div class="home-article-card" style="text-align: center; color: #94a3b8; padding: 40px;">
+                    暂无已发布的博客文章。
+                </div>
+            {% endif %}
+
+            {# 核心栏目目录 #}
+            {% if columns %}
+            <div class="home-section-title" style="margin-top: 36px;">
+                <span>博客目录与分类</span>
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px;">
+                {% for col in columns %}
+                <div style="padding: 16px; border: 1px solid #e2e8f0; border-radius: 8px; background: #ffffff;">
+                    <h4 style="margin: 0 0 6px 0; font-size: 1rem;">
+                        <a href="{% pageurl col %}" style="color: #0f172a; text-decoration: none; font-weight: 600;">{{ col.title }}</a>
+                    </h4>
+                    <p style="margin: 0; font-size: 13px; color: #64748b;">{{ col.intro|truncatechars:60 }}</p>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </main>
+
+        {# 右侧边栏：精选专栏、开源项目与热门标签云 #}
+        <aside class="home-sidebar-col">
+            {# 热门技术标签云 #}
+            <div class="home-sidebar-widget">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <h4 style="margin: 0; font-size: 1rem; color: #0f172a; font-weight: 700;">🏷️ 热门标签云</h4>
+                    <a href="/tags/" style="font-size: 12px; color: #2563eb; text-decoration: none;">全部标签 &rarr;</a>
+                </div>
+                {% if popular_tags %}
+                <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                    {% for pt in popular_tags %}
+                        <a href="/tags/{{ pt.tag_slug }}/" style="display: inline-flex; align-items: center; padding: 4px 10px; background: #f1f5f9; color: #334155; border-radius: 9999px; font-size: 12px; text-decoration: none; transition: background 0.15s ease;">
+                            #{{ pt.tag_name }} <span style="margin-left: 4px; color: #94a3b8; font-size: 11px;">{{ pt.count }}</span>
+                        </a>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p style="color: #94a3b8; font-size: 13px; margin: 0;">暂无活跃标签</p>
+                {% endif %}
+            </div>
+
+            {# 精选专题指南 #}
+            {% if featured_guides %}
+            <div class="home-sidebar-widget">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <h4 style="margin: 0; font-size: 1rem; color: #0f172a; font-weight: 700;">📚 技术专题专栏</h4>
+                    <a href="/guides/" style="font-size: 12px; color: #2563eb; text-decoration: none;">查看专栏 &rarr;</a>
+                </div>
+                <ul style="list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 12px;">
+                    {% for g in featured_guides %}
+                    <li style="border-bottom: 1px solid #f1f5f9; padding-bottom: 8px;">
+                        <a href="{% pageurl g %}" style="color: #0f172a; text-decoration: none; font-size: 14px; font-weight: 500; display: block; margin-bottom: 4px;">
+                            {{ g.title }}
+                        </a>
+                        <div style="font-size: 12px; color: #94a3b8;">
+                            {% if g.topic %}<span style="color: #0284c7; background: #e0f2fe; padding: 1px 6px; border-radius: 4px; margin-right: 6px;">{{ g.topic.name }}</span>{% endif %}
+                            <span>{{ g.get_difficulty_display }}</span>
+                        </div>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+
+            {# 开源实战项目 #}
+            {% if featured_projects %}
+            <div class="home-sidebar-widget">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <h4 style="margin: 0; font-size: 1rem; color: #0f172a; font-weight: 700;">💻 开源实战项目</h4>
+                    <a href="/portfolio/" style="font-size: 12px; color: #2563eb; text-decoration: none;">全部作品 &rarr;</a>
+                </div>
+                <ul style="list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 12px;">
+                    {% for p in featured_projects %}
+                    <li style="border-bottom: 1px solid #f1f5f9; padding-bottom: 8px;">
+                        <a href="{% pageurl p %}" style="color: #0f172a; text-decoration: none; font-size: 14px; font-weight: 500; display: block; margin-bottom: 4px;">
+                            {{ p.title }}
+                        </a>
+                        <div style="font-size: 12px; color: #94a3b8;">
+                            <span style="color: #16a34a; background: #dcfce7; padding: 1px 6px; border-radius: 4px; margin-right: 6px;">{{ p.get_project_status_display }}</span>
+                            {% if p.primary_language %}<span>{{ p.primary_language }}</span>{% endif %}
+                        </div>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+
+            {# 动态订阅挂件 #}
+            <div class="home-sidebar-widget" style="background: #faf5ff; border-color: #f3e8ff;">
+                <h4 style="margin: 0 0 8px 0; font-size: 1rem; color: #6b21a8; font-weight: 700;">📡 全站内容动态订阅</h4>
+                <p style="margin: 0 0 12px 0; font-size: 13px; color: #7e22ce;">
+                    支持 RSS 2.0 与 Atom 1.0 标准协议，文章与专栏更新即时推送到你的阅读器。
+                </p>
+                <div style="display: flex; gap: 8px;">
+                    <a href="/feeds/" style="font-size: 12px; padding: 4px 10px; background: #9333ea; color: #fff; border-radius: 6px; text-decoration: none; font-weight: 600;">RSS 2.0</a>
+                    <a href="/feeds/atom/" style="font-size: 12px; padding: 4px 10px; background: #a855f7; color: #fff; border-radius: 6px; text-decoration: none; font-weight: 600;">Atom 1.0</a>
+                </div>
+            </div>
+        </aside>
+    </div>
 </div>
 {% endblock content %}

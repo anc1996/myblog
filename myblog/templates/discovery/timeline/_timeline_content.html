@@ -1,0 +1,45 @@
+<div class="timeline-content-shell">
+  {% if not timeline_tree %}
+    <div class="text-center py-5 text-muted bg-white rounded border">
+      <p class="fs-5 mb-1">暂无已发布的历史归档内容</p>
+      <small>新发布的文章将按年月自动生成时间线。</small>
+    </div>
+  {% else %}
+    <div class="d-flex flex-column gap-5">
+      {% for year_node in timeline_tree %}
+        <section class="timeline-year-section p-4 bg-white rounded border shadow-sm">
+          <div class="d-flex align-items-center justify-content-between border-bottom pb-3 mb-4">
+            <h2 class="fw-bold text-dark mb-0 d-inline-flex align-items-center fs-3">
+              📅 {{ year_node.year }} 年
+            </h2>
+            <span class="badge bg-primary text-white rounded-pill px-3 py-2 fs-6">年度共 {{ year_node.total_count }} 篇</span>
+          </div>
+
+          <div class="timeline-months-container d-flex flex-column gap-4 ps-2 border-start-2 border-primary">
+            {% for month_node in year_node.months_list %}
+              <div class="timeline-month-block ps-3 border-start border-2 border-primary">
+                <div class="d-flex align-items-center gap-2 mb-2">
+                  <h4 class="fw-bold text-secondary mb-0 fs-5">{{ month_node.month }} 月</h4>
+                  <span class="badge bg-light text-muted border small">{{ month_node.count }} 篇</span>
+                </div>
+
+                <ul class="list-unstyled mb-0 d-flex flex-column gap-2">
+                  {% for art in month_node.articles %}
+                    <li class="d-flex align-items-baseline gap-2">
+                      <span class="text-muted small" style="width: 50px; flex-shrink: 0;">{{ art.authored_on|date:"m-d" }}</span>
+                      <a href="{{ art.url_path }}" class="text-decoration-none text-dark fw-medium hover-primary">
+                        {{ art.title }}
+                      </a>
+                    </li>
+                  {% empty %}
+                    <li class="text-muted small">本月包含 {{ month_node.count }} 篇，点击单月查看详情</li>
+                  {% endfor %}
+                </ul>
+              </div>
+            {% endfor %}
+          </div>
+        </section>
+      {% endfor %}
+    </div>
+  {% endif %}
+</div>

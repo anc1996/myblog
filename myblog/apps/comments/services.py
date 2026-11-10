@@ -32,6 +32,7 @@ class CommentService:
         page,
         author,
         raw_content: str,
+        guest_name: str | None = None,
         parent_id: int | None = None,
         reply_to_comment_id: int | None = None,
         ip_address: str | None = None,

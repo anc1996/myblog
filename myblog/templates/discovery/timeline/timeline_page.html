@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}年月时间线归档 - {{ current_site.site_name|default:"myblog" }}{% endblock %}
+
+{% block content %}
+<div class="timeline-page-container" style="max-width: 960px; margin: 30px auto; padding: 0 20px;">
+  {# 面包屑导航 #}
+  <nav class="timeline-breadcrumbs mb-4" aria-label="面包屑导航">
+    <a href="/" class="text-muted text-decoration-none small">首页</a>
+    <span class="text-muted small">/</span>
+    <span class="text-dark small fw-bold" aria-current="page">时间线归档</span>
+  </nav>
+
+  <header class="timeline-header mb-4 p-4 bg-white rounded border shadow-sm">
+    <div class="d-flex justify-content-between align-items-center">
+      <div>
+        <h1 class="fw-bold text-dark mb-1">⏳ 年月时间线归档</h1>
+        <p class="text-muted small mb-0">全站历史文章与专栏按年份、月份结构化沉淀。</p>
+      </div>
+      <div class="text-end">
+        <span class="fs-4 fw-bold text-primary">{{ total_count }}</span>
+        <small class="text-muted d-block">全站沉淀内容</small>
+      </div>
+    </div>
+  </header>
+
+  <div id="timeline-dynamic-container">
+    {% include "discovery/timeline/_timeline_content.html" %}
+  </div>
+</div>
+{% endblock %}

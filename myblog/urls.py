@@ -7,6 +7,8 @@ from wagtail import urls as wagtail_urls
 from wagtail.documents import urls as wagtaildocs_urls
 
 from search import views as search_views
+from discovery.timeline import timeline_view
+from django.views.generic.base import RedirectView
 
 urlpatterns = [
     path("django-admin/", admin.site.urls),
@@ -14,8 +16,10 @@ urlpatterns = [
     path("", include("media_library.urls")),
     path("documents/", include(wagtaildocs_urls)),
     path("search/", search_views.search, name="search"),
+    path("timeline/", timeline_view, name="timeline"),
     path("api/v1/", include("api.urls")),
-    path("feed/", include("discovery.urls")),
+    path("feed/", RedirectView.as_view(url="/feeds/", permanent=True)),
+    path("feeds/", include("discovery.urls")),
 ]
 
 

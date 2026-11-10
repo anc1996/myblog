@@ -1,0 +1,63 @@
+{% load static %}
+{% if page.allow_comments %}
+<section class="site-comments-widget mt-5 pt-4 border-top" id="comments-section" aria-label="读者评论区">
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <h3 class="fw-bold text-dark mb-0 fs-5">
+      💬 读者交流与讨论
+    </h3>
+    <span class="badge bg-light text-muted border" id="comments-count-badge">加载中...</span>
+  </div>
+
+  <!-- 评论发表表单 (决策三 A) -->
+  <form id="comment-post-form" class="comment-form-box p-3 bg-white rounded border shadow-sm mb-4"
+        data-page-id="{{ page.id }}"
+        data-post-url="/api/v1/comments/pages/{{ page.id }}/comments/post/"
+        data-list-url="/api/v1/comments/pages/{{ page.id }}/comments/">
+    <div id="comment-form-alert" class="alert alert-info py-2 small mb-3" style="display: none;" role="alert"></div>
+
+    <input type="hidden" name="parent_id" id="comment-parent-id-input" value="">
+    <input type="hidden" name="reply_to_comment_id" id="comment-reply-to-id-input" value="">
+    {# 蜜罐字段静默防垃圾爬虫 #}
+    <input type="text" name="contact_website" style="display: none !important;" tabindex="-1" autocomplete="off">
+
+    <!-- 回复目标提示框 -->
+    <div id="comment-replying-notice" class="alert alert-light border py-1 px-2 small mb-2 d-flex justify-content-between align-items-center" style="display: none;">
+      <span>正在回复评论 <strong id="replying-target-name"></strong>:</span>
+      <button type="button" class="btn btn-sm btn-link text-danger p-0 text-decoration-none" id="cancel-reply-btn">取消回复</button>
+    </div>
+
+    <div class="row g-2 mb-2">
+      {% if request.user.is_authenticated %}
+        <div class="col-12">
+          <small class="text-muted">当前登录身份：<strong class="text-dark">{{ request.user.username }}</strong></small>
+        </div>
+      {% else %}
+        <div class="col-12 col-md-6">
+          <input type="text" name="guest_name" class="form-control form-control-sm" placeholder="您的称呼 / 昵称 (必填)" required maxlength="50">
+        </div>
+      {% endif %}
+    </div>
+
+    <div class="mb-2">
+      <textarea name="content" class="form-control form-control-sm" rows="3" placeholder="发表您的独到见解，文明发言、理性探讨..." required maxlength="2000"></textarea>
+    </div>
+
+    <div class="d-flex justify-content-between align-items-center">
+      <small class="text-muted" style="font-size: 11px;">支持纯文本排版，评论在通过审核后公开展示。</small>
+      <button type="submit" class="btn btn-sm btn-primary" id="comment-submit-btn">发表评论</button>
+    </div>
+  </form>
+
+  <!-- 评论内容流渲染区 -->
+  <div id="comments-stream-container">
+    <div class="text-center py-4 text-muted small" id="comments-loading-indicator">
+      正在载入评论列表...
+    </div>
+    <div id="comments-items-list" class="d-flex flex-column gap-3"></div>
+    <div class="text-center mt-3" id="comments-pagination-area" style="display: none;">
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="load-more-comments-btn">加载更多评论</button>
+    </div>
+  </div>
+</section>
+<script src="{% static 'comments/js/comments_widget.js' %}"></script>
+{% endif %}
