@@ -226,6 +226,62 @@ class Comment(models.Model):
     def is_editable(self) -> bool:
         return bool(self.can_edit_until and timezone.now() <= self.can_edit_until)
 
+    @property
+    def page_display(self) -> str:
+        if self.page:
+            return self.page.title
+        return f"{self.page_title_snapshot} [页面已永久销毁]"
+
+    @property
+    def author_display(self) -> str:
+        if self.author:
+            return self.author.username
+        return self.guest_name or "匿名/已注销"
+
+    @property
+    def content_snippet(self) -> str:
+        ver = self.pending_version or self.approved_version or self.latest_version
+        if ver:
+            status_tag = f"[{ver.get_status_display()}] " if self.pending_version else ""
+            return f"{status_tag}{ver.raw_content[:60]}"
+        return "（无内容）"
+
+    def actions_column(self):
+        from django.urls import reverse
+        from django.utils.safestring import mark_safe
+        actions_html = []
+        if self.pending_version_id:
+            approve_url = reverse("comments:approve", args=[self.id])
+            reject_url = reverse("comments:reject", args=[self.id])
+            actions_html.append(f"""
+            <form method="POST" action="{approve_url}" style="display:inline-block;margin-right:4px;">
+                <input type="hidden" name="csrfmiddlewaretoken" value="" class="js-csrf-token">
+                <input type="hidden" name="expected_version_id" value="{self.pending_version_id}">
+                <button type="submit" class="button button-small" style="background:#16a34a;color:#fff;">批准</button>
+            </form>
+            <form method="POST" action="{reject_url}" style="display:inline-block;margin-right:4px;">
+                <input type="hidden" name="csrfmiddlewaretoken" value="" class="js-csrf-token">
+                <input type="hidden" name="expected_version_id" value="{self.pending_version_id}">
+                <button type="submit" class="button button-small" style="background:#ea580c;color:#fff;">驳回</button>
+            </form>
+            """)
+        elif self.status == "active":
+            hide_url = reverse("comments:hide", args=[self.id])
+            pin_url = reverse("comments:pin", args=[self.id])
+            pin_text = "取消置顶" if self.is_pinned else "置顶"
+            actions_html.append(f"""
+            <form method="POST" action="{hide_url}" style="display:inline-block;margin-right:4px;">
+                <input type="hidden" name="csrfmiddlewaretoken" value="" class="js-csrf-token">
+                <button type="submit" class="button button-small button-secondary">隐藏</button>
+            </form>
+            <form method="POST" action="{pin_url}" style="display:inline-block;">
+                <input type="hidden" name="csrfmiddlewaretoken" value="" class="js-csrf-token">
+                <button type="submit" class="button button-small button-secondary">{pin_text}</button>
+            </form>
+            """)
+        return mark_safe("".join(actions_html)) if actions_html else "-"
+    actions_column.short_description = "审核操作"
+
     def __str__(self):
         page_str = self.page.title if self.page else self.page_title_snapshot
         author_str = self.author.username if self.author else "匿名/已注销"
