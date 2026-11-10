@@ -29,6 +29,21 @@ class RecycleBatchViewSet(ModelViewSet):
     """
     Wagtail 8.1 管理后台【受控回收站】专属管理视图集。
     在左侧菜单栏常驻“受控回收站”，提供回收批次列表查看、一键精准恢复与彻底物理销毁入口。
+
+    【配置属性与变量解析】：
+    - model (Model): 绑定的主模型为 RecycleBatch（回收操作批次主表）；
+    - menu_label (str): 管理后台左侧导航栏显示的菜单名称（"受控回收站"）；
+    - icon / menu_icon (str): 菜单图标，使用 Wagtail 内置的 "bin"（垃圾桶）；
+    - menu_order (int): 菜单在导航栏中的排列顺序序号（220，置于页面树与设置之间）；
+    - add_to_admin_menu (bool): True 声明自动注入左侧主管理菜单；
+    - list_display (list[str]): 列表表格呈现的列字段名，包含：
+      * root_page_title: 根页面标题；
+      * total_pages: 子树包含页面总数；
+      * recycled_at: 移入回收站时间；
+      * retention_status: 30 天保留倒计时（自定义方法，<=3天标红预警）；
+      * actor_username: 执行回收的操作人；
+      * status: 当前状态（已回收 / 已恢复 / 已永久删除）；
+      * actions: 交互操作列（自定义方法，动态渲染一键恢复与彻底销毁按钮）。
     """
     model = RecycleBatch
     menu_label = "受控回收站"
@@ -44,7 +59,20 @@ class RecycleBatchViewSet(ModelViewSet):
     form_fields = ["status"]
 
     def _lazy_cleanup_expired_batches(self):
-        """WSL2 / 本地开机自愈扫描：访问回收站列表时顺手扫描并物理销毁超期 30 天的废弃批次"""
+        """
+        【惰性自愈扫描机制（Lazy Self-Healing Sweep）】
+
+        【教学点】：
+        在本地开发环境（如 WSL2 或离线容器）中，通常不会常驻运行 Celery 或 Linux Cron 定时任务。
+        通过在管理员每次打开回收站列表（index_view）时“顺手”扫描一次，
+        系统能够以极低开销实现“无需外部定时器常驻”的超期 30 天自动物理销毁与容量回收！
+
+        【核心变量】：
+        - cutoff: 30 天时间截断点（当前时间减去 30 天）；
+        - expired: 查询出所有 status='recycled' 且回收时间早于 cutoff 的过期批次；
+        - cleaned_count: 累计清理的批次数；
+        - OutboxProcessor.process_pending_events: 顺手触发外发信箱处理器，物理抹除 Mongo 中的历史正文。
+        """
         from content_lifecycle.recycle import RecycleService
         from external_content.outbox import OutboxProcessor
 
@@ -64,6 +92,7 @@ class RecycleBatchViewSet(ModelViewSet):
                 pass
 
     def get_urlpatterns(self):
+        """扩展 ModelViewSet 的专属操作子路由：注册恢复与销毁的处理视图"""
         urlpatterns = super().get_urlpatterns()
         return urlpatterns + [
             path("<int:pk>/restore/", self.restore_view, name="restore"),
@@ -71,10 +100,25 @@ class RecycleBatchViewSet(ModelViewSet):
         ]
 
     def index_view(self, request):
+        """回收站列表页入口：先执行惰性到期自愈清理，再调用父类渲染管理列表"""
         self._lazy_cleanup_expired_batches()
         return super().index_view(request)
 
     def restore_view(self, request, pk):
+        """
+        【一键恢复交互视图（含冲突检测表单与安全提单）】
+
+        【教学点与安全流程】：
+        1. 批次有效性核验：只有 status == 'recycled' 的批次才允许恢复，防止重放攻击；
+        2. 权限精细化核验：核验当前登录人是否拥有该页面的编辑或删除权限；
+        3. GET 阶段预检冲突（Dry-Run Plan）：
+           - 调用 RecycleService.plan_restore() 进行冲突推演；
+           - 若存在 slug_collision（网址冲突），动态向 HTML 表单注入输入框，提示管理员输入新 slug；
+           - 若存在 parent_missing（父级也处于回收站），动态提供“自动连带恢复父栏目”勾选框；
+        4. POST 阶段执行恢复：
+           - 解析用户提交的改名与父级参数，调用 RecycleService.restore_page_or_subtree；
+           - 强制恢复为未发布草稿态，弹窗提示成功恢复的页面总数。
+        """
         batch = get_object_or_404(RecycleBatch, pk=pk)
         if batch.status != "recycled":
             messages.error(request, "该批次不处于已回收状态，无法恢复！")
@@ -202,6 +246,18 @@ class RecycleBatchViewSet(ModelViewSet):
         return redirect(self.get_url_name("index"))
 
     def purge_view(self, request, pk):
+        """
+        【彻底物理销毁交互视图（不可逆粉碎操作）】
+
+        【教学点与权限升级防御】：
+        1. 权限升级准则：若该批次中包含曾正式发布过的页面（any(e.was_live for e in entries)），
+           必须具备“发布权限（can_publish）”或“超级管理员”，普通低权限编辑坚决禁止销毁；
+        2. 二次确认警示页：GET 请求展示带有高危红色背景的确认页，警示将永久擦除 PG、Mongo 与 S3 数据；
+        3. POST 销毁与对账：
+           - 调用 RecycleService.purge_page_or_subtree 从数据库移除；
+           - 同步触发 OutboxProcessor 物理清除 MongoDB 历史正文快照；
+           - 核查 OutboxEvent 事件处理状态，若全部处理完成提示彻底销毁，若 Mongo 未完成则提示告警待对账。
+        """
         batch = get_object_or_404(RecycleBatch, pk=pk)
         if batch.status != "recycled":
             messages.error(request, "该批次不处于已回收状态，旧销毁链接已失效")
