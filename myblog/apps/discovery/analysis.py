@@ -77,17 +77,38 @@ def chunk_text_for_search(
     overlap_chars: int = 256,
 ) -> list[dict]:
     """
-    按 SEARCH-CHUNK-02 规则切分文本块：
-    1. normalized_text 保留相邻块间 overlap_chars (默认256) 字符重叠，供模式 A 匹配；
-    2. search_vector 对应的词元严格按不重叠分块切分，防止重复计分。
+    【核心搜索分块算法】：按 SEARCH-CHUNK-02 规则切分长文本。
+
+    【教学点：为什么需要“非对称重叠分块”？】
+    长篇技术文章动辄数万字，如果整体存为单条数据库记录，会导致 GIN 索引膨胀、高亮截取困难，且距离评分失效。
+    因此必须切分为约 1500 字符的微型分块（PublishedSearchChunk）。
+    但在切分时面临经典的两难困境：
+    - 困境 1（硬切断）：如果切块之间完全不重叠，若用户搜一句连续原话（如“PostgreSQL 18 事务隔离”），
+      恰好被硬生生切在块 1 的末尾与块 2 的开头，原话就会被截断，导致模式 A（字面匹配）彻底搜不到！
+    - 困境 2（双重重叠）：如果让两个分块都带 256 字符重叠，那么重叠区间的词元就会在两块的倒排索引（search_vector）
+      里重复出现，导致模式 B/C 分词检索时产生“重复计分（Double Counting）”与索引体积膨胀！
+
+    【破局方案：非对称分块（Asymmetric Slicing）】：
+    1. normalized_text（供模式 A 原文连续匹配）：保留相邻块间 256 字符重叠，无惧跨边界截断；
+    2. search_vector（供模式 B/C 词向量检索）：词元严格从无重叠的独占区间生成，保证全篇每个词在索引中有且仅有一次！
+
+    【参数与变量解析】：
+    - text (str): 待分块处理的原始正文内容。
+    - max_chunk_chars (int): 单块核心字符容量上限（默认 1500 字符）。
+    - overlap_chars (int): 相邻块原文滑动重叠窗口大小（默认 256 字符）。
+    - norm (str): 局部变量，全文经 Unicode NFKC 归一化并合并多余空白后的纯净文本。
+    - total_len (int): 局部变量，规范化全文的总字符数。
+    - non_overlapping_slice (str): 局部变量，当前分块独占的核心正文切片（0 重叠），用于提取分词。
+    - overlapping_slice (str): 局部变量，向左回溯了 256 字符的重叠原文切片，存入 normalized_text。
+    - search_terms_str (str): 局部变量，由独占切片分词后以空格连接的词串，供 PostgreSQL 生成 GIN 向量。
     """
     if not text:
         return []
 
     norm = normalize_text(text)
     total_len = len(norm)
+    # 分支 1：短文本无需切分（单块容纳）
     if total_len <= max_chunk_chars:
-        # 单块不超限：原文与分词无须拆分重叠
         tokens = tokenize_text(norm)
         return [
             {
@@ -99,38 +120,42 @@ def chunk_text_for_search(
             }
         ]
 
+    # 分支 2：长文本执行“非对称滑动分块”
     chunks: list[dict] = []
     step = max_chunk_chars - overlap_chars
     if step <= 0:
         step = max_chunk_chars // 2
 
     non_overlap_step = max_chunk_chars
-    chunk_index = 0
-    curr_non_overlap_start = 0
+    chunk_index = 0              # 分块序号（从 0 递增）
+    curr_non_overlap_start = 0   # 当前独占核心区间的起始偏移（左闭）
 
     while curr_non_overlap_start < total_len:
+        # 计算当前独占核心区间的结束偏移（右开）
         curr_non_overlap_end = min(curr_non_overlap_start + non_overlap_step, total_len)
+        # 1. 独占切片：严格无重叠，文章全局无交集
         non_overlapping_slice = norm[curr_non_overlap_start:curr_non_overlap_end]
 
-        # 模式 A 原文重叠窗口：向左回溯 overlap_chars
+        # 2. 模式 A 原文重叠窗口：除第 0 块外，向左回溯 overlap_chars（256字符）
         overlap_start = max(0, curr_non_overlap_start - (overlap_chars if chunk_index > 0 else 0))
         overlap_end = curr_non_overlap_end
         overlapping_slice = norm[overlap_start:overlap_end]
 
-        # 词向量只从无重叠的切片生成，严格保证每个词只在唯一块中出现一次！
+        # 3. 词向量生成铁律：只从独占切片生成词元，严格保证每个词在全站索引中仅计数一次！
         tokens = tokenize_text(non_overlapping_slice)
         search_terms_str = " ".join(tokens)
 
         chunks.append(
             {
-                "chunk_index": chunk_index,
-                "char_start": curr_non_overlap_start,
-                "char_end": curr_non_overlap_end,
-                "normalized_text": overlapping_slice,
-                "search_terms_str": search_terms_str,
+                "chunk_index": chunk_index,           # 分块下标 (0, 1, 2...)
+                "char_start": curr_non_overlap_start, # 核心区间物理起始字符位
+                "char_end": curr_non_overlap_end,     # 核心区间物理结束字符位
+                "normalized_text": overlapping_slice, # 带重叠的纯文本 (供模式 A 原文连续字面匹配)
+                "search_terms_str": search_terms_str, # 无重叠的词元串 (供模式 B/C GIN 倒排索引)
             }
         )
 
+        # 推进到下一个无重叠步长
         chunk_index += 1
         curr_non_overlap_start = curr_non_overlap_end
 
