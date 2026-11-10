@@ -284,6 +284,28 @@ class CommentsSystemTests(unittest.TestCase):
         self.assertEqual(react_res.status_code, 200)
         self.assertEqual(react_res.json()["data"]["like_count"], 1)
 
+    def test_07_guest_comment_submission(self):
+        """测试未登录访客（Guest）发表评论全流程与流控"""
+        guest_client = Client()
+
+        # 1. 未提供昵称也未登录 -> 401
+        res_no_name = guest_client.post(f"/api/v1/pages/{self.blog_page.id}/comments/post/", {
+            "content": "未填昵称的留言",
+        })
+        self.assertEqual(res_no_name.status_code, 401)
+
+        # 2. 提供 guest_name 正常发表 -> 201
+        res_guest = guest_client.post(f"/api/v1/pages/{self.blog_page.id}/comments/post/", {
+            "guest_name": "访客小红",
+            "content": "这是一条来自访客小红的公开讨论",
+        })
+        self.assertEqual(res_guest.status_code, 201)
+        gc_id = res_guest.json()["data"]["id"]
+        gc = Comment.objects.get(id=gc_id)
+        self.assertIsNone(gc.author)
+        self.assertEqual(gc.status, "pending")
+        self.assertFalse(gc.is_publicly_visible)
+
 
 if __name__ == "__main__":
     unittest.main()

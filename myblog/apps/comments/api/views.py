@@ -185,8 +185,7 @@ def post_comment_api(request, page_id: int):
         return _cors_json_response({"status": "success", "message": "评论已提交审核"})
 
     # 2. C-08 滑动窗口流控与 Fail-Closed 熔断
-    user_for_rate_limit = author if author else request
-    allowed, retry_after, err_code = check_comment_rate_limit(request, user_for_rate_limit, action="post")
+    allowed, retry_after, err_code = check_comment_rate_limit(request, author, action="post")
     if not allowed:
         code = 503 if err_code == "risk_control_unavailable" else 429
         resp = _cors_json_response({"status": "error", "code": code, "message": "操作过于频繁，请稍后重试。"}, status=code)
