@@ -17,21 +17,46 @@ from wagtail.models import Page
 
 
 class CustomBasePage(Page):
+    """
+    全站统一抽象页面基类 (CustomBasePage)。
+    所有业务页面（如 BlogPage、GuidePage、ProjectPage）均继承本基类。
+    """
+
+    # 1. 业务文档唯一身份标识 (document_uuid)
+    # 【原理与作用】：
+    # 为什么不能只用 Wagtail 自带的自增整数 id？
+    # 因为在跨存储架构（PostgreSQL + MongoDB + S3 RustFS）中，自增 ID 会因跨库迁移、树重构或页面克隆而发生变化；
+    # document_uuid 是文章与生俱来的“数字身份证号”，页面在树中改名、换父级或回收再恢复，该 UUID 永生不变，
+    # 专门用于在 MongoDB 和媒体引用表中精确锚定属于本页面的历史版本。
     document_uuid = models.UUIDField(
-        default=uuid.uuid4,
-        editable=False,
-        unique=True,
-        db_index=True,
+        default=uuid.uuid4,  # 自动生成 128 位全局唯一的 UUIDv4 随机数
+        editable=False,      # 页面出生即固定，绝不允许在管理后台人工篡改
+        unique=True,         # 数据库级 UNIQUE 唯一性约束
+        db_index=True,       # 建立 B-Tree 索引，毫秒级通过 UUID 反查页面
         verbose_name="业务文档唯一标识",
         help_text="跨 PostgreSQL、MongoDB 与媒体引用追踪使用的稳定不可变文档身份",
     )
+
+    # 2. 原树占位回收标志 (is_recycled)
+    # 【原理与作用】：
+    # models.BooleanField 是 Django ORM 的布尔字段类，在 PostgreSQL 中映射为原生的 boolean 数据类型（TRUE/FALSE）。
+    # 用于“原树软删除”状态机：当文章被删除时，不从数据表中物理擦除（物理擦除会破坏 treebeard 树结构），
+    # 而是将本标记置为 True 原位占位。前台路由发现为 True 自动拦截为 404，管理后台树列表自动隐藏。
     is_recycled = models.BooleanField(
-        default=False,
-        editable=False,
-        db_index=True,
+        default=False,       # 新建页面默认处于正常未回收状态 (False)
+        editable=False,      # 禁止在编辑表单中人工勾选，必须通过回收站服务统一状态流转
+        db_index=True,       # 极高频过滤条件（所有公开查询都要 WHERE is_recycled=false），加索引消除全表扫描
         verbose_name="是否已移入回收站",
         help_text="原树占位标记；已回收页面不可发布、对公网不可见且在管理后台普通目录隐藏",
     )
+
+    # 3. 类级别评论准入策略开关 (allow_comments)
+    # 【原理与作用】：
+    # 这是类属性开关（默认为 True），赋予所有继承 CustomBasePage 的具体内容页面默认开启评论互动的资格。
+    # 为什么需要它？
+    # 某些聚合页面（如 BlogIndexPage 博客栏目大厅、TagIndexPage 标签大厅）不需要评论区，
+    # 它们只需在自己的子类中声明 `allow_comments = False`，即可零成本关闭该类页面的评论功能。
+    # 评论 API 准入守卫与前端模板会联合校验该属性：if not page.allow_comments 则拒绝发表并隐藏评论区。
     allow_comments = True
 
     class Meta:
