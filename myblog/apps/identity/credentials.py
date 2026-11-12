@@ -133,11 +133,59 @@ def check_and_consume_register_quota(ip_address: str) -> None:
         raise ChallengeServiceUnavailable("安全校验服务暂时不可用，请稍后再试。") from exc
 
 
+# 原子检查并预占登录尝试槽位：消除并发下绕过失败阈值尝试密码的窗口
+_RESERVE_LOGIN_ATTEMPT_LUA = """
+local ip_fail_k = KEYS[1]
+local u_fail_k = KEYS[2]
+local ip_try_k = KEYS[3]
+local u_try_k = KEYS[4]
+
+local captcha_th = tonumber(ARGV[1])
+local lock_th = tonumber(ARGV[2])
+local window_ttl = tonumber(ARGV[3])
+local has_captcha = tonumber(ARGV[4])
+
+local ip_fail = tonumber(redis.call('GET', ip_fail_k) or '0')
+local u_fail = u_fail_k ~= '' and tonumber(redis.call('GET', u_fail_k) or '0') or 0
+local ip_try = tonumber(redis.call('GET', ip_try_k) or '0')
+local u_try = u_try_k ~= '' and tonumber(redis.call('GET', u_try_k) or '0') or 0
+
+local cur = math.max(ip_fail, u_fail, ip_try, u_try)
+if cur >= lock_th then
+    local t1 = redis.call('TTL', ip_fail_k)
+    local t2 = u_fail_k ~= '' and redis.call('TTL', u_fail_k) or 0
+    local t3 = redis.call('TTL', ip_try_k)
+    local t4 = u_try_k ~= '' and redis.call('TTL', u_try_k) or 0
+    local m = math.max(t1, t2, t3, t4)
+    return {'locked', m > 0 and m or window_ttl}
+end
+if has_captcha == 0 and cur >= captcha_th then
+    return {'captcha_required', 0}
+end
+
+local n_ip = redis.call('INCR', ip_try_k)
+if n_ip == 1 then redis.call('EXPIRE', ip_try_k, window_ttl) end
+if u_try_k ~= '' then
+    local n_u = redis.call('INCR', u_try_k)
+    if n_u == 1 then redis.call('EXPIRE', u_try_k, window_ttl) end
+end
+return {'ok', 0}
+"""
+
+
 def _login_keys(username: str, ip_address: str) -> tuple[str, str]:
     norm_user = (username or "").strip().lower()
     return (
         f"myblog:loginfail:ip:{ip_address}",
         f"myblog:loginfail:user:{norm_user}" if norm_user else "",
+    )
+
+
+def _login_try_keys(username: str, ip_address: str) -> tuple[str, str]:
+    norm_user = (username or "").strip().lower()
+    return (
+        f"myblog:logintry:ip:{ip_address}",
+        f"myblog:logintry:user:{norm_user}" if norm_user else "",
     )
 
 
@@ -201,12 +249,49 @@ def record_login_failure(username: str, ip_address: str) -> tuple[int, int]:
 
 def clear_login_failures(username: str, ip_address: str) -> None:
     ip_key, user_key = _login_keys(username, ip_address)
+    ip_try_key, user_try_key = _login_try_keys(username, ip_address)
     try:
         r = _get_redis_client(write=True)
         if r is None:
             return
-        keys = [k for k in (ip_key, user_key) if k]
+        keys = [k for k in (ip_key, user_key, ip_try_key, user_try_key) if k]
         if keys:
             r.delete(*keys)
     except Exception as exc:
         logger.warning("Clear login failures Redis error: %s", exc)
+
+
+def reserve_login_attempt(username: str, ip_address: str, *, has_captcha: bool) -> tuple[str, int]:
+    """
+    在调用 authenticate() 之前原子检查并预占尝试名额：
+    返回 ("ok" | "captcha_required" | "locked", retry_after_seconds)。
+    """
+    ip_fail_k, user_fail_k = _login_keys(username, ip_address)
+    ip_try_k, user_try_k = _login_try_keys(username, ip_address)
+    captcha_threshold = int(getattr(settings, "IDENTITY_LOGIN_CAPTCHA_THRESHOLD", 3))
+    lock_threshold = int(getattr(settings, "IDENTITY_LOGIN_LOCK_THRESHOLD", 10))
+    window_ttl = int(getattr(settings, "IDENTITY_LOGIN_LOCK_WINDOW_SECONDS", 900))
+    try:
+        r = _get_redis_client(write=True)
+        if r is None:
+            raise ChallengeServiceUnavailable("安全校验存储未就绪，请稍后再试。")
+        res = r.eval(
+            _RESERVE_LOGIN_ATTEMPT_LUA,
+            4,
+            ip_fail_k,
+            user_fail_k,
+            ip_try_k,
+            user_try_k,
+            captcha_threshold,
+            lock_threshold,
+            window_ttl,
+            1 if has_captcha else 0,
+        )
+        status = res[0].decode("utf-8") if isinstance(res[0], bytes) else str(res[0])
+        retry_after = int(res[1])
+        return status, retry_after
+    except ChallengeServiceUnavailable:
+        raise
+    except Exception as exc:
+        logger.error("Reserve login attempt Redis error: %s", exc)
+        raise ChallengeServiceUnavailable("安全校验服务暂时不可用，请稍后再试。") from exc

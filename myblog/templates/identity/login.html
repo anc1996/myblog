@@ -189,27 +189,8 @@
       </div>
 
       {% if captcha_required %}
-        <div class="identity-captcha-box">
-          <p class="identity-captcha-tip">检测到多次登录失败，本次登录需填写安全验证码。</p>
-          <div class="identity-field">
-            <label class="identity-label" for="{{ form.captcha_id.id_for_label }}">{{ form.captcha_id.label }}</label>
-            {{ form.captcha_id }}
-            {% if form.captcha_id.errors %}
-              <ul class="identity-error-list">
-                {% for err in form.captcha_id.errors %}<li>{{ err }}</li>{% endfor %}
-              </ul>
-            {% endif %}
-          </div>
-          <div class="identity-field">
-            <label class="identity-label" for="{{ form.captcha_code.id_for_label }}">{{ form.captcha_code.label }}</label>
-            {{ form.captcha_code }}
-            {% if form.captcha_code.errors %}
-              <ul class="identity-error-list">
-                {% for err in form.captcha_code.errors %}<li>{{ err }}</li>{% endfor %}
-              </ul>
-            {% endif %}
-          </div>
-        </div>
+        <p class="identity-captcha-tip">检测到多次登录失败，本次登录需填写安全验证码。</p>
+        {% include "captcha/_captcha_widget.html" with captcha_scope="login" %}
       {% endif %}
 
       <button type="submit" class="identity-btn">登录</button>

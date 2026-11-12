@@ -212,26 +212,7 @@
         {% endif %}
       </div>
 
-      <div class="identity-captcha-box">
-        <div class="identity-field">
-          <label class="identity-label" for="{{ form.captcha_id.id_for_label }}">{{ form.captcha_id.label }}</label>
-          {{ form.captcha_id }}
-          {% if form.captcha_id.errors %}
-            <ul class="identity-error-list">
-              {% for err in form.captcha_id.errors %}<li>{{ err }}</li>{% endfor %}
-            </ul>
-          {% endif %}
-        </div>
-        <div class="identity-field">
-          <label class="identity-label" for="{{ form.captcha_code.id_for_label }}">{{ form.captcha_code.label }}</label>
-          {{ form.captcha_code }}
-          {% if form.captcha_code.errors %}
-            <ul class="identity-error-list">
-              {% for err in form.captcha_code.errors %}<li>{{ err }}</li>{% endfor %}
-            </ul>
-          {% endif %}
-        </div>
-      </div>
+      {% include "captcha/_captcha_widget.html" with captcha_scope="register" %}
 
       <button type="submit" class="identity-btn">立即注册</button>
     </form>

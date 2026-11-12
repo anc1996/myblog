@@ -143,10 +143,12 @@ class IdentityFrontendTests(unittest.TestCase):
                         f"myblog:rl:reg:hr:{ip}",
                         f"myblog:rl:reg:day:{ip}",
                         f"myblog:loginfail:ip:{ip}",
+                        f"myblog:logintry:ip:{ip}",
                     ]
                 )
             for uname in self.redis_usernames:
                 keys.append(f"myblog:loginfail:user:{uname.strip().lower()}")
+                keys.append(f"myblog:logintry:user:{uname.strip().lower()}")
             if keys:
                 client.delete(*keys)
         except Exception:

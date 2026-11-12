@@ -42,6 +42,7 @@ from identity.credentials import (
     is_login_captcha_required,
     is_login_locked,
     record_login_failure,
+    reserve_login_attempt,
 )
 from identity.forms import (
     AvatarUploadForm,
@@ -55,6 +56,37 @@ from identity.models import MemberProfile, User
 logger = logging.getLogger(__name__)
 
 _CHALLENGE_UNAVAILABLE_MSG = "安全校验服务暂未就绪，请稍后再试"
+
+
+def _issue_widget_challenge(request, scope: str):
+    """
+    若当前配置了支持图片签发的 CaptchaProvider，则为服务端渲染表单预签发挑战并准备绑定 Cookie。
+    HEAD 请求不触发渲染与配额扣减；未配置真实 Provider 或测试使用简单桩时返回 (None, None)。
+    """
+    if request.method == "HEAD":
+        return None, None
+    verifier = get_challenge_verifier()
+    if verifier is None or not hasattr(verifier, "issue"):
+        return None, None
+    prev_id = (request.POST.get("captcha_id") or "").strip() if request.method == "POST" else ""
+    try:
+        return verifier.issue(request=request, scope=scope, previous_captcha_id=prev_id)
+    except (ChallengeServiceUnavailable, RateLimitExceeded):
+        return None, None
+
+
+def _uses_visual_captcha() -> bool:
+    verifier = get_challenge_verifier()
+    return verifier is not None and hasattr(verifier, "issue")
+
+
+def _render_with_captcha_cookie(request, template_name: str, context: dict, *, status: int = 200, signed_cookie: str | None = None):
+    context.setdefault("use_visual_captcha", _uses_visual_captcha())
+    response = render(request, template_name, context, status=status)
+    if signed_cookie:
+        from captcha.service import apply_captcha_binding_cookie
+        apply_captcha_binding_cookie(response, request, signed_cookie)
+    return response
 
 
 def _login_with_session_epoch(request, user, profile: MemberProfile) -> None:
@@ -154,34 +186,51 @@ def register_view(request):
 
     if request.method != "POST":
         form = RegisterForm()
-        return render(
+        captcha_payload, signed_cookie = _issue_widget_challenge(request, "register")
+        return _render_with_captcha_cookie(
             request,
             "identity/register.html",
-            {"form": form, "next_url": next_url, "page_error": ""},
+            {
+                "form": form,
+                "next_url": next_url,
+                "page_error": "",
+                "captcha_payload": captcha_payload,
+            },
+            signed_cookie=signed_cookie,
         )
 
     # 1. 先检查蜜罐字段：填写则直接拒绝，绝不建账号或继续消耗配额
     if (request.POST.get("website") or "").strip():
         logger.warning("Register honeypot triggered from ip=%s", get_client_ip(request))
-        return render(
+        captcha_payload, signed_cookie = _issue_widget_challenge(request, "register")
+        return _render_with_captcha_cookie(
             request,
             "identity/register.html",
             {
                 "form": RegisterForm(),
                 "next_url": next_url,
                 "page_error": "提交校验未通过，请刷新页面后重试。",
+                "captcha_payload": captcha_payload,
             },
             status=400,
+            signed_cookie=signed_cookie,
         )
 
     # 2. 表单基础字段与密码强度校验
     form = RegisterForm(request.POST)
     if not form.is_valid():
-        return render(
+        captcha_payload, signed_cookie = _issue_widget_challenge(request, "register")
+        return _render_with_captcha_cookie(
             request,
             "identity/register.html",
-            {"form": form, "next_url": next_url, "page_error": ""},
+            {
+                "form": form,
+                "next_url": next_url,
+                "page_error": "",
+                "captcha_payload": captcha_payload,
+            },
             status=400,
+            signed_cookie=signed_cookie,
         )
 
     ip_address = get_client_ip(request)
@@ -241,15 +290,18 @@ def register_view(request):
             status=503,
         )
     except ChallengeVerificationError as exc:
-        return render(
+        captcha_payload, signed_cookie = _issue_widget_challenge(request, "register")
+        return _render_with_captcha_cookie(
             request,
             "identity/register.html",
             {
                 "form": form,
                 "next_url": next_url,
                 "page_error": str(exc) or "安全验证码校验失败，请核对后重试。",
+                "captcha_payload": captcha_payload,
             },
             status=400,
+            signed_cookie=signed_cookie,
         )
 
     # 5. 在单一事务内创建普通会员账号与 MemberProfile（严禁任何提权参数）
@@ -280,11 +332,18 @@ def register_view(request):
                 profile.save(update_fields=["nickname", "recovery_hint"])
     except IntegrityError:
         form.add_error("username", "该用户名已被占用，请更换后重试。")
-        return render(
+        captcha_payload, signed_cookie = _issue_widget_challenge(request, "register")
+        return _render_with_captcha_cookie(
             request,
             "identity/register.html",
-            {"form": form, "next_url": next_url, "page_error": ""},
+            {
+                "form": form,
+                "next_url": next_url,
+                "page_error": "",
+                "captcha_payload": captcha_payload,
+            },
             status=400,
+            signed_cookie=signed_cookie,
         )
 
     _login_with_session_epoch(request, user, profile)
@@ -306,16 +365,19 @@ def login_view(request):
             captcha_required = is_login_captcha_required(username_hint, ip_address)
         except ChallengeServiceUnavailable:
             captcha_required = True
+        captcha_payload, signed_cookie = _issue_widget_challenge(request, "login") if captcha_required else (None, None)
         form = LoginForm(initial={"username": username_hint} if username_hint else None)
-        return render(
+        return _render_with_captcha_cookie(
             request,
             "identity/login.html",
             {
                 "form": form,
                 "next_url": next_url,
                 "captcha_required": captcha_required,
+                "captcha_payload": captcha_payload,
                 "page_error": "",
             },
+            signed_cookie=signed_cookie,
         )
 
     form = LoginForm(request.POST)
@@ -325,16 +387,19 @@ def login_view(request):
             captcha_required = is_login_captcha_required(raw_username, ip_address)
         except ChallengeServiceUnavailable:
             captcha_required = True
-        return render(
+        captcha_payload, signed_cookie = _issue_widget_challenge(request, "login") if captcha_required else (None, None)
+        return _render_with_captcha_cookie(
             request,
             "identity/login.html",
             {
                 "form": form,
                 "next_url": next_url,
                 "captcha_required": captcha_required,
+                "captcha_payload": captcha_payload,
                 "page_error": "",
             },
             status=400,
+            signed_cookie=signed_cookie,
         )
 
     username = form.cleaned_data["username"].strip()
@@ -344,8 +409,14 @@ def login_view(request):
     try:
         locked, retry_after = is_login_locked(username, ip_address)
         captcha_required = is_login_captcha_required(username, ip_address)
+        if not locked and not captcha_required:
+            slot_status, slot_retry = reserve_login_attempt(username, ip_address, has_captcha=False)
+            if slot_status == "locked":
+                locked, retry_after = True, slot_retry
+            elif slot_status == "captcha_required":
+                captcha_required = True
     except ChallengeServiceUnavailable:
-        return render(
+        return _render_with_captcha_cookie(
             request,
             "identity/login.html",
             {
@@ -358,7 +429,7 @@ def login_view(request):
         )
     if locked:
         wait_seconds = max(1, int(retry_after or 60))
-        response = render(
+        response = _render_with_captcha_cookie(
             request,
             "identity/login.html",
             {
@@ -386,6 +457,22 @@ def login_view(request):
                 captcha_id=captcha_id,
                 code=captcha_code,
             )
+            slot_status, slot_retry = reserve_login_attempt(username, ip_address, has_captcha=True)
+            if slot_status == "locked":
+                wait_seconds = max(1, int(slot_retry or 60))
+                response = _render_with_captcha_cookie(
+                    request,
+                    "identity/login.html",
+                    {
+                        "form": form,
+                        "next_url": next_url,
+                        "captcha_required": True,
+                        "page_error": f"登录失败次数过多，请等待 {wait_seconds} 秒后再试。",
+                    },
+                    status=429,
+                )
+                response["Retry-After"] = str(wait_seconds)
+                return response
         except ChallengeServiceUnavailable:
             return render(
                 request,
@@ -399,16 +486,19 @@ def login_view(request):
                 status=503,
             )
         except ChallengeVerificationError as exc:
-            return render(
+            captcha_payload, signed_cookie = _issue_widget_challenge(request, "login")
+            return _render_with_captcha_cookie(
                 request,
                 "identity/login.html",
                 {
                     "form": form,
                     "next_url": next_url,
                     "captcha_required": True,
+                    "captcha_payload": captcha_payload,
                     "page_error": str(exc) or "安全验证码校验失败，请核对后重试。",
                 },
                 status=400,
+                signed_cookie=signed_cookie,
             )
 
     # 3. 核验账号密码并检查未停用状态
@@ -435,16 +525,19 @@ def login_view(request):
             err_msg = f"用户名或密码错误，失败次数过多已触发临时锁定，请 {wait_seconds} 秒后再试。"
         else:
             err_msg = "用户名或密码错误，或账号已被停用。"
-        return render(
+        captcha_payload, signed_cookie = _issue_widget_challenge(request, "login") if captcha_required_now else (None, None)
+        return _render_with_captcha_cookie(
             request,
             "identity/login.html",
             {
                 "form": form,
                 "next_url": next_url,
                 "captcha_required": captcha_required_now,
+                "captcha_payload": captcha_payload,
                 "page_error": err_msg,
             },
             status=400,
+            signed_cookie=signed_cookie,
         )
 
     # 4. 登录成功：清除失败计数、建会话、并在强制改密时重定向到改密页

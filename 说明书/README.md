@@ -1,10 +1,10 @@
 # myblog 项目工程与技术规范入口
 
-更新日期：2026-11-12。**第一阶段全部核心能力、通用层级列表检索、全站标签大厅、全站评论多维治理与会员/身份底座（Phase 1）已完成代码实现并在测试环境验证通过**（全站 168 项单元与集成测试 100% PASS、Django 系统检查 0 错误 0 警告）。
+更新日期：2026-11-12。**第一阶段全部核心能力、会员/身份底座（Phase 1）与公共图片验证码模块（Phase 2）已完成代码实现并在测试环境验证通过**（全站 175 项单元与集成测试 100% PASS、Django 系统检查 0 错误 0 警告）。
 
 ## 建议阅读顺序
 
-0. [会员体系、多角色创作权限与双轨防刷评论架构方案](myblog_会员体系与多角色创作权限架构方案_RFC_2026-11-11.md)：**【Phase 1 已实现并完成独立安全复核与全量测试 · Phase 2–5 待实施】** 前台会员中心（`/account/*`）、`MemberProfile` 独立头像（Pillow 13.0.0 重编码 + `/avatar-gateway/` + `AvatarPurgeTask`）、`IdentitySessionGuardMiddleware` 会话代次守卫、受控账号删除过户（`AccountLifecycleService`）与孤儿头像对账已落地；公共图片验证码（Phase 2）、双轨防刷评论配额（Phase 3）与 `CustomBasePage` 通用作者直发隔离（Phase 4）待后续阶段实施。
+0. [会员体系、多角色创作权限与双轨防刷评论架构方案](myblog_会员体系与多角色创作权限架构方案_RFC_2026-11-11.md)：**【Phase 1–2 已实现并完成独立安全复核与全量测试 · Phase 3–5 待实施】** 前台会员中心（`/account/*`）、`MemberProfile` 独立头像（Pillow 13.0.0 重编码 + `/avatar-gateway/` + `AvatarPurgeTask`）、`IdentitySessionGuardMiddleware` 会话代次守卫、受控账号删除过户与孤儿头像对账（Phase 1）以及全站公共图片验证码 `captcha`（Phase 2，`Pillow + Redis Lua` 原子一次性核销，已接入前台注册与防刷登录）均已落地；双轨防刷评论配额（Phase 3）与 `CustomBasePage` 通用作者直发隔离（Phase 4）待后续阶段实施。
 0. [第一阶段技术实现方案与架构规范](myblog_第一阶段技术方案_v1.0.md)：**【核心必读】** 系统完整落地实现蓝图，涵盖彻底脱水模式、受控回收站原树恢复、中文搜索与 GIN 索引、专栏体系、通用评论系统、全站多页面 RSS/Atom 订阅与时间线归档、RESTful JSON API 规范与架构拓扑图。
 1. [全站多页面评论后台管理与多维治理系统 RFC](myblog_全站多页面评论管理与多维治理系统_RFC_2026-11-10.md)：**【RFC-020 最新】** 全局分类与溯源中控台、Page 编辑器【💬 评论与互动】Tab（100% 异步隔离 Wagtail 自动保存）、Purge 级联物理清空、作者自删占位、V1/V2 审核隔离与 24h 主体限制。
 1. [全站层级列表与多维检索通用框架 RFC](myblog_全站层级列表与多维检索通用框架_RFC_2026-11-09.md)：通用 HierarchicalListingMixin、IndexListingService、Keyset 签名游标、双模同构与 Wagtail 8.1 后台预览守卫闭环。

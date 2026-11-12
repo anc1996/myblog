@@ -4,11 +4,11 @@
 |---|---|
 | 标识 | MYBLOG-RFC-MEMBERSHIP-RBAC-01 |
 | 日期 | 2026-11-12（Asia/Singapore） |
-| 状态 | **Phase 1 Implemented & Verified（Phase 1 身份模型、独立头像、会话守卫与前台会员中心已落地并通过 `gpt-6.1-terra` 只读安全审查与 168 项全站测试；Phase 2–5 待授权实施）** |
-| 独立审查 | `gemini-4-argon`（方案审查）；`gpt-6.1-terra`（Phase 1 实现后只读反例审查，3 项 P0 与 5 项 P1 均已修复并补齐测试） |
-| 起草基线 | `main@96e8ccaf4d9e1dbf5291a4f634bc5f0e26a93364` |
+| 状态 | **Phase 1–2 Implemented & Verified（Phase 1 身份底座与 Phase 2 公共图片验证码均已落地并通过 `gpt-6.1-terra` 只读安全审查与 175 项全站测试；Phase 3–5 待授权实施）** |
+| 独立审查 | `gemini-4-argon`（方案审查）；`gpt-6.1-terra`（分别完成 Phase 1 与 Phase 2 只读反例审查，发现问题均已修复并补齐回归测试） |
+| 起草基线 | `main@0bc6429b9bb2bd435706a417c96517c96bdd0f73` |
 | 已核对依赖 | Django `6.1.2`、Wagtail `8.1`、psycopg `3.3.7`、Pillow `13.0.0`、redis-py `8.1.0`；未安装 `django-simple-captcha` |
-| 实施边界 | 测试环境（`.env.test`）已执行 `identity 0002` 与 `comments 0003` 迁移并通过 168 项回归；开发库（`.env.local`）仅完成 `comments 0003` 修复，Phase 1 新迁移与代码提交/推送待所有者最终确认 |
+| 实施边界 | 开发库（`.env.local`）与测试库（`.env.test`）均已应用 `identity 0002` 与 `comments 0003`（Phase 2 无新增表迁移）；全量 175 项测试已在测试环境通过，Phase 2 代码提交/推送待所有者确认 |
 
 ---
 
@@ -288,7 +288,7 @@ flowchart TD
 | 阶段 | 交付内容 | 核心验收标准（全部需真实环境验证） |
 |---|---|---|
 | **Phase 1：身份与前台会员中心（已实现并验证）** | `MemberProfile`、`AccountAuditLog`、`IdentitySessionGuardMiddleware`（`session_epoch` + `must_change_password`）、独立头像 Pillow 重编码与 `/avatar-gateway/`（并隐藏/统一后台原生 `AvatarSettingsPanel`）、`/account/register\|login\|logout\|profile\|password-change/`、超管工作台改密/停用/过户硬删、`AvatarPurgeTask` 独立清理表与 `CrossStorageReconciler.reconcile_orphan_avatars`、区分“已注销用户”与“访客”展示、`OutboxProcessor` 拒收未知事件并处理 `page.restored` | **已在测试库 + 真实 RustFS/Redis 验证通过**：注册返回 `is_staff=False`（未接 Phase 2 验证码前按 Fail-Closed 返回 503）；EXIF/SVG/动图校验与重编码通过；组增删清与改密旧会话立即失效；停用保留头像，硬删过户全部页面与媒体并真实擦除 RustFS，双线程并发点赞/回复与硬删无死锁 |
-| **Phase 2：公共图片验证码模块** | `captcha` 应用（`Pillow + Redis Lua` 原子一次性核销，绑定浏览器 Cookie/Session 指纹）、签发与校验接口、防高频生成限流 | 同一 `captcha_id` 并发校验仅 1 次成功，输错一次即作废；跨 IP 切换不误杀正常 Cookie 会话；Redis 断开时返回 503 拒绝绕过；注册/登录失败触发验证码生效 |
+| **Phase 2：公共图片验证码模块（已实现并验证）** | `captcha` 应用（`Pillow 13.0.0` 无外部字体渲染 + `Redis Lua` 先限流再绘图及原子一次性核销，绑定 `HttpOnly` 签名 Cookie）、`/api/v1/captcha/challenges/` 与 `/api/v1/captcha/image/<id>/`、防高频生成限流、前后端组件及登录并发预占窗口加固 | **已在测试库 + 真实 Redis 验证通过**：5 线程并发校验仅 1 次成功，输错或空答案立即作废（不销毁他人挑战），跨 IP 漫游不误杀正常 Cookie 会话，限流先于 Pillow 渲染生效，Redis 断开返回 503 拒绝绕过，注册与登录失败触发验证码端到端打通 |
 | **Phase 3：双轨防刷评论与配额** | `CommunitySettings`、`PageCommentSettings.allow_guest_comments`（含后端防篡改与归属鉴权）、Redis Lua 分钟限流、PG `CommentDailyQuota`、事务内锁页面复核与幂等修复 | 全局仅会员时访客被拒；作者尝试伪造 POST 开启 `allow_guest_comments` 或改他人页开关返回 403；勾选文章访客必过验证码、禁外链、进待审、超日配额 429；真实 PostgreSQL/Redis 并发测试无超发、无重复评论 |
 | **Phase 4：基类通用作者隔离与对象级收口** | `Authors` 组、`CustomBasePage` 声明式能力属性（`author_creatable` / `author_allow_child_creation`）、自定义 `OwnershipPagePermissionTester` + `OwnershipPagePermissionPolicy`（注册于 `AbstractPage`）、`before_create_page` / `before_publish_page` / `before_copy_page` 通用钩子（含禁 Alias/Move/Privacy/Reorder）、在基类收口全站内容页 `MediaReferenceTracker` 登记与 `init_new_page` 通用 `Person` 自动关联、自定义 `AuthorIsolatedMediaPermissionPolicy` + `page_published` 通用自动公开作者本人配图 + `EditForm` 禁止替换已引用原图、修补 `media_library/access.py` 与 `restrict_asset()`、改造 `RecycleService` 与 `RecycleBatchViewSet`（`is_superuser` 专属 Purge） | 跨 `BlogPage`、`GuidePage`、`ProjectPage` 及大厅页（`BlogIndexPage`/`GuideIndexPage`/`PortfolioIndexPage`）全部统一验证：作者 A 无法通过列表、搜索、报表、日志、预览、历史、复制/别名、排序、设密码、直连 URL、选择器、批量或回收站读取/修改/下架作者 B 的页面与受限媒体，也无法新建/编辑栏目大厅或文章套子页；作者直发任意授权内容页前台配图正常 200 显示且进搜索；主编（`Editor`）仍可正常管理授权栏目与全部页面；作者绝对无法调用 Purge |
 | **Phase 5：独立安全复核与全量回归** | 交由独立审查代理做越权与并发反例审查；全站测试、Wagtail 8.1 后台实测与 Playwright 浏览器冒烟 | 全部越权用例与并发测试 0 失败；现有全站测试集 100% 通过 |
@@ -307,4 +307,4 @@ flowchart TD
 ### 附：目前明确延后与未解决事项
 1. **已统一的历史口径差异**：本文明确将“回收站不自动清空、仅管理员二次确认人工 Purge”作为新规范定稿；进入实施前将同步修正 `第一阶段技术方案` 中关于自动惰性清理的旧表述。
 2. **人工找回密码的运营成本**：在一期暂不接入邮箱验证的前提下，若用户注册时未填 `recovery_hint` 备用核密线索，后续忘记密码将无法自动验证身份，只能靠管理员线下人工确认。
-3. **待完成范围**：Phase 1 前台注册与触发验证码时的登录在 Phase 2（`captcha` 公共图片验证码模块）落地前处于 Fail-Closed（503）保护状态；Phase 3（双轨防刷评论与配额）及 Phase 4（`CustomBasePage` 通用作者隔离与免审直发）尚未代码实施。另外，Playwright 浏览器人工冒烟与带版本策略 S3 桶的历史版本清理核查尚未执行。
+3. **待完成范围**：Phase 3（双轨防刷评论与配额）及 Phase 4（`CustomBasePage` 通用作者隔离与免审直发）尚未代码实施。另外，Playwright 浏览器人工冒烟与带版本策略 S3 桶的历史版本清理核查尚未执行。

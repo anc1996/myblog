@@ -37,6 +37,7 @@ APPS_DIR = configure_app_imports()
 INSTALLED_APPS = [
     # 1. 业务核心子应用 (收敛于 myblog/apps/* 目录下)
     "identity.apps.IdentityConfig",
+    "captcha.apps.CaptchaConfig",
     "media_library.apps.MediaLibraryConfig",
     "content_blocks.apps.ContentBlocksConfig",
     "external_content.apps.ExternalContentConfig",
@@ -318,3 +319,10 @@ WAGTAILDOCS_MAX_UPLOAD_SIZE = 10 * 1024 * 1024
 
 # 前台会员中心登录入口
 LOGIN_URL = "/account/login/"
+
+# 公共人机验证码默认实现 (Phase 2: Pillow 13.0.0 + Redis Lua 原子核销)
+IDENTITY_CHALLENGE_VERIFIER = "captcha.providers.PillowRedisCaptchaVerifier"
+IDENTITY_CAPTCHA_ALLOWLIST_URL_NAMES = (
+    "api_v1:captcha_challenge_issue",
+    "api_v1:captcha_challenge_image",
+)

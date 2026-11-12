@@ -1,0 +1,42 @@
+{% load static %}
+<div class="identity-captcha-box js-captcha-widget"
+     data-captcha-scope="{{ captcha_scope }}"
+     data-issue-url="{% url 'api_v1:captcha_challenge_issue' %}">
+  {% if use_visual_captcha or captcha_payload %}
+    <input type="hidden" name="captcha_id" id="{{ form.captcha_id.id_for_label }}" value="{{ captcha_payload.captcha_id|default:'' }}">
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+      <img {% if captcha_payload %}src="{{ captcha_payload.image_data_url }}"{% else %}hidden{% endif %}
+           alt="安全图片验证码"
+           class="js-captcha-image"
+           title="点击图片刷新验证码"
+           style="width:160px;height:52px;border:1px solid #cbd5e1;border-radius:6px;cursor:pointer;background:#fff;">
+      <button type="button"
+              class="js-captcha-refresh"
+              style="padding:7px 12px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;color:#1e293b;cursor:pointer;font-size:0.86rem;">
+        换一张
+      </button>
+    </div>
+    <span class="identity-help js-captcha-status">{% if captcha_payload %}请输入图中的 4 位字符（不区分大小写，180 秒内有效）{% else %}验证码暂未加载，请点击“换一张”重新获取{% endif %}</span>
+  {% else %}
+    <div class="identity-field">
+      <label class="identity-label" for="{{ form.captcha_id.id_for_label }}">{{ form.captcha_id.label }}</label>
+      {{ form.captcha_id }}
+      {% if form.captcha_id.errors %}
+        <ul class="identity-error-list">
+          {% for err in form.captcha_id.errors %}<li>{{ err }}</li>{% endfor %}
+        </ul>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  <div class="identity-field">
+    <label class="identity-label" for="{{ form.captcha_code.id_for_label }}">{{ form.captcha_code.label }}</label>
+    {{ form.captcha_code }}
+    {% if form.captcha_code.errors %}
+      <ul class="identity-error-list">
+        {% for err in form.captcha_code.errors %}<li>{{ err }}</li>{% endfor %}
+      </ul>
+    {% endif %}
+  </div>
+</div>
+<script src="{% static 'captcha/js/captcha_widget.js' %}" defer></script>
