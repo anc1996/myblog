@@ -16,10 +16,12 @@ import uuid
 from datetime import timedelta
 from typing import Any
 from django.conf import settings
-from django.db import models
+from django.db import connection, models, transaction
 from django.db.models import Q, F
 from django.core.exceptions import PermissionDenied
 from django.utils import timezone
+from wagtail.admin.panels import FieldPanel, MultiFieldPanel
+from wagtail.contrib.settings.models import BaseGenericSetting, register_setting
 
 
 class CommentQuerySet(models.QuerySet):
@@ -501,6 +503,7 @@ class PageCommentSettings(models.Model):
         verbose_name="所属页面",
     )
     allow_comments = models.BooleanField(default=True, verbose_name="允许发表评论")
+    allow_guest_comments = models.BooleanField(default=False, verbose_name="允许受控访客留言")
     close_reason = models.CharField(max_length=255, blank=True, verbose_name="关评公告说明")
     auto_moderate_new = models.BooleanField(default=False, verbose_name="新评论强制人工复核")
     state_generation = models.PositiveIntegerField(default=1, verbose_name="状态代次")
@@ -512,6 +515,179 @@ class PageCommentSettings(models.Model):
 
     def __str__(self):
         return f"CommentSettings for Page #{self.page_id} (allowed={self.allow_comments})"
+
+
+@register_setting
+class CommunitySettings(BaseGenericSetting):
+    """
+    全站社区评论准入与双轨配额设置 (Wagtail Generic Settings 单例)。
+    不混入导航/页脚设置，仅管理员或被授予 comments.change_communitysettings 权限者可修改。
+    """
+
+    COMMENT_MODE_CHOICES = [
+        ("closed", "全站暂停新增评论"),
+        ("members_only", "仅限登录会员发表评论（默认）"),
+        ("controlled_guests", "允许指定文章开启受控访客留言"),
+    ]
+
+    singleton_key = models.PositiveSmallIntegerField(default=1, unique=True, editable=False)
+    comment_mode = models.CharField(
+        max_length=24,
+        choices=COMMENT_MODE_CHOICES,
+        default="members_only",
+        verbose_name="全站评论准入模式",
+        help_text="收紧规则：仅当全站设为 controlled_guests 且单篇文章勾选允许访客留言时，访客入口才生效。",
+    )
+    guest_daily_ip_cap = models.PositiveIntegerField(default=5, verbose_name="访客单 IP 每日留言上限")
+    guest_daily_browser_cap = models.PositiveIntegerField(default=2, verbose_name="访客单浏览器每日留言上限")
+    member_daily_cap = models.PositiveIntegerField(default=30, verbose_name="可信会员每日评论上限")
+    new_member_daily_cap = models.PositiveIntegerField(default=10, verbose_name="新注册会员每日评论上限")
+    new_member_days_threshold = models.PositiveIntegerField(default=7, verbose_name="新注册会员观察期（天）")
+    new_member_default_pending = models.BooleanField(default=True, verbose_name="新注册会员发表评论默认人工待审")
+    max_pending_queue_budget = models.PositiveIntegerField(
+        default=200,
+        verbose_name="全站待审队列熔断预算",
+        help_text="当全站待审评论总数达到该阈值时，自动阻断新的匿名访客留言投稿。",
+    )
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="最后更新时间")
+
+    panels = [
+        MultiFieldPanel(
+            [
+                FieldPanel("comment_mode"),
+                FieldPanel("max_pending_queue_budget"),
+            ],
+            heading="全站准入模式与队列熔断",
+        ),
+        MultiFieldPanel(
+            [
+                FieldPanel("guest_daily_browser_cap"),
+                FieldPanel("guest_daily_ip_cap"),
+            ],
+            heading="受控访客每日配额",
+        ),
+        MultiFieldPanel(
+            [
+                FieldPanel("new_member_days_threshold"),
+                FieldPanel("new_member_daily_cap"),
+                FieldPanel("new_member_default_pending"),
+                FieldPanel("member_daily_cap"),
+            ],
+            heading="注册会员分级配额与审核",
+        ),
+    ]
+
+    class Meta:
+        verbose_name = "社区评论与防刷设置"
+        verbose_name_plural = "社区评论与防刷设置"
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(singleton_key=1),
+                name="comments_community_settings_singleton_one",
+            ),
+        ]
+
+    @classmethod
+    def _get_or_create(cls):
+        obj, _ = cls.objects.get_or_create(singleton_key=1)
+        return obj
+
+    @classmethod
+    def get_solo(cls) -> "CommunitySettings":
+        """只读安全读取当前全站社区设置，未初始化时返回内存默认实例而不触发写库。"""
+        obj = cls.objects.filter(singleton_key=1).first()
+        return obj if obj is not None else cls()
+
+    def save(self, *args, **kwargs):
+        with transaction.atomic():
+            if connection.vendor == "postgresql":
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "SELECT pg_advisory_xact_lock(hashtext('myblog:comments:community_settings'));"
+                    )
+            return super().save(*args, **kwargs)
+
+
+class CommentDailyQuota(models.Model):
+    """
+    PostgreSQL 持久评论日配额计数表。
+    按站点自然日统计，杜绝 Redis 重启或清理后配额被清零绕过。
+    """
+
+    SUBJECT_KIND_CHOICES = [
+        ("user", "注册会员"),
+        ("ip", "客户端 IP"),
+        ("guest_browser", "访客浏览器标识"),
+    ]
+
+    site = models.ForeignKey(
+        "wagtailcore.Site",
+        on_delete=models.CASCADE,
+        related_name="+",
+        verbose_name="所属站点",
+    )
+    subject_kind = models.CharField(max_length=16, choices=SUBJECT_KIND_CHOICES, verbose_name="主体类别")
+    subject_key = models.CharField(max_length=64, verbose_name="主体标识")
+    quota_date = models.DateField(verbose_name="统计自然日")
+    action = models.CharField(max_length=32, default="post_comment", verbose_name="限额动作")
+    used_count = models.PositiveIntegerField(default=0, verbose_name="已用次数")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="最后更新时间")
+
+    class Meta:
+        verbose_name = "评论每日配额计数"
+        verbose_name_plural = "评论每日配额计数"
+        constraints = [
+            models.UniqueConstraint(
+                fields=("site", "subject_kind", "subject_key", "quota_date", "action"),
+                name="uniq_comment_daily_quota",
+            ),
+            models.CheckConstraint(
+                condition=Q(used_count__gte=0),
+                name="chk_comment_daily_quota_non_neg",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=("quota_date", "subject_kind", "subject_key"),
+                name="idx_comment_daily_quota_lookup",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Quota({self.site_id}, {self.subject_kind}:{self.subject_key}, {self.quota_date})={self.used_count}"
+
+
+class CommentGovernanceAuditLog(models.Model):
+    """评论主体限制/解封审计日志。"""
+
+    ACTION_CHOICES = [
+        ("restrict", "实施 24 小时限制"),
+        ("lift_restriction", "提前解除限制"),
+    ]
+
+    kind = models.CharField(max_length=8, verbose_name="主体类别")
+    subject_key = models.CharField(max_length=64, db_index=True, verbose_name="规范化主体标识")
+    action = models.CharField(max_length=32, choices=ACTION_CHOICES, db_index=True, verbose_name="治理动作")
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        verbose_name="操作人",
+    )
+    actor_username_snapshot = models.CharField(max_length=150, blank=True, verbose_name="操作人账号快照")
+    reason = models.CharField(max_length=255, blank=True, verbose_name="操作原因")
+    restricted_until = models.DateTimeField(null=True, blank=True, verbose_name="限制截止时间")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="记录时间")
+
+    class Meta:
+        verbose_name = "评论主体治理审计日志"
+        verbose_name_plural = "评论主体治理审计日志"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.action} {self.kind}:{self.subject_key} by {self.actor_username_snapshot or 'system'}"
 
 
 class CommentGovernanceSubject(models.Model):

@@ -29,7 +29,12 @@ from wagtail.admin.viewsets.model import ModelViewSet
 from wagtail.admin.views import generic
 from wagtail.admin.views.generic import history as generic_history
 from wagtail.admin.widgets.button import ListingButton
+from wagtail.models import Page
 
+from .access import (
+    can_user_access_page_comment_settings,
+    can_user_manage_guest_comments,
+)
 from .models import Comment, CommentVersion, CommentReviewAction, PageCommentSettings
 from .services import CommentService
 
@@ -451,6 +456,7 @@ class CommentViewSet(ModelViewSet):
             path("page-comments/<int:page_id>/", self.page_comments_view, name="page_comments"),
             path("batch-hide/", self.batch_hide_view, name="batch_hide"),
             path("restrict-subject/", self.restrict_subject_view, name="restrict_subject"),
+            path("lift-restriction/", self.lift_restriction_view, name="lift_restriction"),
         ]
 
     def _check_moderator_permission(self, request):
@@ -486,6 +492,7 @@ class CommentViewSet(ModelViewSet):
                 action="approve",
                 reviewer=request.user,
                 expected_version_id=expected_ver_id,
+                require_expected_version=True,
             )
             if self._is_json_request(request):
                 return JsonResponse({"status": "success", "message": f"评论 #{pk} 审核通过上线！"})
@@ -508,6 +515,7 @@ class CommentViewSet(ModelViewSet):
                 action="reject",
                 reviewer=request.user,
                 expected_version_id=expected_ver_id,
+                require_expected_version=True,
             )
             if self._is_json_request(request):
                 return JsonResponse({"status": "success", "message": f"评论 #{pk} 待审修改已驳回。"})
@@ -557,51 +565,81 @@ class CommentViewSet(ModelViewSet):
         return self._redirect_back(request)
 
     def page_settings_view(self, request, page_id):
-        try:
-            self._check_moderator_permission(request)
-        except PermissionDenied as exc:
-            return JsonResponse({"status": "error", "message": str(exc)}, status=403)
+        if request.method not in ("GET", "HEAD", "POST"):
+            return JsonResponse({"status": "error", "message": "Method not allowed"}, status=405)
+
+        page = Page.objects.filter(id=page_id).first()
+        if page is None:
+            return JsonResponse({"status": "error", "message": "目标页面不存在"}, status=404)
+
+        if not can_user_access_page_comment_settings(request.user, page):
+            return JsonResponse({"status": "error", "message": "当前用户无权查看或修改该页面的评论设置。"}, status=403)
+
+        can_manage_guest = can_user_manage_guest_comments(request.user, page)
         if request.method == "POST":
+            has_guest_param = "allow_guest_comments" in request.POST
+            if has_guest_param and not can_manage_guest:
+                return JsonResponse(
+                    {"status": "error", "message": "仅超级管理员、全站评论治理员或栏目主编可修改受控访客留言开关。"},
+                    status=403,
+                )
+
             allow_comments = request.POST.get("allow_comments") == "true"
             close_reason = request.POST.get("close_reason", "").strip()
             auto_moderate = request.POST.get("auto_moderate_new") == "true"
+            allow_guest_val = (request.POST.get("allow_guest_comments") == "true") if has_guest_param else None
 
-            settings_obj, created = PageCommentSettings.objects.get_or_create(
-                page_id=page_id,
-                defaults={
-                    "allow_comments": allow_comments,
-                    "close_reason": close_reason,
-                    "auto_moderate_new": auto_moderate,
-                },
-            )
-            if not created:
-                settings_obj.allow_comments = allow_comments
-                settings_obj.close_reason = close_reason
-                settings_obj.auto_moderate_new = auto_moderate
-                settings_obj.state_generation += 1
-                settings_obj.save()
+            try:
+                settings_obj = CommentService.update_page_comment_settings(
+                    page_id=page_id,
+                    actor=request.user,
+                    allow_comments=allow_comments,
+                    close_reason=close_reason,
+                    auto_moderate_new=auto_moderate,
+                    allow_guest_comments=allow_guest_val,
+                )
+            except PermissionDenied as exc:
+                return JsonResponse({"status": "error", "message": str(exc)}, status=403)
+            except ValidationError as exc:
+                return JsonResponse({"status": "error", "message": str(exc)}, status=400)
 
             return JsonResponse({
                 "status": "success",
                 "page_id": page_id,
                 "allow_comments": settings_obj.allow_comments,
+                "allow_guest_comments": settings_obj.allow_guest_comments,
                 "close_reason": settings_obj.close_reason,
                 "auto_moderate_new": settings_obj.auto_moderate_new,
+                "can_manage_guest_comments": can_manage_guest,
             })
 
         settings_obj = PageCommentSettings.objects.filter(page_id=page_id).first()
         return JsonResponse({
+            "status": "success",
             "page_id": page_id,
             "allow_comments": settings_obj.allow_comments if settings_obj else True,
+            "allow_guest_comments": settings_obj.allow_guest_comments if settings_obj else False,
             "close_reason": settings_obj.close_reason if settings_obj else "",
             "auto_moderate_new": settings_obj.auto_moderate_new if settings_obj else False,
+            "can_manage_guest_comments": can_manage_guest,
         })
 
     def page_comments_view(self, request, page_id):
-        try:
-            self._check_moderator_permission(request)
-        except PermissionDenied as exc:
-            return JsonResponse({"status": "error", "message": str(exc)}, status=403)
+        page = Page.objects.filter(id=page_id).first()
+        if page is None:
+            return JsonResponse({"status": "error", "message": "目标页面不存在"}, status=404)
+        if not (
+            can_user_access_page_comment_settings(request.user, page)
+            or (
+                request.user.is_authenticated
+                and request.user.is_active
+                and (
+                    request.user.has_perm("comments.moderate_comment")
+                    or request.user.has_perm("comments.view_comment")
+                )
+            )
+        ):
+            return JsonResponse({"status": "error", "message": "当前用户无权查看该页面的评论面板。"}, status=403)
         filt = request.GET.get("filter", "all")
         qs = Comment.objects.filter(page_id=page_id)
         if filt == "pending":
@@ -609,14 +647,16 @@ class CommentViewSet(ModelViewSet):
         elif filt == "active":
             qs = qs.filter(status="active", is_publicly_visible=True)
 
-        comments = qs.select_related("author", "pending_version", "approved_version").order_by("-is_pinned", "-created_at")[:50]
+        comments = qs.select_related(
+            "author", "author__member_profile", "pending_version", "approved_version"
+        ).order_by("-is_pinned", "-created_at")[:50]
         items = []
         for c in comments:
             ver = c.pending_version or c.approved_version
             raw = ver.raw_content if ver else ""
             items.append({
                 "id": c.id,
-                "author_name": c.author.username if c.author else (c.guest_name or "访客"),
+                "author_name": c.author_display,
                 "status": c.status,
                 "is_publicly_visible": c.is_publicly_visible,
                 "is_pinned": c.is_pinned,
@@ -625,7 +665,8 @@ class CommentViewSet(ModelViewSet):
                 "content_snippet": raw[:120] if raw else "（无内容）",
                 "created_at": c.created_at.strftime("%Y-%m-%d %H:%M"),
             })
-        return JsonResponse({"status": "success", "page_id": page_id, "items": items})
+        can_moderate = bool(request.user.is_superuser or request.user.has_perm("comments.moderate_comment"))
+        return JsonResponse({"status": "success", "page_id": page_id, "can_moderate": can_moderate, "items": items})
 
     def batch_hide_view(self, request):
         try:
@@ -663,6 +704,29 @@ class CommentViewSet(ModelViewSet):
         except Exception as e:
             return JsonResponse({"status": "error", "message": str(e)}, status=400)
 
+    def lift_restriction_view(self, request):
+        try:
+            self._check_global_governance_permission(request)
+        except PermissionDenied as exc:
+            return JsonResponse({"status": "error", "message": str(exc)}, status=403)
+        if request.method != "POST":
+            return JsonResponse({"status": "error", "message": "Method not allowed"}, status=405)
+        kind = request.POST.get("kind", "user")
+        subject_key = request.POST.get("subject_key", "").strip()
+        reason = request.POST.get("reason", "管理后台提前解封").strip()
+        if not subject_key:
+            return JsonResponse({"status": "error", "message": "主体标识不能为空"}, status=400)
+        try:
+            lifted = CommentService.lift_restriction(
+                kind=kind,
+                subject_key=subject_key,
+                actor=request.user,
+                reason=reason,
+            )
+            return JsonResponse({"status": "success", "lifted": lifted, "subject_key": subject_key})
+        except Exception as exc:
+            return JsonResponse({"status": "error", "message": str(exc)}, status=400)
+
 
 comment_viewset = CommentViewSet("comments")
 
@@ -678,7 +742,12 @@ def register_comment_permissions():
     from django.contrib.auth.models import Permission
     return Permission.objects.filter(
         content_type__app_label="comments",
-        codename__in=["moderate_comment", "govern_comment_globally", "view_comment"],
+        codename__in=[
+            "moderate_comment",
+            "govern_comment_globally",
+            "view_comment",
+            "change_communitysettings",
+        ],
     )
 
 

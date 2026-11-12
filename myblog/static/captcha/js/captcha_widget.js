@@ -16,7 +16,6 @@
         }
         root.dataset.captchaBound = "1";
 
-        var scope = root.getAttribute("data-captcha-scope") || "";
         var issueUrl = root.getAttribute("data-issue-url") || "/api/v1/captcha/challenges/";
         var imgEl = root.querySelector(".js-captcha-image");
         var idInput = root.querySelector('input[name="captcha_id"]');
@@ -28,6 +27,7 @@
         var inFlight = false;
 
         async function refreshChallenge() {
+            var scope = root.getAttribute("data-captcha-scope") || "";
             if (!scope || !issueUrl || !idInput || !imgEl || inFlight) {
                 return;
             }
@@ -91,10 +91,26 @@
         if (imgEl) {
             imgEl.addEventListener("click", refreshChallenge);
         }
-        if (idInput && !idInput.value && imgEl && !imgEl.getAttribute("src")) {
+        root._refreshCaptchaChallenge = refreshChallenge;
+
+        var deferLoad = root.getAttribute("data-defer-load") === "true";
+        if (!deferLoad && idInput && !idInput.value && imgEl && !imgEl.getAttribute("src")) {
             refreshChallenge();
         }
     }
+
+    window.MyblogCaptcha = {
+        initWidget: initCaptchaWidget,
+        refreshWidget: function (root) {
+            if (!root) {
+                return;
+            }
+            initCaptchaWidget(root);
+            if (typeof root._refreshCaptchaChallenge === "function") {
+                root._refreshCaptchaChallenge();
+            }
+        }
+    };
 
     document.addEventListener("DOMContentLoaded", function () {
         var widgets = document.querySelectorAll(".js-captcha-widget");

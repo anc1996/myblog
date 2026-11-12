@@ -17,6 +17,8 @@
     const cancelReplyBtn = document.getElementById('cancel-reply-btn');
     const parentIdInput = document.getElementById('comment-parent-id-input');
     const replyToIdInput = document.getElementById('comment-reply-to-id-input');
+    const requestKeyInput = document.getElementById('comment-request-key-input');
+    const captchaWrapper = document.getElementById('comment-captcha-wrapper');
     const loadMoreBtn = document.getElementById('load-more-comments-btn');
     const paginationArea = document.getElementById('comments-pagination-area');
 
@@ -35,10 +37,42 @@
     const reactUrlTpl = section.getAttribute('data-react-url-tpl') || '/api/v1/comments/0/react/';
     const deleteUrlTpl = section.getAttribute('data-delete-url-tpl') || '/api/v1/comments/0/delete/';
     let allowComments = section.getAttribute('data-allow-comments') !== 'false';
+    let requiresCaptcha = section.getAttribute('data-requires-captcha') === 'true';
 
     let currentPage = 1;
     let totalPages = 1;
     let currentSort = 'latest';
+
+    function generateRequestKey() {
+      if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+        return window.crypto.randomUUID().replace(/-/g, '');
+      }
+      return 'req_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
+    }
+
+    function activateCaptchaWidget(scope) {
+      if (!captchaWrapper) return;
+      requiresCaptcha = true;
+      captchaWrapper.hidden = false;
+      const widget = captchaWrapper.querySelector('.js-captcha-widget');
+      if (!widget) return;
+      if (scope) {
+        widget.setAttribute('data-captcha-scope', scope);
+      }
+      widget.setAttribute('data-defer-load', 'false');
+      const codeInput = widget.querySelector('input[name="captcha_code"]');
+      if (codeInput) {
+        codeInput.required = true;
+      }
+      if (window.MyblogCaptcha && typeof window.MyblogCaptcha.refreshWidget === 'function') {
+        window.MyblogCaptcha.refreshWidget(widget);
+      }
+    }
+
+    if (captchaWrapper && requiresCaptcha) {
+      const codeInput = captchaWrapper.querySelector('input[name="captcha_code"]');
+      if (codeInput) codeInput.required = true;
+    }
 
     function buildActionUrl(tpl, id) {
       return tpl.replace('/0/', `/${id}/`);
@@ -112,7 +146,7 @@
 
       card.className = `comment-card ${isReply ? 'is-reply' : ''}`;
 
-      const authorName = (c.author && c.author.username) ? c.author.username : '匿名读者';
+      const authorName = (c.author && (c.author.display_name || c.author.username)) ? (c.author.display_name || c.author.username) : '匿名读者';
       const dateStr = c.created_at || '';
 
       const header = document.createElement('div');
@@ -133,10 +167,10 @@
         metaLeft.appendChild(pinBadge);
       }
 
-      if (isReply && c.replied_to_user && c.replied_to_user.username) {
+      if (isReply && c.replied_to_user && (c.replied_to_user.display_name || c.replied_to_user.username)) {
         const targetEl = document.createElement('span');
         targetEl.className = 'comment-reply-target';
-        targetEl.textContent = `回复 @${c.replied_to_user.username}`;
+        targetEl.textContent = `回复 @${c.replied_to_user.display_name || c.replied_to_user.username}`;
         metaLeft.appendChild(targetEl);
       }
 
@@ -235,6 +269,13 @@
 
           if (data.comment_settings) {
             allowComments = Boolean(data.comment_settings.allow_comments);
+            if (data.comment_settings.requires_captcha && form) {
+              const widget = captchaWrapper ? captchaWrapper.querySelector('.js-captcha-widget') : null;
+              const hasLoaded = widget && widget.querySelector('input[name="captcha_id"]')?.value;
+              if (!hasLoaded) {
+                activateCaptchaWidget(data.comment_settings.captcha_scope || '');
+              }
+            }
           }
 
           currentPage = data.current_page;
@@ -293,6 +334,9 @@
       form.addEventListener('submit', function (e) {
         e.preventDefault();
         if (!postUrl) return;
+        if (requestKeyInput && !requestKeyInput.value) {
+          requestKeyInput.value = generateRequestKey();
+        }
         const submitBtn = document.getElementById('comment-submit-btn');
         if (submitBtn) submitBtn.disabled = true;
 
@@ -313,9 +357,28 @@
               showAlert('评论发表成功！' + (data.data && data.data.is_publicly_visible ? '' : '已提交审核，通过后将公开显示。'), true);
               const textarea = form.querySelector('textarea[name="content"]');
               if (textarea) textarea.value = '';
+              if (requestKeyInput) requestKeyInput.value = '';
               resetReplyTarget();
+              if (requiresCaptcha && captchaWrapper) {
+                const widget = captchaWrapper.querySelector('.js-captcha-widget');
+                if (widget && window.MyblogCaptcha) {
+                  window.MyblogCaptcha.refreshWidget(widget);
+                }
+              }
               loadComments(1, false);
             } else {
+              const errCode = data && data.code;
+              if (errCode === 'captcha_required' || errCode === 'captcha_invalid' || errCode === 'captcha_binding_missing') {
+                activateCaptchaWidget((data && data.captcha_scope) || '');
+              } else if (requiresCaptcha && captchaWrapper) {
+                const widget = captchaWrapper.querySelector('.js-captcha-widget');
+                if (widget && window.MyblogCaptcha) {
+                  window.MyblogCaptcha.refreshWidget(widget);
+                }
+              }
+              if (requestKeyInput && errCode === 'idempotency_conflict') {
+                requestKeyInput.value = '';
+              }
               showAlert((data && data.message) || '评论提交失败，请稍后重试。', false);
             }
           })
@@ -324,6 +387,13 @@
             showAlert('网络异常，提交失败。', false);
           });
       });
+
+      const textareaEl = form.querySelector('textarea[name="content"]');
+      if (textareaEl) {
+        textareaEl.addEventListener('input', function () {
+          if (requestKeyInput) requestKeyInput.value = '';
+        });
+      }
     }
 
     // 2. 排序、回复、点赞与删除事件委托

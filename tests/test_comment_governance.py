@@ -33,8 +33,10 @@ from identity.account_lifecycle import AccountLifecycleService
 from identity.models import MemberProfile, User
 from comments.models import (
     Comment,
+    CommentDailyQuota,
     CommentVersion,
     CommentReaction,
+    CommunitySettings,
     PageCommentSettings,
     CommentGovernanceSubject,
 )
@@ -73,6 +75,9 @@ class CommentGovernanceTests(unittest.TestCase):
                 email="gov_author@test.com",
                 password="password123",
             )
+        # 保证 RFC-020 历史治理测试账号处于可信会员观察期外
+        cls.normal_user.date_joined = timezone.now() - timedelta(days=30)
+        cls.normal_user.save(update_fields=["date_joined"])
 
         cls.reader_user = User.objects.filter(username="gov_reader").first()
         if not cls.reader_user:
@@ -81,6 +86,8 @@ class CommentGovernanceTests(unittest.TestCase):
                 email="gov_reader@test.com",
                 password="password123",
             )
+        cls.reader_user.date_joined = timezone.now() - timedelta(days=30)
+        cls.reader_user.save(update_fields=["date_joined"])
 
         cls.blog_index = BlogIndexPage.objects.first()
         if not cls.blog_index:
@@ -89,6 +96,7 @@ class CommentGovernanceTests(unittest.TestCase):
             cls.blog_index.save_revision().publish()
 
     def setUp(self):
+        self._cleanup_quotas()
         # 为每组测试创建独立的 BlogPage
         self.test_page = BlogPage(
             title=f"Gov Test Article {uuid4().hex[:6]}",
@@ -106,6 +114,18 @@ class CommentGovernanceTests(unittest.TestCase):
                 RecycleService.purge_page_or_subtree(self.test_page.id, actor=self.admin_user)
         except Exception:
             pass
+        self._cleanup_quotas()
+
+    def _cleanup_quotas(self):
+        CommentDailyQuota.objects.filter(
+            subject_key__in=[
+                f"user:{self.normal_user.id}",
+                f"user:{self.reader_user.id}",
+                "ip:198.51.100.7",
+                "ip:198.51.100.8",
+                "ip:198.51.100.9",
+            ]
+        ).delete()
 
     @classmethod
     def tearDownClass(cls):
@@ -595,7 +615,15 @@ class CommentGovernanceTests(unittest.TestCase):
             username=f"gov_mem_{uuid4().hex[:6]}",
             password="password123",
         )
+        community = CommunitySettings._get_or_create()
+        prev_mode = community.comment_mode
         try:
+            community.comment_mode = "controlled_guests"
+            community.save(update_fields=["comment_mode"])
+            PageCommentSettings.objects.update_or_create(
+                page=self.test_page,
+                defaults={"allow_comments": True, "allow_guest_comments": True},
+            )
             profile = MemberProfile.get_or_create_for_user(temp_member)
             profile.nickname = "治理测试昵称"
             profile.save(update_fields=["nickname"])
@@ -637,8 +665,9 @@ class CommentGovernanceTests(unittest.TestCase):
                 guest_name="",
                 raw_content="IP访客评论",
                 ip_address="198.51.100.7",
-                auto_approve=True,
+                auto_approve=False,
             )
+            CommentService.moderate_comment(c_guest_ip.id, action="approve", reviewer=self.admin_user)
             self.assertEqual(
                 c_guest_ip.get_author_presentation(),
                 {
@@ -657,8 +686,9 @@ class CommentGovernanceTests(unittest.TestCase):
                 guest_name="路人甲",
                 raw_content="命名访客评论",
                 ip_address="198.51.100.8",
-                auto_approve=True,
+                auto_approve=False,
             )
+            CommentService.moderate_comment(c_guest_named.id, action="approve", reviewer=self.admin_user)
             Comment.objects.filter(id=c_guest_named.id).update(author_subject_key="guest:anon-1")
             c_guest_named.refresh_from_db()
             self.assertEqual(c_guest_named.get_author_presentation()["kind"], "guest")
@@ -670,8 +700,9 @@ class CommentGovernanceTests(unittest.TestCase):
                 guest_name="",
                 raw_content="空主体未知用户测试",
                 ip_address="198.51.100.9",
-                auto_approve=True,
+                auto_approve=False,
             )
+            CommentService.moderate_comment(c_unknown.id, action="approve", reviewer=self.admin_user)
             Comment.objects.filter(id=c_unknown.id).update(
                 author=None,
                 author_subject_key="",
@@ -695,6 +726,8 @@ class CommentGovernanceTests(unittest.TestCase):
             self.assertEqual(c_unknown.get_author_presentation()["kind"], "guest")
             self.assertEqual(c_unknown.author_display, "匿名热心网友")
         finally:
+            community.comment_mode = prev_mode
+            community.save(update_fields=["comment_mode"])
             if User.objects.filter(id=temp_member.id).exists():
                 AccountLifecycleService.hard_delete(
                     actor=self.admin_user,

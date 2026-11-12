@@ -97,7 +97,10 @@ class CustomBasePage(Page):
                     model_form_class = getattr(cls, "base_form_class", None)
                     handler = TabbedInterface(children, base_form_class=model_form_class).bind_to_model(cls)
                 except Exception:
-                    pass
+                    import logging
+                    logging.getLogger(__name__).exception(
+                        "Failed to attach PageCommentGovernancePanel to %s", cls.__name__
+                    )
         return handler
 
     class Meta:
@@ -150,14 +153,23 @@ class CustomBasePage(Page):
         return super().copy(*args, **kwargs)
 
     def create_alias(self, *args, **kwargs):
-        """别名守卫：已回收页面禁止创建别名，且为别名排除 document_uuid 避免唯一约束冲突"""
+        """别名守卫：已回收页面禁止创建别名（别名新 UUID 由 full_clean/save 自动分配）"""
         if self.is_recycled:
             raise PermissionDenied(f"页面 '{self.title}' 当前处于回收站中，禁止创建别名！")
-        exclude_fields = kwargs.get("exclude_fields") or []
-        if "document_uuid" not in exclude_fields:
-            exclude_fields = list(exclude_fields) + ["document_uuid"]
-            kwargs["exclude_fields"] = exclude_fields
+        kwargs.pop("exclude_fields", None)
         return super().create_alias(*args, **kwargs)
+
+    def full_clean(self, *args, **kwargs):
+        if self.pk is None and getattr(self, "alias_of_id", None) is not None:
+            if type(self).objects.filter(document_uuid=self.document_uuid).exists():
+                self.document_uuid = uuid.uuid4()
+        return super().full_clean(*args, **kwargs)
+
+    def save(self, *args, **kwargs):
+        if self.pk is None and getattr(self, "alias_of_id", None) is not None:
+            if not self.document_uuid or type(self).objects.filter(document_uuid=self.document_uuid).exists():
+                self.document_uuid = uuid.uuid4()
+        return super().save(*args, **kwargs)
 
     def update_aliases(self, *, revision=None, _content=None, _updated_ids=None):
         """别名同步守卫：未上线页面（如未来排期）不唤醒别名；排除处于回收站中的别名"""

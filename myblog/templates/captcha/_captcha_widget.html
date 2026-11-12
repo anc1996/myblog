@@ -1,9 +1,10 @@
 {% load static %}
 <div class="identity-captcha-box js-captcha-widget"
      data-captcha-scope="{{ captcha_scope }}"
+     data-defer-load="{% if captcha_defer_load %}true{% else %}false{% endif %}"
      data-issue-url="{% url 'api_v1:captcha_challenge_issue' %}">
   {% if use_visual_captcha or captcha_payload %}
-    <input type="hidden" name="captcha_id" id="{{ form.captcha_id.id_for_label }}" value="{{ captcha_payload.captcha_id|default:'' }}">
+    <input type="hidden" name="captcha_id" id="{% if form %}{{ form.captcha_id.id_for_label }}{% else %}id_captcha_id_{{ captcha_scope }}{% endif %}" value="{{ captcha_payload.captcha_id|default:'' }}">
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
       <img {% if captcha_payload %}src="{{ captcha_payload.image_data_url }}"{% else %}hidden{% endif %}
            alt="安全图片验证码"
@@ -30,12 +31,23 @@
   {% endif %}
 
   <div class="identity-field">
-    <label class="identity-label" for="{{ form.captcha_code.id_for_label }}">{{ form.captcha_code.label }}</label>
-    {{ form.captcha_code }}
-    {% if form.captcha_code.errors %}
-      <ul class="identity-error-list">
-        {% for err in form.captcha_code.errors %}<li>{{ err }}</li>{% endfor %}
-      </ul>
+    {% if form %}
+      <label class="identity-label" for="{{ form.captcha_code.id_for_label }}">{{ form.captcha_code.label }}</label>
+      {{ form.captcha_code }}
+      {% if form.captcha_code.errors %}
+        <ul class="identity-error-list">
+          {% for err in form.captcha_code.errors %}<li>{{ err }}</li>{% endfor %}
+        </ul>
+      {% endif %}
+    {% else %}
+      <label class="identity-label" for="id_captcha_code_{{ captcha_scope }}">安全验证码</label>
+      <input type="text"
+             name="captcha_code"
+             id="id_captcha_code_{{ captcha_scope }}"
+             class="comment-input js-captcha-code-input"
+             maxlength="16"
+             autocomplete="off"
+             placeholder="请输入图中的 4 位字符">
     {% endif %}
   </div>
 </div>

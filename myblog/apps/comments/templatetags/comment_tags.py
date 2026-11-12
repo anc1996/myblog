@@ -4,7 +4,9 @@ comments.templatetags.comment_tags
 """
 
 from django import template
-from comments.models import PageCommentSettings
+from comments.models import CommunitySettings, PageCommentSettings
+from comments.rate_limit import is_member_comment_captcha_required
+from identity.challenges import ChallengeServiceUnavailable
 
 register = template.Library()
 
@@ -21,6 +23,13 @@ def get_page_comment_policy(context, page):
             "has_id": False,
             "is_preview": False,
             "allow_comments": False,
+            "allow_guest_comments": False,
+            "effective_allow_guests": False,
+            "comment_mode": "members_only",
+            "can_submit": False,
+            "requires_login": False,
+            "captcha_required": False,
+            "captcha_scope": "",
             "close_reason": "",
         }
 
@@ -37,6 +46,13 @@ def get_page_comment_policy(context, page):
             "has_id": bool(page_id),
             "is_preview": False,
             "allow_comments": False,
+            "allow_guest_comments": False,
+            "effective_allow_guests": False,
+            "comment_mode": "members_only",
+            "can_submit": False,
+            "requires_login": False,
+            "captcha_required": False,
+            "captcha_scope": "",
             "close_reason": "",
         }
 
@@ -49,18 +65,57 @@ def get_page_comment_policy(context, page):
     is_preview = is_req_preview or (not is_live) or is_recycled
 
     target_page_id = page.alias_of_id if getattr(page, "alias_of_id", None) else page_id
-    allow_comments = True
+    community = CommunitySettings.get_solo()
+    comment_mode = community.comment_mode
+    page_allow_comments = True
+    allow_guest_comments = False
     close_reason = ""
     if target_page_id:
         settings_obj = PageCommentSettings.objects.filter(page_id=target_page_id).first()
         if settings_obj:
-            allow_comments = settings_obj.allow_comments
+            page_allow_comments = settings_obj.allow_comments
+            allow_guest_comments = bool(settings_obj.allow_guest_comments)
             close_reason = settings_obj.close_reason
+
+    effective_allow_comments = (comment_mode != "closed") and page_allow_comments
+    if comment_mode == "closed" and not close_reason:
+        close_reason = "全站评论功能当前已暂停维护"
+
+    effective_allow_guests = (
+        effective_allow_comments
+        and comment_mode == "controlled_guests"
+        and allow_guest_comments
+    )
+
+    user = getattr(request, "user", None) if request else None
+    is_authenticated = bool(user and getattr(user, "is_authenticated", False))
+    can_submit = effective_allow_comments and (is_authenticated or effective_allow_guests)
+    requires_login = effective_allow_comments and (not is_authenticated) and (not effective_allow_guests)
+
+    captcha_scope = ""
+    captcha_required = False
+    if can_submit:
+        if is_authenticated:
+            captcha_scope = "member_comment"
+            try:
+                captcha_required = is_member_comment_captcha_required(request, user)
+            except ChallengeServiceUnavailable:
+                captcha_required = False
+        else:
+            captcha_scope = "guest_comment"
+            captcha_required = True
 
     return {
         "supported": True,
         "has_id": bool(page_id),
         "is_preview": is_preview,
-        "allow_comments": allow_comments,
+        "allow_comments": effective_allow_comments,
+        "allow_guest_comments": allow_guest_comments,
+        "effective_allow_guests": effective_allow_guests,
+        "comment_mode": comment_mode,
+        "can_submit": can_submit,
+        "requires_login": requires_login,
+        "captcha_required": captcha_required,
+        "captcha_scope": captcha_scope,
         "close_reason": close_reason,
     }

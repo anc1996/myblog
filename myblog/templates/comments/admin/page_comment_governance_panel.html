@@ -10,11 +10,25 @@
             <h3 style="margin-top: 0; margin-bottom: 12px; font-size: 16px; color: #1e293b; display: flex; align-items: center; gap: 8px;">
                 <span>⚙️</span> 单篇页面评论运行控制
             </h3>
+            <div style="margin-bottom: 12px; padding: 8px 12px; border-radius: 4px; background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; font-size: 13px;">
+                全站当前评论准入模式：<strong>{{ community_comment_mode_display|default:"仅限登录会员发表评论" }}</strong>
+                {% if community_comment_mode == "members_only" %}
+                    （全站目前仅限登录会员发评；如需对指定文章开放访客留言，请由管理员在“设置 → 社区评论与防刷设置”开启受控访客模式）
+                {% elif community_comment_mode == "closed" %}
+                    （全站当前已暂停新增评论，单篇配置将在全站重新开启后生效）
+                {% endif %}
+            </div>
             <div style="display: flex; flex-direction: column; gap: 12px;">
                 <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 500;">
                     <input type="checkbox" data-comment-field="allow_comments" {% if not comment_settings or comment_settings.allow_comments %}checked{% endif %} style="width: 18px; height: 18px;">
                     <span>允许读者发表评论与回复互动</span>
                 </label>
+                {% if can_manage_guest_comments %}
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; color: #0f172a; background: #fff; padding: 8px 10px; border: 1px solid #e2e8f0; border-radius: 4px;">
+                    <input type="checkbox" data-comment-field="allow_guest_comments" {% if comment_settings and comment_settings.allow_guest_comments %}checked{% endif %} style="width: 16px; height: 16px;">
+                    <span>允许未登录访客在本页发表受控留言（强制图片验证码、禁外链、强制人工待审，仅在全站开启受控访客模式时生效）</span>
+                </label>
+                {% endif %}
                 <div style="display: flex; align-items: center; gap: 12px;">
                     <label style="font-size: 13px; color: #64748b; white-space: nowrap;">关评公告说明：</label>
                     <input type="text" data-comment-field="close_reason" value="{{ comment_settings.close_reason|default:'' }}" placeholder="关闭评论时向前台读者展示的提示（可选）" style="flex: 1; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 13px;">
@@ -53,6 +67,15 @@
             const pageId = "{{ page_id }}";
             if (!pageId) return;
 
+            function escapeHtml(value) {
+                return String(value == null ? '' : value)
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#39;');
+            }
+
             function getCookie(name) {
                 let cookieValue = null;
                 if (document.cookie && document.cookie !== '') {
@@ -84,6 +107,12 @@
 
                     const formData = new URLSearchParams();
                     formData.append("allow_comments", allowComments ? "true" : "false");
+                    {% if can_manage_guest_comments %}
+                    const guestField = document.querySelector('[data-comment-field="allow_guest_comments"]');
+                    if (guestField) {
+                        formData.append("allow_guest_comments", guestField.checked ? "true" : "false");
+                    }
+                    {% endif %}
                     formData.append("close_reason", closeReason);
                     formData.append("auto_moderate_new", autoModerate ? "true" : "false");
 
@@ -124,18 +153,27 @@
                 })
                 .then(res => res.json())
                 .then(data => {
+                    if (data.status !== "success") {
+                        container.innerHTML = '<div style="color: #dc2626; padding: 16px;">载入评论失败：' + escapeHtml(data.message || '权限不足或未知错误') + '</div>';
+                        return;
+                    }
                     if (!data.items || data.items.length === 0) {
                         container.innerHTML = '<div style="color: #94a3b8; text-align: center; padding: 24px;">暂无符合条件的评论记录。</div>';
                         return;
                     }
+                    const canModerate = Boolean(data.can_moderate);
                     let html = '<div style="display: flex; flex-direction: column; gap: 10px;">';
                     data.items.forEach(c => {
                         const isPending = !!c.pending_version_id;
+                        const safeAuthor = escapeHtml(c.author_name);
+                        const safeCreatedAt = escapeHtml(c.created_at);
+                        const safeStatus = escapeHtml(c.status);
+                        const safeSnippet = escapeHtml(c.content_snippet);
                         const statusBadge = isPending
-                            ? '<span style="background:#fef3c7;color:#92400e;padding:2px 6px;border-radius:4px;font-size:12px;font-weight:600;">待审核 V' + (c.pending_version_number || '') + '</span>'
+                            ? '<span style="background:#fef3c7;color:#92400e;padding:2px 6px;border-radius:4px;font-size:12px;font-weight:600;">待审核 V' + escapeHtml(c.pending_version_number || '') + '</span>'
                             : (c.status === 'active'
                                 ? '<span style="background:#dcfce7;color:#166534;padding:2px 6px;border-radius:4px;font-size:12px;font-weight:600;">已公开</span>'
-                                : '<span style="background:#f1f5f9;color:#475569;padding:2px 6px;border-radius:4px;font-size:12px;">' + c.status + '</span>');
+                                : '<span style="background:#f1f5f9;color:#475569;padding:2px 6px;border-radius:4px;font-size:12px;">' + safeStatus + '</span>');
 
                         const pinnedBadge = c.is_pinned ? '<span style="background:#e0e7ff;color:#3730a3;padding:2px 6px;border-radius:4px;font-size:12px;font-weight:600;">📌 置顶</span>' : '';
 
@@ -143,23 +181,23 @@
                         <div style="border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px; background: ${isPending ? '#fffdf5' : '#fff'}; display: flex; flex-direction: column; gap: 6px;">
                             <div style="display: flex; justify-content: space-between; align-items: center; font-size: 13px;">
                                 <div>
-                                    <strong>${c.author_name}</strong>
-                                    <span style="color: #94a3b8; margin-left: 6px;">${c.created_at}</span>
+                                    <strong>${safeAuthor}</strong>
+                                    <span style="color: #94a3b8; margin-left: 6px;">${safeCreatedAt}</span>
                                     ${statusBadge} ${pinnedBadge}
                                 </div>
                                 <div style="display: flex; gap: 6px;">
-                                    ${isPending ? `
+                                    ${canModerate && isPending ? `
                                     <button type="button" class="button button-small action-moderate-btn" data-id="${c.id}" data-action="approve" data-ver="${c.pending_version_id}" style="background:#16a34a;color:#fff;">批准</button>
                                     <button type="button" class="button button-small action-moderate-btn" data-id="${c.id}" data-action="reject" data-ver="${c.pending_version_id}" style="background:#ea580c;color:#fff;">驳回</button>
                                     ` : ''}
-                                    ${c.status === 'active' ? `
+                                    ${canModerate && c.status === 'active' ? `
                                     <button type="button" class="button button-small button-secondary action-moderate-btn" data-id="${c.id}" data-action="hide">隐藏</button>
                                     <button type="button" class="button button-small button-secondary action-pin-btn" data-id="${c.id}">${c.is_pinned ? '取消置顶' : '置顶'}</button>
                                     ` : ''}
                                 </div>
                             </div>
                             <div style="color: #334155; font-size: 14px; line-height: 1.5; background: #f8fafc; padding: 8px; border-radius: 4px;">
-                                ${c.content_snippet}
+                                ${safeSnippet}
                             </div>
                         </div>`;
                     });
@@ -168,7 +206,7 @@
                     bindActionButtons();
                 })
                 .catch(err => {
-                    container.innerHTML = '<div style="color: #dc2626; padding: 16px;">载入评论失败：' + err + '</div>';
+                    container.innerHTML = '<div style="color: #dc2626; padding: 16px;">载入评论失败：' + escapeHtml(err) + '</div>';
                 });
             }
 

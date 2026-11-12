@@ -27,7 +27,8 @@ from guides.models import GuideIndexPage, GuidePage, GuideTopic
 from portfolio.models import PortfolioIndexPage, ProjectPage
 from identity.account_lifecycle import AccountLifecycleService
 from identity.models import MemberProfile, User
-from comments.models import Comment, PageCommentSettings
+from captcha.service import _get_redis_client
+from comments.models import Comment, CommentDailyQuota, CommunitySettings, PageCommentSettings
 from comments.services import CommentService
 from content_lifecycle.recycle import RecycleService
 
@@ -88,6 +89,7 @@ class CommentFrontendIntegrationTests(unittest.TestCase):
     def setUp(self):
         self.client = Client()
         self.created_pages = []
+        self._cleanup_quota_and_rate_limits()
 
     def tearDown(self):
         for p in reversed(self.created_pages):
@@ -97,6 +99,30 @@ class CommentFrontendIntegrationTests(unittest.TestCase):
                     RecycleService.purge_page_or_subtree(p.id, actor=self.admin_user)
             except Exception:
                 pass
+        self._cleanup_quota_and_rate_limits()
+
+    def _cleanup_quota_and_rate_limits(self):
+        CommentDailyQuota.objects.filter(
+            subject_key__in=[
+                f"user:{self.reader_user.id}",
+                f"user:{self.admin_user.id}",
+                "ip:127.0.0.1",
+                "ip:192.0.2.10",
+                "ip:192.0.2.11",
+            ]
+        ).delete()
+        try:
+            r = _get_redis_client(write=True)
+            if r is not None:
+                for pattern in (
+                    f"myblog:ratelimit:comment:user:{self.reader_user.id}:*",
+                    f"myblog:ratelimit:comment:user:{self.admin_user.id}:*",
+                    "myblog:ratelimit:comment:ip:127.0.0.1:*",
+                ):
+                    for key in r.scan_iter(match=pattern):
+                        r.delete(key)
+        except Exception:
+            pass
 
     def _create_blog_page(self, publish=True):
         page = BlogPage(
@@ -303,7 +329,15 @@ class CommentFrontendIntegrationTests(unittest.TestCase):
             username=f"fe_del_{uuid4().hex[:6]}",
             password="password123",
         )
+        community = CommunitySettings._get_or_create()
+        prev_mode = community.comment_mode
         try:
+            community.comment_mode = "controlled_guests"
+            community.save(update_fields=["comment_mode"])
+            PageCommentSettings.objects.update_or_create(
+                page=blog,
+                defaults={"allow_comments": True, "allow_guest_comments": True},
+            )
             profile = MemberProfile.get_or_create_for_user(member_user)
             profile.nickname = "前端专栏昵称"
             profile.save(update_fields=["nickname"])
@@ -326,16 +360,18 @@ class CommentFrontendIntegrationTests(unittest.TestCase):
                 guest_name="",
                 raw_content="匿名访客评论",
                 ip_address="192.0.2.10",
-                auto_approve=True,
+                auto_approve=False,
             )
+            CommentService.moderate_comment(c_guest.id, action="approve", reviewer=self.admin_user)
             c_unknown = CommentService.post_comment(
                 page=blog,
                 author=None,
                 guest_name="",
                 raw_content="历史空主体评论",
                 ip_address="192.0.2.11",
-                auto_approve=True,
+                auto_approve=False,
             )
+            CommentService.moderate_comment(c_unknown.id, action="approve", reviewer=self.admin_user)
             Comment.objects.filter(id=c_unknown.id).update(
                 author=None,
                 author_subject_key="",
@@ -419,6 +455,8 @@ class CommentFrontendIntegrationTests(unittest.TestCase):
             self.assertEqual(reply_item["author"]["kind"], "member")
             self.assertNotIn("author_subject_key", reply_item["author"])
         finally:
+            community.comment_mode = prev_mode
+            community.save(update_fields=["comment_mode"])
             if User.objects.filter(id=member_user.id).exists():
                 AccountLifecycleService.hard_delete(
                     actor=self.admin_user,

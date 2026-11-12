@@ -14,6 +14,7 @@ tests.test_comments
 
 import os
 import unittest
+from unittest.mock import patch
 from uuid import uuid4
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "myblog.settings.dev")
@@ -22,12 +23,21 @@ django.setup()
 
 from django.core.exceptions import ValidationError, PermissionDenied
 from django.test import Client, RequestFactory
+from django.urls import reverse
 from wagtail.models import Page
 from home.models import HomePage
 from blog.models import BlogPage, BlogIndexPage
 from guides.models import GuidePage, GuideTopic, GuideIndexPage
 from identity.models import User
-from comments.models import Comment, CommentVersion, CommentReaction
+from captcha.service import _get_redis_client
+from comments.models import (
+    Comment,
+    CommentDailyQuota,
+    CommentVersion,
+    CommentReaction,
+    CommunitySettings,
+    PageCommentSettings,
+)
 from comments.services import CommentService
 from comments.access import get_accessible_comment_page
 from comments.sanitizer import sanitize_comment_html
@@ -74,6 +84,38 @@ class CommentsSystemTests(unittest.TestCase):
             cls.guide_page.delete(allow_physical_purge=True)
             cls.guide_index.delete(allow_physical_purge=True)
             cls.topic.delete()
+        except Exception:
+            pass
+
+    def setUp(self):
+        self._cleanup_comment_state()
+
+    def tearDown(self):
+        self._cleanup_comment_state()
+
+    def _cleanup_comment_state(self):
+        CommentDailyQuota.objects.filter(
+            subject_key__in=[
+                f"user:{self.user_a.id}",
+                f"user:{self.user_b.id}",
+                f"user:{self.user_c.id}",
+                "ip:127.0.0.1",
+                "ip:10.243.1.7",
+            ]
+        ).delete()
+        try:
+            r = _get_redis_client(write=True)
+            if r is not None:
+                for pattern in (
+                    f"myblog:ratelimit:comment:user:{self.user_a.id}:*",
+                    f"myblog:ratelimit:comment:user:{self.user_b.id}:*",
+                    f"myblog:ratelimit:comment:user:{self.user_c.id}:*",
+                    "myblog:ratelimit:comment:ip:127.0.0.1:*",
+                    "myblog:ratelimit:comment:ip:10.243.1.7:*",
+                    "myblog:captcha:rl:ip:10.243.1.7",
+                ):
+                    for key in r.scan_iter(match=pattern):
+                        r.delete(key)
         except Exception:
             pass
 
@@ -287,24 +329,69 @@ class CommentsSystemTests(unittest.TestCase):
     def test_07_guest_comment_submission(self):
         """测试未登录访客（Guest）发表评论全流程与流控"""
         guest_client = Client()
+        ip = "10.243.1.7"
 
-        # 1. 未提供昵称也未登录 -> 401
+        # 1. 默认全站 members_only 模式下未登录访客被拒 -> 403
         res_no_name = guest_client.post(f"/api/v1/pages/{self.blog_page.id}/comments/post/", {
             "content": "未填昵称的留言",
-        })
-        self.assertEqual(res_no_name.status_code, 401)
+        }, REMOTE_ADDR=ip)
+        self.assertEqual(res_no_name.status_code, 403)
 
-        # 2. 提供 guest_name 正常发表 -> 201
-        res_guest = guest_client.post(f"/api/v1/pages/{self.blog_page.id}/comments/post/", {
-            "guest_name": "访客小红",
-            "content": "这是一条来自访客小红的公开讨论",
-        })
-        self.assertEqual(res_guest.status_code, 201)
-        gc_id = res_guest.json()["data"]["id"]
-        gc = Comment.objects.get(id=gc_id)
-        self.assertIsNone(gc.author)
-        self.assertEqual(gc.status, "pending")
-        self.assertFalse(gc.is_publicly_visible)
+        community = CommunitySettings._get_or_create()
+        prev_mode = community.comment_mode
+        try:
+            community.comment_mode = "controlled_guests"
+            community.save(update_fields=["comment_mode"])
+            PageCommentSettings.objects.update_or_create(
+                page=self.blog_page,
+                defaults={"allow_comments": True, "allow_guest_comments": True},
+            )
+
+            # 2. 开启受控访客后，裸 POST 缺少绑定 Cookie 与验证码 -> 400
+            res_naked = guest_client.post(
+                f"/api/v1/pages/{self.blog_page.id}/comments/post/",
+                {"guest_name": "访客小红", "content": "裸请求尝试"},
+                REMOTE_ADDR=ip,
+            )
+            self.assertEqual(res_naked.status_code, 400)
+
+            # 3. 先签发图片验证码取得 HttpOnly 绑定 Cookie，再缺昵称提交 -> 400
+            with patch("captcha.service.generate_captcha_code", return_value="G7K2"):
+                issue_res = guest_client.post(
+                    reverse("api_v1:captcha_challenge_issue"),
+                    data={"scope": "guest_comment"},
+                    REMOTE_ADDR=ip,
+                )
+            self.assertEqual(issue_res.status_code, 200)
+            cid = issue_res.json()["captcha_id"]
+            res_missing_name = guest_client.post(
+                f"/api/v1/pages/{self.blog_page.id}/comments/post/",
+                {"content": "忘记填昵称", "captcha_id": cid, "captcha_code": "G7K2"},
+                REMOTE_ADDR=ip,
+            )
+            self.assertEqual(res_missing_name.status_code, 400)
+
+            # 4. 提供 guest_name 与有效验证码正常发表 -> 201 且强制待审
+            res_guest = guest_client.post(
+                f"/api/v1/pages/{self.blog_page.id}/comments/post/",
+                {
+                    "guest_name": "访客小红",
+                    "content": "这是一条来自访客小红的受控讨论",
+                    "captcha_id": cid,
+                    "captcha_code": "G7K2",
+                },
+                REMOTE_ADDR=ip,
+            )
+            self.assertEqual(res_guest.status_code, 201)
+            gc_id = res_guest.json()["data"]["id"]
+            gc = Comment.objects.get(id=gc_id)
+            self.assertIsNone(gc.author)
+            self.assertEqual(gc.status, "pending")
+            self.assertFalse(gc.is_publicly_visible)
+        finally:
+            community.comment_mode = prev_mode
+            community.save(update_fields=["comment_mode"])
+            PageCommentSettings.objects.filter(page=self.blog_page).delete()
 
 
 if __name__ == "__main__":

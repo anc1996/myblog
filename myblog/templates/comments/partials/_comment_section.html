@@ -5,6 +5,10 @@
 <section class="site-comments-widget" id="comments-section" aria-label="读者评论区"
          data-page-id="{{ page.id|default:'' }}"
          data-allow-comments="{{ comment_policy.allow_comments|yesno:'true,false' }}"
+         data-comment-mode="{{ comment_policy.comment_mode }}"
+         data-effective-allow-guests="{{ comment_policy.effective_allow_guests|yesno:'true,false' }}"
+         data-requires-captcha="{{ comment_policy.captcha_required|yesno:'true,false' }}"
+         data-captcha-scope="{{ comment_policy.captcha_scope }}"
          data-is-preview="{{ comment_policy.is_preview|yesno:'true,false' }}"
          {% if comment_policy.has_id %}
          data-list-url="{% url 'api_v1:list_comments' page.id %}"
@@ -35,41 +39,70 @@
     <div id="comment-form-alert" class="comment-alert" style="display: none;" role="alert"></div>
 
     {% if comment_policy.allow_comments %}
-      <!-- 评论发表表单 -->
-      <form id="comment-post-form" class="comment-form-box"
-            data-page-id="{{ page.id }}"
-            data-post-url="{% url 'api_v1:post_comment' page.id %}"
-            data-list-url="{% url 'api_v1:list_comments' page.id %}">
-        {% csrf_token %}
+      {% if comment_policy.can_submit %}
+        <!-- 评论发表表单 -->
+        <form id="comment-post-form" class="comment-form-box"
+              data-page-id="{{ page.id }}"
+              data-post-url="{% url 'api_v1:post_comment' page.id %}"
+              data-list-url="{% url 'api_v1:list_comments' page.id %}">
+          {% csrf_token %}
 
-        <input type="hidden" name="parent_id" id="comment-parent-id-input" value="">
-        <input type="hidden" name="reply_to_comment_id" id="comment-reply-to-id-input" value="">
-        {# 蜜罐字段静默防垃圾爬虫 #}
-        <input type="text" name="contact_website" style="display: none !important;" tabindex="-1" autocomplete="off" aria-hidden="true">
+          <input type="hidden" name="parent_id" id="comment-parent-id-input" value="">
+          <input type="hidden" name="reply_to_comment_id" id="comment-reply-to-id-input" value="">
+          <input type="hidden" name="request_key" id="comment-request-key-input" value="">
+          {# 蜜罐字段静默防垃圾爬虫 #}
+          <input type="text" name="contact_website" style="display: none !important;" tabindex="-1" autocomplete="off" aria-hidden="true">
 
-        <!-- 回复目标提示框 -->
-        <div id="comment-replying-notice" class="comment-replying-notice" style="display: none;">
-          <span>正在回复评论 <strong id="replying-target-name"></strong></span>
-          <button type="button" class="comment-cancel-reply-btn" id="cancel-reply-btn">取消回复</button>
+          <!-- 回复目标提示框 -->
+          <div id="comment-replying-notice" class="comment-replying-notice" style="display: none;">
+            <span>正在回复评论 <strong id="replying-target-name"></strong></span>
+            <button type="button" class="comment-cancel-reply-btn" id="cancel-reply-btn">取消回复</button>
+          </div>
+
+          <div class="comment-form-identity">
+            {% if request.user.is_authenticated %}
+              <span class="comment-user-label">当前登录身份：<strong class="comment-user-name">{{ request.user.username }}</strong></span>
+            {% else %}
+              <div class="comment-guest-banner">
+                当前为受控访客留言模式（禁止外链，最长 500 字，提交后需经管理员审核方可公开）。
+                如需更大字数与点赞/编辑能力，请 <a href="{% url 'identity:login' %}?next={{ request.get_full_path|urlencode }}">登录</a> 或 <a href="{% url 'identity:register' %}?next={{ request.get_full_path|urlencode }}">注册会员</a>。
+              </div>
+              <input type="text" name="guest_name" class="comment-input" placeholder="您的称呼 / 昵称 (必填)" required maxlength="50">
+            {% endif %}
+          </div>
+
+          <div class="comment-form-body">
+            <textarea name="content" class="comment-textarea" rows="3" placeholder="发表您的独到见解，文明发言、理性探讨..." required maxlength="{% if request.user.is_authenticated %}2000{% else %}500{% endif %}"></textarea>
+          </div>
+
+          <div id="comment-captcha-wrapper" class="comment-captcha-wrapper" {% if not comment_policy.captcha_required %}hidden{% endif %}>
+            {% if comment_policy.captcha_required %}
+              {% include "captcha/_captcha_widget.html" with captcha_scope=comment_policy.captcha_scope use_visual_captcha=True captcha_defer_load=False %}
+            {% else %}
+              {% include "captcha/_captcha_widget.html" with captcha_scope=comment_policy.captcha_scope use_visual_captcha=True captcha_defer_load=True %}
+            {% endif %}
+          </div>
+
+          <div class="comment-form-footer">
+            <small class="comment-form-hint">
+              {% if request.user.is_authenticated %}
+                支持纯文本及基础 Markdown 排版，评论在通过审核后公开展示。
+              {% else %}
+                受控访客留言不支持外链，须输入图片验证码并经审核后显示。
+              {% endif %}
+            </small>
+            <button type="submit" class="comment-submit-btn" id="comment-submit-btn">发表评论</button>
+          </div>
+        </form>
+      {% else %}
+        <div class="comments-login-prompt" id="comment-login-prompt">
+          💬 本文章当前仅限登录会员发表评论。请先
+          <a href="{% url 'identity:login' %}?next={{ request.get_full_path|urlencode }}">登录</a>
+          或
+          <a href="{% url 'identity:register' %}?next={{ request.get_full_path|urlencode }}">注册会员</a>
+          后参与讨论。
         </div>
-
-        <div class="comment-form-identity">
-          {% if request.user.is_authenticated %}
-            <span class="comment-user-label">当前登录身份：<strong class="comment-user-name">{{ request.user.username }}</strong></span>
-          {% else %}
-            <input type="text" name="guest_name" class="comment-input" placeholder="您的称呼 / 昵称 (必填)" required maxlength="50">
-          {% endif %}
-        </div>
-
-        <div class="comment-form-body">
-          <textarea name="content" class="comment-textarea" rows="3" placeholder="发表您的独到见解，文明发言、理性探讨..." required maxlength="2000"></textarea>
-        </div>
-
-        <div class="comment-form-footer">
-          <small class="comment-form-hint">支持纯文本及基础 Markdown 排版，评论在通过审核后公开展示。</small>
-          <button type="submit" class="comment-submit-btn" id="comment-submit-btn">发表评论</button>
-        </div>
-      </form>
+      {% endif %}
     {% else %}
       <div class="comments-closed-banner">
         🔒 本页已关闭新评论与回复互动{% if comment_policy.close_reason %}（{{ comment_policy.close_reason }}）{% endif %}。以下保留历史公开评论供查阅。
@@ -89,6 +122,6 @@
   {% endif %}
 </section>
 {% if not comment_policy.is_preview and comment_policy.has_id %}
-<script src="{% static 'comments/js/comments_widget.js' %}"></script>
+<script src="{% static 'comments/js/comments_widget.js' %}" defer></script>
 {% endif %}
 {% endif %}

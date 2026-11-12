@@ -17,10 +17,10 @@ class PageCommentGovernancePanel(Panel):
     绑定当前 Page 实例，提供纯异步的评论配置与就地审核工作台。
     """
 
-    def __init__(self, **kwargs):
+    def __init__(self, template="comments/admin/page_comment_governance_panel.html", **kwargs):
         kwargs.setdefault("heading", "💬 评论与互动")
         super().__init__(**kwargs)
-        self.template = "comments/admin/page_comment_governance_panel.html"
+        self.template = template or "comments/admin/page_comment_governance_panel.html"
 
     def clone_kwargs(self):
         kwargs = super().clone_kwargs()
@@ -39,16 +39,34 @@ class PageCommentGovernancePanel(Panel):
         def get_context_data(self, parent_context=None):
             context = super().get_context_data(parent_context)
             page = self.instance
+            request = getattr(self, "request", None) or (
+                parent_context.get("request") if isinstance(parent_context, dict) else None
+            )
+            user = getattr(request, "user", None)
+
+            from comments.models import CommunitySettings
+            community_settings = CommunitySettings.get_solo()
+            context["community_comment_mode"] = community_settings.comment_mode
+            context["community_comment_mode_display"] = community_settings.get_comment_mode_display()
+
             if page and getattr(page, "pk", None):
+                from comments.access import can_user_manage_guest_comments
                 from comments.models import PageCommentSettings
                 settings_obj = PageCommentSettings.objects.filter(page_id=page.pk).first()
                 context["comment_settings"] = settings_obj
                 context["page_id"] = page.pk
                 context["page_title"] = getattr(page, "title", "")
                 context["supports_comments"] = getattr(page, "supports_comments", True)
+                context["can_manage_guest_comments"] = can_user_manage_guest_comments(user, page)
+                context["can_moderate_comments"] = bool(
+                    user and getattr(user, "is_authenticated", False)
+                    and (user.is_superuser or user.has_perm("comments.moderate_comment"))
+                )
             else:
                 context["comment_settings"] = None
                 context["page_id"] = None
                 context["page_title"] = ""
                 context["supports_comments"] = getattr(self.panel.model, "supports_comments", True)
+                context["can_manage_guest_comments"] = False
+                context["can_moderate_comments"] = False
             return context
