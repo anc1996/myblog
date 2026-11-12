@@ -315,3 +315,19 @@ class ProjectPage(ExternalStreamPageMixin, CustomBasePage):
                 name="portfolio_projectpage_body_dehydrated",
             ),
         ]
+
+    def get_context(self, request, *args, **kwargs):
+        if not getattr(self, "_hydrated_from_revision", False) and (not getattr(self, "body", None) or len(getattr(self, "body", [])) == 0):
+            from content_lifecycle.access import AccessContext, AccessMode
+            is_preview = getattr(request, "is_preview", False) or getattr(request, "in_preview_panel", False)
+            mode = AccessMode.PREVIEW_DRAFT if is_preview else AccessMode.PUBLIC
+            self.hydrate_from_mongo(access_context=AccessContext(user=getattr(request, "user", None), mode=mode))
+
+        context = super().get_context(request, *args, **kwargs)
+        context["breadcrumbs"] = [
+            ancestor for ancestor in self.get_ancestors()
+            if not ancestor.is_root() and not getattr(ancestor, "is_recycled", False)
+        ]
+        context["authors"] = self.authors.select_related("person").all()
+        context["tags"] = self.tags.all()
+        return context

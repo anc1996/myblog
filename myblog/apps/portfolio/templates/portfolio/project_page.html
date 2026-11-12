@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% load static wagtailcore_tags %}
+
+{% block title %}{{ page.title }}{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" type="text/css" href="{% static 'content_blocks/css/table.css' %}">
+<style>
+.project-detail-container { max-width: 960px; margin: 30px auto; padding: 0 20px; }
+.project-breadcrumbs { font-size: 13px; color: #64748b; margin-bottom: 18px; }
+.project-breadcrumbs a { color: #64748b; text-decoration: none; }
+.project-breadcrumbs a:hover { color: #2563eb; }
+.project-header { border-bottom: 1px solid #e2e8f0; padding-bottom: 20px; margin-bottom: 24px; }
+.project-badges { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.project-badge { background: #f1f5f9; color: #334155; padding: 3px 10px; border-radius: 4px; font-size: 12px; font-weight: 500; }
+.project-badge.is-status { background: #dcfce7; color: #166534; }
+.project-title { margin: 0 0 12px 0; font-size: 2rem; color: #0f172a; line-height: 1.3; }
+.project-meta { display: flex; flex-wrap: wrap; gap: 16px; color: #64748b; font-size: 13px; margin-bottom: 14px; }
+.project-links { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.project-link-btn { display: inline-block; padding: 6px 14px; border-radius: 6px; font-size: 13px; font-weight: 500; text-decoration: none; border: 1px solid #cbd5e1; color: #0f172a; background: #ffffff; }
+.project-link-btn.is-primary { background: #2563eb; border-color: #2563eb; color: #ffffff; }
+.project-summary { background: #f8fafc; border-left: 4px solid #2563eb; padding: 14px 16px; border-radius: 6px; color: #334155; font-size: 15px; margin-top: 16px; }
+.project-cover { margin: 20px 0; text-align: center; }
+.project-cover img { max-width: 100%; height: auto; border-radius: 8px; border: 1px solid #e2e8f0; }
+.project-body-section { color: #1e293b; line-height: 1.75; }
+.project-tags { margin-top: 28px; padding-top: 16px; border-top: 1px solid #e2e8f0; display: flex; flex-wrap: wrap; gap: 8px; }
+.project-tag-pill { background: #f1f5f9; color: #2563eb; padding: 3px 10px; border-radius: 9999px; font-size: 12px; text-decoration: none; }
+</style>
+{% endblock %}
+
+{% block content %}
+<article class="project-detail-container">
+    {% if breadcrumbs %}
+    <nav class="project-breadcrumbs" aria-label="面包屑导航">
+        <a href="/">首页</a>
+        {% for ancestor in breadcrumbs %}
+            <span> / </span>
+            <a href="{% pageurl ancestor %}">{{ ancestor.title }}</a>
+        {% endfor %}
+        <span> / </span>
+        <span aria-current="page">{{ page.title }}</span>
+    </nav>
+    {% endif %}
+
+    <header class="project-header">
+        <div class="project-badges">
+            <span class="project-badge is-status">{{ page.get_project_status_display }}</span>
+            {% if page.primary_language %}<span class="project-badge">💻 {{ page.primary_language }}</span>{% endif %}
+            {% if page.license_name %}<span class="project-badge">📄 {{ page.license_name }}</span>{% endif %}
+            {% if page.star_count %}<span class="project-badge">⭐ {{ page.star_count }}</span>{% endif %}
+        </div>
+
+        <h1 class="project-title">{{ page.title }}</h1>
+
+        <div class="project-meta">
+            <span>公开日期：{{ page.authored_on|date:"Y年m月d日" }}</span>
+            {% if page.started_on %}<span>立项：{{ page.started_on|date:"Y-m-d" }}</span>{% endif %}
+            {% if page.completed_on %}<span>交付：{{ page.completed_on|date:"Y-m-d" }}</span>{% endif %}
+            {% if authors %}
+                <span>研发成员：
+                    {% for a in authors %}
+                        <strong>{{ a.person.name }}</strong>{% if not forloop.last %}、{% endif %}
+                    {% endfor %}
+                </span>
+            {% endif %}
+        </div>
+
+        {% if page.repo_url or page.demo_url %}
+        <div class="project-links">
+            {% if page.repo_url %}
+                <a href="{{ page.repo_url }}" class="project-link-btn is-primary" target="_blank" rel="noopener">代码仓库</a>
+            {% endif %}
+            {% if page.demo_url %}
+                <a href="{{ page.demo_url }}" class="project-link-btn" target="_blank" rel="noopener">在线演示</a>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        {% if page.summary %}
+        <div class="project-summary">{{ page.summary }}</div>
+        {% endif %}
+    </header>
+
+    {% if page.featured_image %}
+    <div class="project-cover">
+        <img src="/media-gateway/image/{{ page.featured_image.public_id }}/" alt="{{ page.title }}" loading="lazy">
+    </div>
+    {% endif %}
+
+    <section class="project-body-section">
+        {% for block in page.body %}
+            {{ block }}
+        {% endfor %}
+    </section>
+
+    {% if tags %}
+    <div class="project-tags">
+        {% for tag in tags %}
+            <a href="{% url 'search' %}?tag={{ tag.id }}" class="project-tag-pill">#{{ tag.name }}</a>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {# 读者评论互动组件 #}
+    {% include "comments/partials/_comment_section.html" %}
+</article>
+{% endblock %}

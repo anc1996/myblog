@@ -6,6 +6,7 @@
   'use strict';
 
   document.addEventListener('DOMContentLoaded', function () {
+    const section = document.getElementById('comments-section');
     const form = document.getElementById('comment-post-form');
     const itemsList = document.getElementById('comments-items-list');
     const countBadge = document.getElementById('comments-count-badge');
@@ -19,154 +20,340 @@
     const loadMoreBtn = document.getElementById('load-more-comments-btn');
     const paginationArea = document.getElementById('comments-pagination-area');
 
-    if (!form || !itemsList) {
+    if (!section || !itemsList) {
       return;
     }
 
-    const pageId = form.getAttribute('data-page-id');
-    const postUrl = form.getAttribute('data-post-url');
-    const listUrl = form.getAttribute('data-list-url');
+    const isPreview = section.getAttribute('data-is-preview') === 'true';
+    if (isPreview) {
+      return;
+    }
+
+    const listUrl = section.getAttribute('data-list-url') || (form && form.getAttribute('data-list-url'));
+    const postUrl = section.getAttribute('data-post-url') || (form && form.getAttribute('data-post-url'));
+    const repliesUrlTpl = section.getAttribute('data-replies-url-tpl') || '/api/v1/comments/0/replies/';
+    const reactUrlTpl = section.getAttribute('data-react-url-tpl') || '/api/v1/comments/0/react/';
+    const deleteUrlTpl = section.getAttribute('data-delete-url-tpl') || '/api/v1/comments/0/delete/';
+    let allowComments = section.getAttribute('data-allow-comments') !== 'false';
 
     let currentPage = 1;
     let totalPages = 1;
+    let currentSort = 'latest';
+
+    function buildActionUrl(tpl, id) {
+      return tpl.replace('/0/', `/${id}/`);
+    }
+
+    function getCookie(name) {
+      if (!document.cookie) return '';
+      const cookies = document.cookie.split(';');
+      for (let i = 0; i < cookies.length; i++) {
+        const cookie = cookies[i].trim();
+        if (cookie.substring(0, name.length + 1) === (name + '=')) {
+          return decodeURIComponent(cookie.substring(name.length + 1));
+        }
+      }
+      return '';
+    }
+
+    function getCsrfToken() {
+      const input = section.querySelector('input[name="csrfmiddlewaretoken"]');
+      if (input && input.value) return input.value;
+      return getCookie('csrftoken');
+    }
+
+    function parseJsonResponse(res) {
+      return res.text().then(text => {
+        let data = null;
+        try {
+          data = text ? JSON.parse(text) : {};
+        } catch (_err) {
+          data = null;
+        }
+        return { ok: res.ok, status: res.status, data };
+      });
+    }
 
     function showAlert(msg, isSuccess = true) {
-      formAlert.className = `alert alert-${isSuccess ? 'success' : 'danger'} py-2 small mb-3`;
+      if (!formAlert) return;
+      formAlert.className = `comment-alert ${isSuccess ? 'is-success' : 'is-error'}`;
       formAlert.textContent = msg;
       formAlert.style.display = 'block';
-      setTimeout(() => {
+      clearTimeout(showAlert._timer);
+      showAlert._timer = setTimeout(() => {
         formAlert.style.display = 'none';
       }, 5000);
     }
 
-    function renderCommentCard(c, isReply = false) {
+    function renderCommentCard(c, isReply = false, rootId = null) {
+      const effectiveRootId = isReply ? (rootId || c.root_id || c.id) : c.id;
       const card = document.createElement('div');
-      card.className = `comment-card p-3 rounded border bg-white ${isReply ? 'ms-4 mt-2 border-start-3 border-start-primary' : 'shadow-sm'}`;
       card.id = `comment-${c.id}`;
 
-      const authorName = c.author ? c.author.username : '匿名读者';
+      if (c.kind === 'author_deleted') {
+        card.className = 'comment-card comment-card-deleted';
+        const header = document.createElement('div');
+        header.className = 'comment-card-header';
+        const msgSpan = document.createElement('span');
+        msgSpan.textContent = c.message || '该评论已由作者自行删除';
+        const dateSpan = document.createElement('span');
+        dateSpan.className = 'comment-date';
+        dateSpan.textContent = c.created_at || '';
+        header.appendChild(msgSpan);
+        header.appendChild(dateSpan);
+        card.appendChild(header);
+
+        const repliesBox = document.createElement('div');
+        repliesBox.className = 'replies-stream-container';
+        repliesBox.id = `replies-stream-${c.id}`;
+        card.appendChild(repliesBox);
+        return card;
+      }
+
+      card.className = `comment-card ${isReply ? 'is-reply' : ''}`;
+
+      const authorName = (c.author && c.author.username) ? c.author.username : '匿名读者';
       const dateStr = c.created_at || '';
 
-      card.innerHTML = `
-        <div class="d-flex justify-content-between align-items-center mb-2">
-          <div class="d-flex align-items-center gap-2">
-            <span class="fw-bold text-dark" style="font-size: 0.9rem;">${authorName}</span>
-            <span class="text-muted" style="font-size: 0.75rem;">${dateStr}</span>
-          </div>
-          <button type="button" class="btn btn-sm btn-link text-primary p-0 text-decoration-none reply-trigger-btn"
-                  data-id="${c.id}" data-author="${authorName}" style="font-size: 0.8rem;">
-            回复
-          </button>
-        </div>
-        <div class="comment-body-html text-secondary mb-2" style="font-size: 0.9rem; line-height: 1.5;">
-          ${c.safe_html}
-        </div>
-        <div class="d-flex align-items-center gap-3">
-          <button type="button" class="btn btn-sm btn-outline-light text-muted border-0 react-btn" data-id="${c.id}" data-action="1" style="font-size: 0.8rem;">
-            👍 <span class="like-num">${c.like_count || 0}</span>
-          </button>
-        </div>
-        <div class="replies-stream-container mt-2" id="replies-stream-${c.id}"></div>
-      `;
+      const header = document.createElement('div');
+      header.className = 'comment-card-header';
+
+      const metaLeft = document.createElement('div');
+      metaLeft.className = 'comment-meta-left';
+
+      const authorEl = document.createElement('span');
+      authorEl.className = 'comment-author';
+      authorEl.textContent = authorName;
+      metaLeft.appendChild(authorEl);
+
+      if (!isReply && c.is_pinned) {
+        const pinBadge = document.createElement('span');
+        pinBadge.className = 'comment-pin-badge';
+        pinBadge.textContent = '📌 置顶';
+        metaLeft.appendChild(pinBadge);
+      }
+
+      if (isReply && c.replied_to_user && c.replied_to_user.username) {
+        const targetEl = document.createElement('span');
+        targetEl.className = 'comment-reply-target';
+        targetEl.textContent = `回复 @${c.replied_to_user.username}`;
+        metaLeft.appendChild(targetEl);
+      }
+
+      const dateEl = document.createElement('span');
+      dateEl.className = 'comment-date';
+      dateEl.textContent = dateStr;
+      metaLeft.appendChild(dateEl);
+
+      const actionsTop = document.createElement('div');
+      actionsTop.className = 'comment-actions-top';
+
+      if (allowComments && form) {
+        const replyBtn = document.createElement('button');
+        replyBtn.type = 'button';
+        replyBtn.className = 'comment-text-btn reply-trigger-btn';
+        replyBtn.setAttribute('data-id', String(c.id));
+        replyBtn.setAttribute('data-root-id', String(effectiveRootId));
+        replyBtn.setAttribute('data-author', authorName);
+        replyBtn.textContent = '回复';
+        actionsTop.appendChild(replyBtn);
+      }
+
+      if (c.can_delete) {
+        const delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.className = 'comment-text-btn is-danger delete-comment-btn';
+        delBtn.setAttribute('data-id', String(c.id));
+        delBtn.textContent = '删除';
+        actionsTop.appendChild(delBtn);
+      }
+
+      header.appendChild(metaLeft);
+      header.appendChild(actionsTop);
+      card.appendChild(header);
+
+      const bodyEl = document.createElement('div');
+      bodyEl.className = 'comment-body-html';
+      bodyEl.innerHTML = c.safe_html || '';
+      card.appendChild(bodyEl);
+
+      const footer = document.createElement('div');
+      footer.className = 'comment-card-footer';
+
+      const likeBtn = document.createElement('button');
+      likeBtn.type = 'button';
+      const isLiked = c.user_reaction === 1;
+      likeBtn.className = `comment-react-btn react-btn ${isLiked ? 'is-reacted' : ''}`;
+      likeBtn.setAttribute('data-id', String(c.id));
+      likeBtn.setAttribute('data-liked', isLiked ? '1' : '0');
+      if (!allowComments && !isLiked) {
+        likeBtn.disabled = true;
+      }
+      const iconText = document.createTextNode('👍 ');
+      const numSpan = document.createElement('span');
+      numSpan.className = 'like-num';
+      numSpan.textContent = String(c.like_count || 0);
+      likeBtn.appendChild(iconText);
+      likeBtn.appendChild(numSpan);
+      footer.appendChild(likeBtn);
+      card.appendChild(footer);
+
+      if (!isReply) {
+        const repliesBox = document.createElement('div');
+        repliesBox.className = 'replies-stream-container';
+        repliesBox.id = `replies-stream-${c.id}`;
+        card.appendChild(repliesBox);
+      }
       return card;
     }
 
     function loadComments(page = 1, append = false) {
       if (!listUrl) return;
-      fetch(`${listUrl}?page=${page}&page_size=10`)
-        .then(res => res.json())
-        .then(res => {
+      fetch(`${listUrl}?page=${page}&page_size=10&sort=${encodeURIComponent(currentSort)}`, {
+        credentials: 'same-origin',
+      })
+        .then(parseJsonResponse)
+        .then(({ ok, status, data }) => {
           if (loadingIndicator) loadingIndicator.style.display = 'none';
-          if (res.status === 'success') {
-            currentPage = res.current_page;
-            totalPages = res.total_pages;
-            if (countBadge) countBadge.textContent = `${res.total_count} 条评论`;
-
-            if (!append) itemsList.innerHTML = '';
-
-            if (res.items.length === 0 && !append) {
-              itemsList.innerHTML = '<div class="text-center py-4 text-muted small bg-white rounded border">暂无评论，欢迎发表第一条观点！</div>';
-            } else {
-              res.items.forEach(c => {
-                const card = renderCommentCard(c, false);
-                itemsList.appendChild(card);
-                if (c.reply_count > 0) {
-                  loadReplies(c.id);
-                }
-              });
+          if (!ok || !data || data.status !== 'success') {
+            if (status === 403) {
+              if (countBadge) countBadge.textContent = '暂不可见';
+              itemsList.innerHTML = '';
+              const notice = document.createElement('div');
+              notice.className = 'comments-empty-state';
+              notice.textContent = (data && data.message) || '当前页面暂不开放评论查看。';
+              itemsList.appendChild(notice);
+              return;
             }
-
-            if (currentPage < totalPages && paginationArea) {
-              paginationArea.style.display = 'block';
-            } else if (paginationArea) {
-              paginationArea.style.display = 'none';
+            if (loadingIndicator) {
+              loadingIndicator.style.display = 'block';
+              loadingIndicator.textContent = (data && data.message) || '评论加载失败，请刷新页面重试。';
             }
+            if (countBadge) countBadge.textContent = '加载异常';
+            return;
+          }
+
+          if (data.comment_settings) {
+            allowComments = Boolean(data.comment_settings.allow_comments);
+          }
+
+          currentPage = data.current_page;
+          totalPages = data.total_pages;
+          if (countBadge) countBadge.textContent = `${data.total_count} 条评论`;
+
+          if (!append) itemsList.innerHTML = '';
+
+          if (data.items.length === 0 && !append) {
+            const emptyEl = document.createElement('div');
+            emptyEl.className = 'comments-empty-state';
+            emptyEl.textContent = allowComments ? '暂无评论，欢迎发表第一条观点！' : '暂无公开评论。';
+            itemsList.appendChild(emptyEl);
+          } else {
+            data.items.forEach(c => {
+              const card = renderCommentCard(c, false, c.id);
+              itemsList.appendChild(card);
+              if (c.reply_count > 0) {
+                loadReplies(c.id);
+              }
+            });
+          }
+
+          if (currentPage < totalPages && paginationArea) {
+            paginationArea.style.display = 'block';
+          } else if (paginationArea) {
+            paginationArea.style.display = 'none';
           }
         })
-        .catch(err => {
-          if (loadingIndicator) loadingIndicator.textContent = '评论加载失败，请刷新页面重试。';
+        .catch(() => {
+          if (loadingIndicator) {
+            loadingIndicator.style.display = 'block';
+            loadingIndicator.textContent = '评论加载失败，请刷新页面重试。';
+          }
+          if (countBadge) countBadge.textContent = '加载失败';
         });
     }
 
     function loadReplies(rootId) {
       const container = document.getElementById(`replies-stream-${rootId}`);
       if (!container) return;
-      fetch(`/api/v1/comments/comments/${rootId}/replies/`)
-        .then(res => res.json())
-        .then(res => {
-          if (res.status === 'success' && res.items) {
+      fetch(buildActionUrl(repliesUrlTpl, rootId), { credentials: 'same-origin' })
+        .then(parseJsonResponse)
+        .then(({ ok, data }) => {
+          if (ok && data && data.status === 'success' && data.items) {
             container.innerHTML = '';
-            res.items.forEach(r => {
-              container.appendChild(renderCommentCard(r, true));
+            data.items.forEach(r => {
+              container.appendChild(renderCommentCard(r, true, rootId));
             });
           }
         });
     }
 
     // 1. 表单提交
-    form.addEventListener('submit', function (e) {
-      e.preventDefault();
-      const submitBtn = document.getElementById('comment-submit-btn');
-      if (submitBtn) submitBtn.disabled = true;
+    if (form) {
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        if (!postUrl) return;
+        const submitBtn = document.getElementById('comment-submit-btn');
+        if (submitBtn) submitBtn.disabled = true;
 
-      const formData = new FormData(form);
+        const formData = new FormData(form);
 
-      fetch(postUrl, {
-        method: 'POST',
-        body: formData,
-      })
-        .then(res => res.json())
-        .then(data => {
-          if (submitBtn) submitBtn.disabled = false;
-          if (data.status === 'success') {
-            showAlert('评论发表成功！' + (data.data && data.data.is_publicly_visible ? '' : '已提交风控系统，通过后将公开显示。'), true);
-            form.querySelector('textarea[name="content"]').value = '';
-            resetReplyTarget();
-            loadComments(1, false);
-          } else {
-            showAlert(data.message || '评论提交失败，请稍后重试。', false);
-          }
+        fetch(postUrl, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            'X-CSRFToken': getCsrfToken(),
+          },
+          body: formData,
         })
-        .catch(err => {
-          if (submitBtn) submitBtn.disabled = false;
-          showAlert('网络异常，提交失败。', false);
-        });
-    });
+          .then(parseJsonResponse)
+          .then(({ ok, data }) => {
+            if (submitBtn) submitBtn.disabled = false;
+            if (ok && data && data.status === 'success') {
+              showAlert('评论发表成功！' + (data.data && data.data.is_publicly_visible ? '' : '已提交审核，通过后将公开显示。'), true);
+              const textarea = form.querySelector('textarea[name="content"]');
+              if (textarea) textarea.value = '';
+              resetReplyTarget();
+              loadComments(1, false);
+            } else {
+              showAlert((data && data.message) || '评论提交失败，请稍后重试。', false);
+            }
+          })
+          .catch(() => {
+            if (submitBtn) submitBtn.disabled = false;
+            showAlert('网络异常，提交失败。', false);
+          });
+      });
+    }
 
-    // 2. 回复事件委托
-    document.addEventListener('click', function (e) {
+    // 2. 排序、回复、点赞与删除事件委托
+    section.addEventListener('click', function (e) {
+      const sortBtn = e.target.closest('.comment-sort-btn');
+      if (sortBtn) {
+        const nextSort = sortBtn.getAttribute('data-sort') || 'latest';
+        if (nextSort !== currentSort) {
+          currentSort = nextSort;
+          section.querySelectorAll('.comment-sort-btn').forEach(btn => btn.classList.remove('is-active'));
+          sortBtn.classList.add('is-active');
+          loadComments(1, false);
+        }
+        return;
+      }
+
       const replyBtn = e.target.closest('.reply-trigger-btn');
-      if (replyBtn) {
+      if (replyBtn && form) {
         e.preventDefault();
         const cid = replyBtn.getAttribute('data-id');
-        const author = replyBtn.getAttribute('data-author');
-        if (parentIdInput) parentIdInput.value = cid;
+        const rootId = replyBtn.getAttribute('data-root-id') || cid;
+        const author = replyBtn.getAttribute('data-author') || '';
+        if (parentIdInput) parentIdInput.value = rootId;
         if (replyToIdInput) replyToIdInput.value = cid;
         if (replyTargetName) replyTargetName.textContent = author;
         if (replyNotice) replyNotice.style.display = 'flex';
         form.scrollIntoView({ behavior: 'smooth' });
         const textarea = form.querySelector('textarea[name="content"]');
         if (textarea) textarea.focus();
+        return;
       }
 
       // 点赞事件委托
@@ -174,18 +361,55 @@
       if (reactBtn) {
         e.preventDefault();
         const cid = reactBtn.getAttribute('data-id');
-        const action = reactBtn.getAttribute('data-action');
+        const wasLiked = reactBtn.getAttribute('data-liked') === '1';
+        const nextReaction = wasLiked ? '0' : '1';
         const formData = new FormData();
-        formData.append('reaction_type', action);
-        fetch(`/api/v1/comments/comments/${cid}/react/`, {
+        formData.append('reaction', nextReaction);
+        fetch(buildActionUrl(reactUrlTpl, cid), {
           method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            'X-CSRFToken': getCsrfToken(),
+          },
           body: formData,
         })
-          .then(res => res.json())
-          .then(res => {
-            if (res.status === 'success' && res.data) {
+          .then(parseJsonResponse)
+          .then(({ ok, data }) => {
+            if (ok && data && data.status === 'success' && data.data) {
               const likeSpan = reactBtn.querySelector('.like-num');
-              if (likeSpan) likeSpan.textContent = res.data.like_count;
+              if (likeSpan) likeSpan.textContent = data.data.like_count;
+              const nowLiked = nextReaction === '1';
+              reactBtn.setAttribute('data-liked', nowLiked ? '1' : '0');
+              reactBtn.classList.toggle('is-reacted', nowLiked);
+            } else {
+              showAlert((data && data.message) || '操作失败，请先登录后重试。', false);
+            }
+          });
+        return;
+      }
+
+      // 作者自删事件委托
+      const delBtn = e.target.closest('.delete-comment-btn');
+      if (delBtn) {
+        e.preventDefault();
+        if (!window.confirm('确定删除这条评论吗？')) {
+          return;
+        }
+        const cid = delBtn.getAttribute('data-id');
+        fetch(buildActionUrl(deleteUrlTpl, cid), {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            'X-CSRFToken': getCsrfToken(),
+          },
+        })
+          .then(parseJsonResponse)
+          .then(({ ok, data }) => {
+            if (ok && data && data.status === 'success') {
+              showAlert('评论已删除。', true);
+              loadComments(1, false);
+            } else {
+              showAlert((data && data.message) || '删除失败，请稍后重试。', false);
             }
           });
       }

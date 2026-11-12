@@ -18,7 +18,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.views.decorators.http import require_http_methods
 from django.views.decorators.cache import never_cache
 
-from comments.models import Comment, CommentVersion, CommentReaction
+from comments.models import Comment, CommentVersion, CommentReaction, PageCommentSettings
 from comments.access import get_accessible_comment_page
 from comments.rate_limit import check_comment_rate_limit, get_client_ip
 from comments.services import CommentService
@@ -48,6 +48,10 @@ def list_comments_api(request, page_id: int):
     page_num = int(page_str) if page_str.isdigit() and int(page_str) > 0 else 1
     page_size_str = request.GET.get("page_size", "10")
     page_size = max(1, min(int(page_size_str) if page_size_str.isdigit() else 10, 50))
+
+    settings_obj = PageCommentSettings.objects.filter(page=page).first()
+    allow_comments = settings_obj.allow_comments if settings_obj else True
+    close_reason = settings_obj.close_reason if settings_obj else ""
 
     # D6-A: 正常公开根评论 + 作者自删占位根评论（仅当有回复时）
     qs = Comment.objects.filter(
@@ -97,6 +101,8 @@ def list_comments_api(request, page_id: int):
                 "created_at": c.created_at.strftime("%Y-%m-%d %H:%M:%S"),
                 "is_editable": False,
                 "is_pinned": False,
+                "can_delete": False,
+                "can_react": False,
                 "state_generation": c.state_generation,
             })
         else:
@@ -115,6 +121,8 @@ def list_comments_api(request, page_id: int):
                 "created_at": c.created_at.strftime("%Y-%m-%d %H:%M:%S"),
                 "is_editable": c.is_editable if (request.user.is_authenticated and c.author_id == request.user.id) else False,
                 "is_pinned": c.is_pinned,
+                "can_delete": bool(request.user.is_authenticated and c.author_id == request.user.id and c.status != "deleted"),
+                "can_react": bool(request.user.is_authenticated and c.author_id != request.user.id and allow_comments),
                 "state_generation": c.state_generation,
             })
 
@@ -125,6 +133,10 @@ def list_comments_api(request, page_id: int):
         "current_page": page_num,
         "page_size": page_size,
         "total_pages": total_pages,
+        "comment_settings": {
+            "allow_comments": allow_comments,
+            "close_reason": close_reason,
+        },
         "items": items,
     })
     if is_restricted:
@@ -152,6 +164,9 @@ def list_replies_api(request, root_id: int):
     except PermissionDenied as exc:
         return _cors_json_response({"status": "error", "code": 403, "message": str(exc)}, status=403)
 
+    settings_obj = PageCommentSettings.objects.filter(page=page).first()
+    allow_comments = settings_obj.allow_comments if settings_obj else True
+
     replies = Comment.objects.filter(
         parent=root,
         is_publicly_visible=True,
@@ -174,6 +189,7 @@ def list_replies_api(request, root_id: int):
     for r in replies:
         items.append({
             "id": r.id,
+            "root_id": root.id,
             "author": {
                 "id": r.author_id,
                 "username": r.author.username if r.author else (r.guest_name or "访客"),
@@ -188,6 +204,9 @@ def list_replies_api(request, root_id: int):
             "user_reaction": user_reactions.get(r.id, 0),
             "created_at": r.created_at.strftime("%Y-%m-%d %H:%M:%S"),
             "is_editable": r.is_editable if (request.user.is_authenticated and r.author_id == request.user.id) else False,
+            "can_delete": bool(request.user.is_authenticated and r.author_id == request.user.id and r.status != "deleted"),
+            "can_react": bool(request.user.is_authenticated and r.author_id != request.user.id and allow_comments),
+            "state_generation": r.state_generation,
         })
 
     resp = _cors_json_response({
@@ -305,7 +324,12 @@ def delete_comment_api(request, comment_id: int):
         return _cors_json_response({"status": "error", "code": 401, "message": "请登录后再操作"}, status=401)
 
     try:
-        comment = CommentService.soft_delete_comment(comment_id, request.user)
+        comment = CommentService.soft_delete_comment(
+            comment_id,
+            request.user,
+            reason="author",
+            ip_address=get_client_ip(request),
+        )
         return _cors_json_response({
             "status": "success",
             "message": "评论已成功下架删除",

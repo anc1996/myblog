@@ -104,6 +104,16 @@ class CommentGovernanceTests(unittest.TestCase):
         except Exception:
             pass
 
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            from external_content.outbox import OutboxProcessor
+            while OutboxProcessor.process_pending_events(batch_size=100) > 0:
+                pass
+        except Exception:
+            pass
+        super().tearDownClass()
+
     def test_ordinary_comment_delete_blocked(self):
         """验证 C-06：直接调用 Comment.delete() 必须被拒绝"""
         comment = CommentService.post_comment(
@@ -395,3 +405,175 @@ class CommentGovernanceTests(unittest.TestCase):
         self.assertFalse(c1.is_publicly_visible)
         self.assertEqual(c2.status, "rejected")
         self.assertFalse(c2.is_publicly_visible)
+
+    def test_admin_comment_index_inspect_and_history_views(self):
+        """验证 Wagtail 后台 /admin/comments/、inspect/<pk>/、history/<pk>/ 与审批重定向闭环"""
+        from wagtail.admin.admin_url_finder import AdminURLFinder
+
+        c = CommentService.post_comment(
+            page=self.test_page,
+            author=self.normal_user,
+            raw_content="正常前缀 <script>alert('xss_inspect')</script> 正常后缀",
+            auto_approve=False,
+        )
+        v1_id = c.pending_version_id
+
+        self.client.force_login(self.admin_user)
+
+        # 1. 列表页 + 待审队列 + 中文表头
+        idx_resp = self.client.get("/admin/comments/")
+        self.assertEqual(idx_resp.status_code, 200)
+        idx_html = idx_resp.content.decode("utf-8")
+        self.assertIn("所属页面", idx_html)
+        self.assertIn("正文预览", idx_html)
+        self.assertIn("审核操作", idx_html)
+
+        pending_resp = self.client.get("/admin/comments/?pending_queue=1")
+        self.assertEqual(pending_resp.status_code, 200)
+        self.assertIn(f"/admin/comments/inspect/{c.id}/", pending_resp.content.decode("utf-8"))
+
+        # 2. 检查页 (inspect) 正常渲染且转义待审 XSS 原文
+        inspect_url = f"/admin/comments/inspect/{c.id}/"
+        insp_resp = self.client.get(inspect_url)
+        self.assertEqual(insp_resp.status_code, 200)
+        insp_html = insp_resp.content.decode("utf-8")
+        self.assertIn("当前公开生效正文", insp_html)
+        self.assertIn("待审核新版本正文", insp_html)
+        self.assertIn("全部内容版本记录", insp_html)
+        self.assertIn("审核与治理审计记录", insp_html)
+        self.assertIn("批准待审版本上线", insp_html)
+        self.assertNotIn("<script>alert('xss_inspect')</script>", insp_html)
+        self.assertIn("&lt;script&gt;alert(&#x27;xss_inspect&#x27;)&lt;/script&gt;", insp_html)
+
+        # 3. 历史页 (history) 与 AdminURLFinder 不报错
+        hist_resp = self.client.get(f"/admin/comments/history/{c.id}/")
+        self.assertEqual(hist_resp.status_code, 200)
+        self.assertEqual(AdminURLFinder(self.admin_user).get_edit_url(c), inspect_url)
+
+        # 4. GET 审批必须返回 405
+        get_approve = self.client.get(f"/admin/comments/{c.id}/approve/")
+        self.assertEqual(get_approve.status_code, 405)
+
+        # 5. POST 审批并跳回 inspect 页面
+        post_approve = self.client.post(
+            f"/admin/comments/{c.id}/approve/",
+            data={"expected_version_id": v1_id, "next": inspect_url},
+        )
+        self.assertEqual(post_approve.status_code, 302)
+        self.assertEqual(post_approve["Location"], inspect_url)
+        c.refresh_from_db()
+        self.assertEqual(c.status, "active")
+        self.assertTrue(c.is_publicly_visible)
+        self.assertEqual(c.approved_version_id, v1_id)
+
+        # 6. 编辑生成待审 V2 后，pending_queue=1 仍能检索到该条评论，inspect 页同时展示 V1 与 V2
+        v2 = CommentService.edit_comment(
+            comment_id=c.id,
+            author=self.normal_user,
+            new_raw_content="第二版待审更新内容",
+            expected_version_id=v1_id,
+        )
+        pending_v2_resp = self.client.get("/admin/comments/?pending_queue=1")
+        self.assertIn(f"/admin/comments/inspect/{c.id}/", pending_v2_resp.content.decode("utf-8"))
+        insp_v2_html = self.client.get(inspect_url).content.decode("utf-8")
+        self.assertIn(f"待审版本 V{v2.version_number}", insp_v2_html)
+        self.assertIn("第二版待审更新内容", insp_v2_html)
+        self.assertIn("approve", insp_v2_html)
+
+    def test_admin_comment_inspect_permissions(self):
+        """验证评论后台列表/检查与全站治理权限隔离"""
+        from django.contrib.auth.models import Permission
+
+        c = CommentService.post_comment(
+            page=self.test_page,
+            author=self.normal_user,
+            raw_content="权限隔离验证评论",
+            auto_approve=False,
+        )
+        access_admin_perm = Permission.objects.get(
+            content_type__app_label="wagtailadmin",
+            codename="access_admin",
+        )
+        moderate_perm = Permission.objects.get(
+            content_type__app_label="comments",
+            codename="moderate_comment",
+        )
+
+        plain_staff = User.objects.create_user(
+            username=f"plain_staff_{uuid4().hex[:6]}",
+            email="plain@test.com",
+            password="password123",
+            is_staff=True,
+        )
+        plain_staff.user_permissions.add(access_admin_perm)
+
+        mod_user = User.objects.create_user(
+            username=f"mod_user_{uuid4().hex[:6]}",
+            email="mod@test.com",
+            password="password123",
+            is_staff=True,
+        )
+        mod_user.user_permissions.add(access_admin_perm, moderate_perm)
+
+        try:
+            # 无评论权限的后台员工：普通访问重定向回 /admin/，AJAX 访问直接返回 403
+            self.client.force_login(plain_staff)
+            self.assertEqual(self.client.get("/admin/comments/").status_code, 302)
+            self.assertEqual(
+                self.client.get("/admin/comments/", HTTP_X_REQUESTED_WITH="XMLHttpRequest").status_code,
+                403,
+            )
+            self.assertEqual(self.client.get(f"/admin/comments/inspect/{c.id}/").status_code, 302)
+            self.assertEqual(
+                self.client.get(
+                    f"/admin/comments/inspect/{c.id}/",
+                    HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                ).status_code,
+                403,
+            )
+
+            # 具备 moderate_comment 的审核员可以正常打开列表和检查页，但无权调用全站治理接口
+            self.client.force_login(mod_user)
+            self.assertEqual(self.client.get("/admin/comments/").status_code, 200)
+            self.assertEqual(self.client.get(f"/admin/comments/inspect/{c.id}/").status_code, 200)
+            self.assertEqual(self.client.get(f"/admin/comments/history/{c.id}/").status_code, 200)
+            self.assertEqual(
+                self.client.post("/admin/comments/batch-hide/", data={"comment_ids": [c.id]}).status_code,
+                403,
+            )
+        finally:
+            self.client.logout()
+            plain_staff.delete()
+            mod_user.delete()
+
+    def test_0003_backfill_restores_nulled_version_pointers(self):
+        import importlib
+        from django.apps import apps
+        from comments.models import Comment, CommentVersion
+
+        migration_mod = importlib.import_module("comments.migrations.0003_backfill_version_pointers")
+        c = CommentService.post_comment(
+            page=self.test_page,
+            author=self.normal_user,
+            raw_content="回填测试第一版",
+            auto_approve=True,
+        )
+        CommentService.edit_comment(comment_id=c.id, author=self.normal_user, new_raw_content="回填测试待审二版")
+
+        Comment.objects.filter(id=c.id).update(
+            latest_version=None,
+            approved_version=None,
+            pending_version=None,
+            pending_submitted_at=None,
+            author_subject_key="",
+        )
+
+        migration_mod.backfill_comment_version_pointers(apps, None)
+        c.refresh_from_db()
+        v1 = CommentVersion.objects.get(comment=c, version_number=1)
+        v2 = CommentVersion.objects.get(comment=c, version_number=2)
+        self.assertEqual(c.latest_version_id, v2.id)
+        self.assertEqual(c.approved_version_id, v1.id)
+        self.assertEqual(c.pending_version_id, v2.id)
+        self.assertIsNotNone(c.pending_submitted_at)
+        self.assertEqual(c.author_subject_key, f"user:{self.normal_user.id}")

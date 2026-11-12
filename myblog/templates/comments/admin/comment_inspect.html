@@ -1,0 +1,45 @@
+{% extends "wagtailadmin/generic/inspect.html" %}
+{% load i18n %}
+
+{% block main_content %}
+    {{ block.super }}
+
+    <div style="margin-top: 24px; padding: 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
+        <h2 style="margin-top: 0; font-size: 16px; color: #1e293b;">审核与治理操作</h2>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+            {% if can_moderate %}
+                {% if object.pending_version_id %}
+                    <form method="POST" action="{% url 'comments:approve' object.id %}" style="display: inline-block;">
+                        {% csrf_token %}
+                        <input type="hidden" name="expected_version_id" value="{{ object.pending_version_id }}">
+                        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                        <button type="submit" class="button" style="background: #16a34a; color: #fff;">批准待审版本上线</button>
+                    </form>
+                    <form method="POST" action="{% url 'comments:reject' object.id %}" style="display: inline-block;">
+                        {% csrf_token %}
+                        <input type="hidden" name="expected_version_id" value="{{ object.pending_version_id }}">
+                        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                        <button type="submit" class="button" style="background: #ea580c; color: #fff;">驳回待审修改</button>
+                    </form>
+                {% endif %}
+                {% if object.status == "active" %}
+                    <form method="POST" action="{% url 'comments:hide' object.id %}" style="display: inline-block;">
+                        {% csrf_token %}
+                        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                        <button type="submit" class="button button-secondary">下架隐藏</button>
+                    </form>
+                    <form method="POST" action="{% url 'comments:pin' object.id %}" style="display: inline-block;">
+                        {% csrf_token %}
+                        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                        <button type="submit" class="button button-secondary">
+                            {% if object.is_pinned %}取消置顶{% else %}官方置顶{% endif %}
+                        </button>
+                    </form>
+                {% endif %}
+            {% endif %}
+
+            <a href="{% url 'comments:history' object.id %}" class="button button-secondary">查看系统日志</a>
+            <a href="{% url 'comments:index' %}" class="button button-secondary">返回评论列表</a>
+        </div>
+    </div>
+{% endblock %}

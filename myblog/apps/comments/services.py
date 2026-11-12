@@ -445,6 +445,10 @@ class CommentService:
                 raise ValidationError("无法对未公开或已删除的评论进行互动。")
             if comment.author_id == user.id:
                 raise ValidationError("不能对自己的评论点赞或点踩。")
+            if target_reaction != 0 and comment.page_id:
+                settings_obj = PageCommentSettings.objects.filter(page_id=comment.page_id).first()
+                if settings_obj and not settings_obj.allow_comments:
+                    raise ValidationError("该页面已关闭评论互动，暂不支持新增或切换赞踩。")
 
             existing_reaction = CommentReaction.objects.filter(comment=comment, user=user).first()
             old_type = existing_reaction.reaction_type if existing_reaction else 0

@@ -4,11 +4,11 @@
 {% block listing %}
     <div class="comment-type-tabs" style="margin: 0 0 16px 0; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; background: #f8fafc; padding: 12px; border-radius: 6px; border: 1px solid #e2e8f0;">
         <span style="font-weight: 600; color: #475569; margin-right: 4px;">📂 页面类型：</span>
-        <a href="?page_type=all{% if current_page_id %}&page_id={{ current_page_id }}{% endif %}" class="button button-small {% if current_page_type == 'all' and not current_status %}button-primary{% else %}button-secondary{% endif %}">全部 ({{ tab_counts.all }})</a>
+        <a href="?page_type=all{% if current_page_id %}&page_id={{ current_page_id }}{% endif %}" class="button button-small {% if current_page_type == 'all' and not current_status and not current_pending_queue %}button-primary{% else %}button-secondary{% endif %}">全部 ({{ tab_counts.all }})</a>
         <a href="?page_type=blog_page{% if current_page_id %}&page_id={{ current_page_id }}{% endif %}" class="button button-small {% if current_page_type == 'blog_page' %}button-primary{% else %}button-secondary{% endif %}">博客文章 ({{ tab_counts.blog_page }})</a>
         <a href="?page_type=guide{% if current_page_id %}&page_id={{ current_page_id }}{% endif %}" class="button button-small {% if current_page_type == 'guide' %}button-primary{% else %}button-secondary{% endif %}">专题指南 ({{ tab_counts.guide }})</a>
         <a href="?page_type=project{% if current_page_id %}&page_id={{ current_page_id }}{% endif %}" class="button button-small {% if current_page_type == 'project' %}button-primary{% else %}button-secondary{% endif %}">实战项目 ({{ tab_counts.project }})</a>
-        <a href="?status=pending{% if current_page_id %}&page_id={{ current_page_id }}{% endif %}" class="button button-small {% if current_status == 'pending' %}button-primary{% else %}button-secondary{% endif %}" style="margin-left: auto; {% if tab_counts.pending > 0 %}background:#f59e0b;color:#fff;border-color:#d97706;{% endif %}">⚠️ 待审核队列 ({{ tab_counts.pending }})</a>
+        <a href="?pending_queue=1{% if current_page_id %}&page_id={{ current_page_id }}{% endif %}" class="button button-small {% if current_pending_queue or current_status == 'pending' %}button-primary{% else %}button-secondary{% endif %}" style="margin-left: auto; {% if tab_counts.pending > 0 %}background:#f59e0b;color:#fff;border-color:#d97706;{% endif %}">⚠️ 待审核队列 ({{ tab_counts.pending }})</a>
     </div>
 
     {% if current_page_id %}
@@ -25,10 +25,17 @@
     </div>
     {% endif %}
 
+    {% if current_ip %}
+    <div style="background: #fee2e2; border: 1px solid #fca5a5; color: #991b1b; padding: 8px 12px; border-radius: 6px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
+        <span>🌐 <strong>客户端 IP 溯源筛选：</strong><code>{{ current_ip }}</code></span>
+        <a href="?page_type={{ current_page_type }}" class="button button-small button-secondary" style="background: #fff;">清除 IP 筛选</a>
+    </div>
+    {% endif %}
+
     {{ block.super }}
 
     <script>
-    document.addEventListener("DOMContentLoaded", function() {
+    (function() {
         function getCookie(name) {
             let cookieValue = null;
             if (document.cookie && document.cookie !== '') {
@@ -43,12 +50,20 @@
             }
             return cookieValue;
         }
-        const csrfToken = getCookie("csrftoken");
-        if (csrfToken) {
+        function fillCsrfTokens() {
+            const csrfToken = getCookie("csrftoken");
+            if (!csrfToken) return;
             document.querySelectorAll(".js-csrf-token").forEach(input => {
                 input.value = csrfToken;
             });
         }
-    });
+        document.addEventListener("DOMContentLoaded", fillCsrfTokens);
+        document.addEventListener("submit", function(e) {
+            const csrfInput = e.target.querySelector(".js-csrf-token");
+            if (csrfInput && !csrfInput.value) {
+                csrfInput.value = getCookie("csrftoken") || "";
+            }
+        });
+    })();
     </script>
 {% endblock %}

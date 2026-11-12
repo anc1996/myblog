@@ -34,7 +34,8 @@ def get_accessible_comment_page(request, page_id: int, *, for_write: bool = Fals
     specific_page = page.specific
 
     # 2. 模型级评论开启开关检查
-    if not getattr(specific_page, "allow_comments", False):
+    supports = getattr(specific_page, "supports_comments", None)
+    if supports is False or (supports is None and not getattr(specific_page, "allow_comments", False)):
         raise PermissionDenied("该类型页面未开放评论互动功能。")
 
     # 3. 别名页面（Alias）归一化至源页面
