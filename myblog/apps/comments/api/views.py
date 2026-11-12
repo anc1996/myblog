@@ -67,7 +67,7 @@ def list_comments_api(request, page_id: int):
 
     total_count = qs.count()
     offset = (page_num - 1) * page_size
-    comments = qs.select_related("author")[offset : offset + page_size]
+    comments = qs.select_related("author", "author__member_profile")[offset : offset + page_size]
 
     # 预加载当前批次生效的版本 HTML
     ver_ids = [c.approved_version_id for c in comments if c.approved_version_id]
@@ -109,10 +109,7 @@ def list_comments_api(request, page_id: int):
             items.append({
                 "id": c.id,
                 "kind": "comment",
-                "author": {
-                    "id": c.author_id,
-                    "username": c.author.username if c.author else (c.guest_name or "访客"),
-                },
+                "author": c.get_author_presentation(),
                 "safe_html": ver_map.get(c.approved_version_id, "（内容已归档）"),
                 "like_count": c.like_count,
                 "dislike_count": c.dislike_count,
@@ -170,7 +167,12 @@ def list_replies_api(request, root_id: int):
     replies = Comment.objects.filter(
         parent=root,
         is_publicly_visible=True,
-    ).select_related("author", "replied_to_user").order_by("created_at")
+    ).select_related(
+        "author",
+        "author__member_profile",
+        "replied_to_user",
+        "replied_to_user__member_profile",
+    ).order_by("created_at")
 
     ver_ids = [r.approved_version_id for r in replies if r.approved_version_id]
     ver_map = {
@@ -187,17 +189,24 @@ def list_replies_api(request, root_id: int):
 
     items = []
     for r in replies:
+        replied_to_data = None
+        if r.replied_to_user_id and r.replied_to_user is not None:
+            replied_profile = getattr(r.replied_to_user, "member_profile", None)
+            replied_to_data = {
+                "id": r.replied_to_user_id,
+                "username": r.replied_to_user.username,
+                "display_name": (
+                    replied_profile.display_name
+                    if replied_profile
+                    else r.replied_to_user.username
+                ),
+            }
+
         items.append({
             "id": r.id,
             "root_id": root.id,
-            "author": {
-                "id": r.author_id,
-                "username": r.author.username if r.author else (r.guest_name or "访客"),
-            },
-            "replied_to_user": {
-                "id": r.replied_to_user_id,
-                "username": r.replied_to_user.username if r.replied_to_user else None,
-            } if r.replied_to_user_id else None,
+            "author": r.get_author_presentation(),
+            "replied_to_user": replied_to_data,
             "safe_html": ver_map.get(r.approved_version_id, "（内容已归档）"),
             "like_count": r.like_count,
             "dislike_count": r.dislike_count,

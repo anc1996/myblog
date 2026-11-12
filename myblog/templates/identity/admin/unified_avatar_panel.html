@@ -1,0 +1,9 @@
+<div class="w-field__wrapper">
+    {% if member_profile.avatar_url %}
+        <div style="margin-bottom: 12px;">
+            <img src="{{ member_profile.avatar_url }}" alt="{{ member_profile.display_name }}" style="width:72px;height:72px;border-radius:50%;object-fit:cover;border:1px solid #cbd5e1;">
+        </div>
+    {% endif %}
+    {{ form.as_p }}
+    <p class="help">所有后台与前台头像均通过统一 Pillow 纯像素重编码与私有存储网关交付，不写入公共文章配图库。</p>
+</div>

@@ -379,3 +379,136 @@ class CrossStorageReconciler:
             deleted_count += 1
 
         return deleted_count
+
+    @classmethod
+    def reconcile_orphan_avatars(
+        cls,
+        *,
+        dry_run: bool = True,
+        grace_period_seconds: int = 86400,
+        storage_aliases: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """
+        定期扫描 member-avatars/ 与 avatar_images/ 前缀下的孤儿头像文件（默认 24 小时宽限期）。
+        - 排除 PostgreSQL 中所有 MemberProfile（含停用账号）及 UserProfile.avatar 正在引用的对象；
+        - 遇到无法确定时间或枚举出错的对象保留并告警；
+        - dry_run=True 仅演练输出候选清单；dry_run=False 先入队再经受控清理接口擦除。
+        """
+        from datetime import datetime, timezone as dt_timezone, timedelta
+        from uuid import uuid4
+        from identity.avatar_purge import AvatarPurgeProcessor, enqueue_avatar_purge_task
+        from identity.avatar_storage import get_storage_and_namespace, list_prefix_objects
+        from identity.models import MemberProfile
+
+        aliases = storage_aliases or ["default"]
+        prefixes = ("member-avatars/", "avatar_images/")
+        now = datetime.now(dt_timezone.utc)
+        cutoff = now - timedelta(seconds=grace_period_seconds)
+
+        candidates: list[dict[str, Any]] = []
+        purged: list[dict[str, Any]] = []
+        warnings: list[str] = []
+        op_id = uuid4()
+
+        from django.apps import apps
+
+        wagtail_userprofile_cls = None
+        wagtail_avatar_keys: set[str] = set()
+        if apps.is_installed("wagtail.users"):
+            try:
+                from wagtail.users.models import UserProfile
+
+                wagtail_userprofile_cls = UserProfile
+                wagtail_avatar_keys = {
+                    k for k in UserProfile.objects.exclude(avatar="").values_list("avatar", flat=True) if k
+                }
+            except Exception as exc:
+                warnings.append(f"查询 UserProfile 头像引用失败，已中止孤儿清理以防误删: {exc}")
+                return {
+                    "healthy": False,
+                    "aborted": True,
+                    "dry_run": dry_run,
+                    "grace_period_seconds": grace_period_seconds,
+                    "candidates_count": 0,
+                    "candidates": [],
+                    "purged_count": 0,
+                    "purged": [],
+                    "purge_stats": {"claimed": 0, "done": 0, "blocked": 0, "failed": 0},
+                    "warnings": warnings,
+                }
+
+        for alias in aliases:
+            try:
+                storage, current_ns = get_storage_and_namespace(alias)
+            except Exception as exc:
+                warnings.append(f"无法读取存储别名 {alias}: {exc}")
+                continue
+
+            active_member_keys = set(
+                MemberProfile.objects.filter(avatar_storage_namespace=current_ns)
+                .exclude(avatar_key="")
+                .values_list("avatar_key", flat=True)
+            )
+            in_use_keys = active_member_keys | wagtail_avatar_keys
+
+            for prefix in prefixes:
+                objects, list_warnings = list_prefix_objects(storage, prefix)
+                warnings.extend(list_warnings)
+
+                for obj in objects:
+                    key = obj["key"]
+                    if key in in_use_keys:
+                        continue
+                    lm = obj.get("last_modified")
+                    if lm is None:
+                        warnings.append(f"对象 {key} 缺少可靠修改时间，保守跳过清理")
+                        continue
+                    if lm > cutoff:
+                        continue
+
+                    info = {
+                        "storage_alias": alias,
+                        "storage_namespace": current_ns,
+                        "storage_key": key,
+                        "size": obj.get("size", 0),
+                        "last_modified": lm.isoformat(),
+                    }
+                    candidates.append(info)
+
+                    if not dry_run:
+                        # 入队前二次复核引用，防止对账扫描期间并发绑定头像
+                        still_in_use = (
+                            MemberProfile.objects.filter(
+                                avatar_storage_namespace=current_ns,
+                                avatar_key=key,
+                            ).exists()
+                            or (
+                                wagtail_userprofile_cls is not None
+                                and wagtail_userprofile_cls.objects.filter(avatar=key).exists()
+                            )
+                        )
+                        if still_in_use:
+                            continue
+                        enqueue_avatar_purge_task(
+                            storage_alias=alias,
+                            storage_namespace=current_ns,
+                            storage_key=key,
+                            source="orphan_reconcile",
+                            operation_id=op_id,
+                        )
+                        purged.append(info)
+
+        purge_stats = {"claimed": 0, "done": 0, "blocked": 0, "failed": 0}
+        if not dry_run and purged:
+            purge_stats = AvatarPurgeProcessor.process_pending_tasks(batch_size=max(50, len(purged)))
+
+        return {
+            "dry_run": dry_run,
+            "grace_period_seconds": grace_period_seconds,
+            "candidates_count": len(candidates),
+            "candidates": candidates,
+            "purged_count": len(purged),
+            "purged": purged,
+            "purge_stats": purge_stats,
+            "warnings": warnings,
+        }

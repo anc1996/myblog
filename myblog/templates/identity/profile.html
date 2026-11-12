@@ -1,0 +1,442 @@
+{% extends "base.html" %}
+
+{% block title %}个人中心{% endblock %}
+
+{% block extra_css %}
+<style>
+  .profile-shell {
+    max-width: 960px;
+    margin: 32px auto;
+    padding: 0 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+  .profile-card {
+    background: var(--bg-card, #ffffff);
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: var(--radius-lg, 12px);
+    padding: 24px;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  }
+  .profile-hero {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 18px;
+  }
+  .profile-identity {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .identity-avatar-img,
+  .identity-avatar-placeholder {
+    width: 72px;
+    height: 72px;
+    border-radius: 9999px;
+    border: 1px solid #cbd5e1;
+    flex-shrink: 0;
+  }
+  .identity-avatar-img {
+    object-fit: cover;
+    background: #f1f5f9;
+  }
+  .identity-avatar-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #e2e8f0;
+    color: #334155;
+    font-size: 1.5rem;
+    font-weight: 700;
+  }
+  .profile-name {
+    margin: 0 0 4px 0;
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: var(--text-main, #0f172a);
+  }
+  .profile-meta {
+    margin: 0;
+    font-size: 0.88rem;
+    color: var(--text-muted, #64748b);
+  }
+  .profile-bio-preview {
+    margin: 6px 0 0 0;
+    font-size: 0.92rem;
+    color: #334155;
+  }
+  .profile-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 20px;
+  }
+  .profile-section-title {
+    margin: 0 0 14px 0;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--text-main, #0f172a);
+  }
+  .identity-alert {
+    padding: 10px 14px;
+    border-radius: var(--radius-sm, 6px);
+    font-size: 0.9rem;
+  }
+  .identity-alert-error {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    color: #991b1b;
+  }
+  .identity-alert-success {
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    color: #166534;
+  }
+  .identity-form {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .identity-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .identity-label {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #1e293b;
+  }
+  .identity-form input[type="text"],
+  .identity-form input[type="password"],
+  .identity-form textarea,
+  .identity-form input[type="file"] {
+    width: 100%;
+    padding: 9px 12px;
+    font-size: 0.92rem;
+    border: 1px solid #cbd5e1;
+    border-radius: var(--radius-sm, 6px);
+    background: #ffffff;
+    color: var(--text-main, #0f172a);
+    font-family: inherit;
+  }
+  .identity-form input:focus,
+  .identity-form textarea:focus {
+    outline: none;
+    border-color: var(--primary-color, #2563eb);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  }
+  .identity-help {
+    font-size: 0.8rem;
+    color: var(--text-muted, #64748b);
+  }
+  .identity-error-list {
+    margin: 2px 0 0 0;
+    padding-left: 18px;
+    color: #b91c1c;
+    font-size: 0.84rem;
+  }
+  .identity-btn {
+    padding: 9px 16px;
+    border: none;
+    border-radius: var(--radius-sm, 6px);
+    background: var(--primary-color, #2563eb);
+    color: #ffffff;
+    font-size: 0.92rem;
+    font-weight: 600;
+    cursor: pointer;
+    align-self: flex-start;
+  }
+  .identity-btn:hover {
+    background: var(--primary-hover, #1d4ed8);
+  }
+  .identity-btn-secondary {
+    padding: 8px 14px;
+    border: 1px solid #cbd5e1;
+    border-radius: var(--radius-sm, 6px);
+    background: #f8fafc;
+    color: #334155;
+    font-size: 0.88rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .identity-btn-secondary:hover {
+    background: #f1f5f9;
+  }
+  .comment-history-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .comment-history-item {
+    padding: 14px;
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: var(--radius-md, 8px);
+    background: #f8fafc;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .comment-history-top {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+  .comment-page-link {
+    font-weight: 600;
+    color: var(--text-main, #0f172a);
+    text-decoration: none;
+  }
+  a.comment-page-link:hover {
+    color: var(--primary-color, #2563eb);
+    text-decoration: underline;
+  }
+  .comment-status-badge {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 9999px;
+    font-size: 0.78rem;
+    font-weight: 600;
+  }
+  .status-published {
+    background: #dcfce7;
+    color: #166534;
+  }
+  .status-pending {
+    background: #fef3c7;
+    color: #92400e;
+  }
+  .status-rejected {
+    background: #fee2e2;
+    color: #991b1b;
+  }
+  .status-deleted {
+    background: #e2e8f0;
+    color: #475569;
+  }
+  .comment-snippet {
+    margin: 0;
+    font-size: 0.9rem;
+    color: #334155;
+    word-break: break-word;
+  }
+  .comment-time {
+    font-size: 0.8rem;
+    color: var(--text-muted, #64748b);
+  }
+  .profile-bottom-notice {
+    margin: 0;
+    padding: 12px 16px;
+    background: #f8fafc;
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: var(--radius-md, 8px);
+    font-size: 0.9rem;
+    color: #475569;
+    text-align: center;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="profile-shell" aria-label="个人中心">
+  {% if messages %}
+    {% for message in messages %}
+      <div class="identity-alert {% if 'error' in message.tags %}identity-alert-error{% else %}identity-alert-success{% endif %}" role="status">
+        {{ message }}
+      </div>
+    {% endfor %}
+  {% endif %}
+
+  {% if page_error %}
+    <div class="identity-alert identity-alert-error" role="alert">{{ page_error }}</div>
+  {% endif %}
+
+  <div class="profile-card">
+    <div class="profile-hero">
+      <div class="profile-identity">
+        {% if profile.avatar_url %}
+          <img src="{{ profile.avatar_url }}" alt="{{ profile.display_name }} 的头像" class="identity-avatar-img">
+        {% else %}
+          <div class="identity-avatar-placeholder" aria-hidden="true">{{ profile.display_name|slice:":1"|upper }}</div>
+        {% endif %}
+        <div>
+          <h1 class="profile-name">{{ profile.display_name }}</h1>
+          <p class="profile-meta">账号：@{{ request.user.username }} · 加入于 {{ request.user.date_joined|date:"Y-m-d" }}</p>
+          <p class="profile-bio-preview">{{ profile.bio|default:"暂未填写个人简介" }}</p>
+        </div>
+      </div>
+      <form method="post" action="{% url 'identity:logout' %}">
+        {% csrf_token %}
+        <button type="submit" class="identity-btn-secondary">退出登录</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="profile-grid">
+    <div class="profile-card">
+      <h2 class="profile-section-title">基础资料</h2>
+      {% if profile_form.non_field_errors %}
+        <div class="identity-alert identity-alert-error" role="alert">
+          <ul class="identity-error-list" style="margin: 0;">
+            {% for err in profile_form.non_field_errors %}<li>{{ err }}</li>{% endfor %}
+          </ul>
+        </div>
+      {% endif %}
+      <form method="post" action="{% url 'identity:profile' %}" class="identity-form" novalidate>
+        {% csrf_token %}
+        <input type="hidden" name="action" value="update_profile">
+
+        <div class="identity-field">
+          <label class="identity-label" for="{{ profile_form.nickname.id_for_label }}">{{ profile_form.nickname.label }}</label>
+          {{ profile_form.nickname }}
+          {% if profile_form.nickname.help_text %}
+            <span class="identity-help">{{ profile_form.nickname.help_text }}</span>
+          {% endif %}
+          {% if profile_form.nickname.errors %}
+            <ul class="identity-error-list">
+              {% for err in profile_form.nickname.errors %}<li>{{ err }}</li>{% endfor %}
+            </ul>
+          {% endif %}
+        </div>
+
+        <div class="identity-field">
+          <label class="identity-label" for="{{ profile_form.bio.id_for_label }}">{{ profile_form.bio.label }}</label>
+          {{ profile_form.bio }}
+          {% if profile_form.bio.help_text %}
+            <span class="identity-help">{{ profile_form.bio.help_text }}</span>
+          {% endif %}
+          {% if profile_form.bio.errors %}
+            <ul class="identity-error-list">
+              {% for err in profile_form.bio.errors %}<li>{{ err }}</li>{% endfor %}
+            </ul>
+          {% endif %}
+        </div>
+
+        <button type="submit" class="identity-btn">保存资料</button>
+      </form>
+    </div>
+
+    <div class="profile-card">
+      <h2 class="profile-section-title">头像设置</h2>
+      {% if avatar_form.non_field_errors %}
+        <div class="identity-alert identity-alert-error" role="alert">
+          <ul class="identity-error-list" style="margin: 0;">
+            {% for err in avatar_form.non_field_errors %}<li>{{ err }}</li>{% endfor %}
+          </ul>
+        </div>
+      {% endif %}
+      <form method="post" action="{% url 'identity:profile' %}" enctype="multipart/form-data" class="identity-form" novalidate>
+        {% csrf_token %}
+        <input type="hidden" name="action" value="upload_avatar">
+
+        <div class="identity-field">
+          <label class="identity-label" for="{{ avatar_form.avatar.id_for_label }}">{{ avatar_form.avatar.label }}</label>
+          {{ avatar_form.avatar }}
+          {% if avatar_form.avatar.help_text %}
+            <span class="identity-help">{{ avatar_form.avatar.help_text }}</span>
+          {% endif %}
+          {% if avatar_form.avatar.errors %}
+            <ul class="identity-error-list">
+              {% for err in avatar_form.avatar.errors %}<li>{{ err }}</li>{% endfor %}
+            </ul>
+          {% endif %}
+        </div>
+
+        <button type="submit" class="identity-btn">上传新头像</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="profile-card">
+    <h2 class="profile-section-title">修改登录密码</h2>
+    {% if password_form.non_field_errors %}
+      <div class="identity-alert identity-alert-error" role="alert">
+        <ul class="identity-error-list" style="margin: 0;">
+          {% for err in password_form.non_field_errors %}<li>{{ err }}</li>{% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+    <form method="post" action="{% url 'identity:profile' %}" class="identity-form" novalidate>
+      {% csrf_token %}
+      <input type="hidden" name="action" value="change_password">
+
+      <div class="profile-grid">
+        <div class="identity-field">
+          <label class="identity-label" for="{{ password_form.old_password.id_for_label }}">{{ password_form.old_password.label }}</label>
+          {{ password_form.old_password }}
+          {% if password_form.old_password.errors %}
+            <ul class="identity-error-list">
+              {% for err in password_form.old_password.errors %}<li>{{ err }}</li>{% endfor %}
+            </ul>
+          {% endif %}
+        </div>
+
+        <div class="identity-field">
+          <label class="identity-label" for="{{ password_form.new_password.id_for_label }}">{{ password_form.new_password.label }}</label>
+          {{ password_form.new_password }}
+          {% if password_form.new_password.help_text %}
+            <span class="identity-help">{{ password_form.new_password.help_text }}</span>
+          {% endif %}
+          {% if password_form.new_password.errors %}
+            <ul class="identity-error-list">
+              {% for err in password_form.new_password.errors %}<li>{{ err }}</li>{% endfor %}
+            </ul>
+          {% endif %}
+        </div>
+
+        <div class="identity-field">
+          <label class="identity-label" for="{{ password_form.new_password_confirm.id_for_label }}">{{ password_form.new_password_confirm.label }}</label>
+          {{ password_form.new_password_confirm }}
+          {% if password_form.new_password_confirm.errors %}
+            <ul class="identity-error-list">
+              {% for err in password_form.new_password_confirm.errors %}<li>{{ err }}</li>{% endfor %}
+            </ul>
+          {% endif %}
+        </div>
+      </div>
+
+      <button type="submit" class="identity-btn">更新密码</button>
+    </form>
+  </div>
+
+  <div class="profile-card">
+    <h2 class="profile-section-title">我的评论列表（最近 50 条）</h2>
+    {% if my_comments %}
+      <ul class="comment-history-list">
+        {% for item in my_comments %}
+          <li class="comment-history-item">
+            <div class="comment-history-top">
+              <div>
+                {% if item.page_url %}
+                  <a href="{{ item.page_url }}" class="comment-page-link">{{ item.page_title }}</a>
+                {% else %}
+                  <span class="comment-page-link">{{ item.page_title }}{% if item.page_missing %} [页面已永久销毁]{% endif %}</span>
+                {% endif %}
+              </div>
+              <div>
+                <span class="comment-status-badge status-{{ item.status_badge }}">{{ item.status_label }}</span>
+                {% if item.sub_status_note %}
+                  <span class="comment-time">{{ item.sub_status_note }}</span>
+                {% endif %}
+              </div>
+            </div>
+            <p class="comment-snippet">{{ item.snippet }}</p>
+            <div class="comment-time">发表于 {{ item.created_at|date:"Y-m-d H:i" }}</div>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="profile-meta">您还没有发表过任何评论。</p>
+    {% endif %}
+  </div>
+
+  <p class="profile-bottom-notice">如需申请专栏作者发文权限，请联系管理员审核开通</p>
+</section>
+{% endblock %}

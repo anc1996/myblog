@@ -21,6 +21,11 @@ from external_content.models import OutboxEvent
 logger = logging.getLogger(__name__)
 
 
+class UnsupportedOutboxEvent(ValueError):
+    """未知或不受支持的 Outbox 事件类型异常（直接拒绝并标为 failed，避免无意义重试）。"""
+    pass
+
+
 class OutboxProcessor:
     """Outbox 事件消费与调度处理器"""
 
@@ -36,7 +41,12 @@ class OutboxProcessor:
 
         processed_count = 0
         for event in events:
-            success = cls.dispatch_event(event)
+            try:
+                success = cls.dispatch_event(event)
+            except UnsupportedOutboxEvent as exc:
+                # 单条未知事件已在 dispatch_event 中记为 failed；批处理记录警告并跳过，不阻塞后续合法事件
+                logger.warning("Skipped unsupported OutboxEvent %s in batch: %s", event.event_id, exc)
+                continue
             if success:
                 processed_count += 1
         return processed_count
@@ -90,6 +100,16 @@ class OutboxProcessor:
                     # 撤销发布：将搜索副本从公开索引中隐藏
                     unpublish_page_discovery(page_id)
 
+            elif event_type == "page.restored":
+                # 从回收站恢复为草稿：解除搜索副本已回收标志，同时严格保持未发布状态 (is_live=False)
+                from discovery.models import ContentDiscoveryEpoch, PublishedSearchDocument
+                updated = PublishedSearchDocument.objects.filter(page_id=page_id).update(
+                    is_recycled=False,
+                    is_live=False,
+                )
+                if updated:
+                    ContentDiscoveryEpoch.increment_epoch()
+
             # ==============================================================
             # 事件分支 3：页面超过 30 天保留期后彻底销毁（page.purged）
             # 教学点：执行不可逆的“物理清除”，级联清理跨系统关联数据（MongoDB 与媒体引用）
@@ -127,6 +147,13 @@ class OutboxProcessor:
                         if hasattr(default_storage, "_controlled_physical_delete"):
                             default_storage._controlled_physical_delete(storage_key)
 
+            else:
+                # 未知事件类型：递增计数并直接置为 failed，随后抛出明确异常拒绝静默放行
+                event.retry_count += 1
+                event.status = "failed"
+                event.save(update_fields=["status", "retry_count"])
+                raise UnsupportedOutboxEvent(f"Unsupported outbox event_type: {event_type}")
+
             # ==============================================================
             # 状态更新：处理成功
             # 教学点：将事件标记为 processed，打上完成时间戳，防止被轮询 worker 重复消费
@@ -135,6 +162,10 @@ class OutboxProcessor:
             event.processed_at = timezone.now()
             event.save(update_fields=["status", "processed_at"])
             return True
+
+        except UnsupportedOutboxEvent as exc:
+            logger.warning("Rejected unsupported OutboxEvent %s: %s", event.event_id, exc)
+            raise
 
         except Exception as exc:
             # ==============================================================

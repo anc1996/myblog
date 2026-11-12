@@ -1,18 +1,27 @@
 from django.conf import settings
 from django.urls import include, path
 from django.contrib import admin
+from django.views.decorators.cache import never_cache
 
 from wagtail.admin import urls as wagtailadmin_urls
+from wagtail.admin.auth import require_admin_access
 from wagtail import urls as wagtail_urls
 from wagtail.documents import urls as wagtaildocs_urls
 
+from identity.admin_account import CustomAccountView
 from search import views as search_views
 from discovery.timeline import timeline_view
 from django.views.generic.base import RedirectView
 
 urlpatterns = [
     path("django-admin/", admin.site.urls),
+    path(
+        "admin/account/",
+        never_cache(require_admin_access(CustomAccountView.as_view())),
+        name="wagtailadmin_account",
+    ),
     path("admin/", include(wagtailadmin_urls)),
+    path("", include("identity.urls")),
     path("", include("media_library.urls")),
     path("documents/", include(wagtaildocs_urls)),
     path("search/", search_views.search, name="search"),

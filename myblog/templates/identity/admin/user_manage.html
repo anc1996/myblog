@@ -1,0 +1,83 @@
+{% extends "wagtailadmin/base.html" %}
+
+{% block titletag %}账号治理 - {{ target_user.username }}{% endblock %}
+
+{% block content %}
+{% include "wagtailadmin/shared/header.html" with title="账号治理工作台" subtitle=target_user.username icon="user" %}
+<div class="nice-padding">
+    <div style="background:#fff;border:1px solid #e2e8f0;padding:20px;border-radius:6px;margin-bottom:20px;">
+        <h2>基础信息与人工核密线索（仅超级管理员可见）</h2>
+        <p><strong>用户名：</strong>{{ target_user.username }}（ID: {{ target_user.id }}）</p>
+        <p><strong>展示昵称：</strong>{{ member_profile.display_name }} | <strong>状态：</strong>{% if target_user.is_active %}正常启用{% else %}已停用{% endif %} | <strong>会话代次：</strong>{{ member_profile.session_epoch }}</p>
+        <p><strong>强制改密状态：</strong>{% if member_profile.must_change_password %}是（待用户改密）{% else %}否{% endif %}</p>
+        <p><strong>人工核密线索：</strong>{{ member_profile.recovery_hint|default:"（用户未填写）" }}</p>
+        <p><strong>名下未销毁资产：</strong>页面 {{ owned_stats.pages }} 篇、图片 {{ owned_stats.images }} 张、文档 {{ owned_stats.documents }} 份、回收批次 {{ owned_stats.batches }} 个</p>
+    </div>
+
+    <div style="background:#fff;border:1px solid #e2e8f0;padding:20px;border-radius:6px;margin-bottom:20px;">
+        <h3>1. 停用 / 恢复账号（默认推荐）</h3>
+        <form method="POST">
+            {% csrf_token %}
+            {% if target_user.is_active %}
+                <input type="hidden" name="action" value="deactivate">
+                <input type="text" name="reason" placeholder="停用说明（可选）" style="padding:6px;width:280px;margin-right:8px;">
+                <button type="submit" class="button button-secondary">停用账号并踢出旧会话（保留头像与数据）</button>
+            {% else %}
+                <input type="hidden" name="action" value="reactivate">
+                <button type="submit" class="button">恢复启用账号</button>
+            {% endif %}
+        </form>
+    </div>
+
+    <div style="background:#fff;border:1px solid #e2e8f0;padding:20px;border-radius:6px;margin-bottom:20px;">
+        <h3>2. 管理员核实后重置临时密码</h3>
+        <form method="POST">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="reset_password">
+            <input type="password" name="temp_password" required placeholder="输入新临时密码" style="padding:6px;width:260px;margin-right:8px;">
+            <button type="submit" class="button">重置密码并强制下次登录修改</button>
+        </form>
+    </div>
+
+    <div style="background:#fef2f2;border:1px solid #fecaca;padding:20px;border-radius:6px;margin-bottom:20px;">
+        <h3 style="color:#991b1b;">3. 彻底删除账号（不可撤销，有资产必须指定接管管理员）</h3>
+        <form method="POST">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="hard_delete">
+            <p>
+                <label>资产接管管理员：</label>
+                <select name="transfer_to_user_id" style="padding:6px;min-width:220px;">
+                    {% if not has_assets %}<option value="">（当前名下无未销毁页面/媒体）</option>{% endif %}
+                    {% for candidate in transfer_candidates %}
+                        <option value="{{ candidate.id }}" {% if candidate.id == request.user.id %}selected{% endif %}>{{ candidate.username }} (ID: {{ candidate.id }})</option>
+                    {% endfor %}
+                </select>
+            </p>
+            <p>
+                <label>输入目标用户名 <code>{{ target_user.username }}</code> 确认删除：</label>
+                <input type="text" name="confirm_username" required style="padding:6px;width:220px;">
+            </p>
+            <button type="submit" class="button serious">确认过户资产并彻底删除账号</button>
+        </form>
+    </div>
+
+    <div style="background:#fff;border:1px solid #e2e8f0;padding:20px;border-radius:6px;">
+        <h3>近期治理审计与头像物理清理状态</h3>
+        <ul>
+            {% for log in recent_logs %}
+                <li>[{{ log.created_at }}] {{ log.get_action_display }}（操作人：{{ log.actor_username_snapshot }}）{{ log.details }}</li>
+            {% empty %}
+                <li>暂无审计记录</li>
+            {% endfor %}
+        </ul>
+        {% if avatar_tasks %}
+            <h4>头像清理任务</h4>
+            <ul>
+                {% for task in avatar_tasks %}
+                    <li>{{ task.storage_key }} - 状态：<strong>{{ task.get_status_display }}</strong>（重试：{{ task.attempts }}）</li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

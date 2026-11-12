@@ -9,6 +9,7 @@ RustFS (S3 API) 保护性对象存储后端。
 """
 
 import logging
+from django.core.files.storage import FileSystemStorage
 from storages.backends.s3 import S3Storage
 
 logger = logging.getLogger(__name__)
@@ -35,4 +36,21 @@ class ProtectedRustFSStorage(S3Storage):
 
     def _controlled_physical_delete(self, name):
         """受控物理删除内部接口：仅供离线对账任务在确认全站零引用后调用"""
+        return super().delete(name)
+
+
+class ControlledFileSystemStorage(FileSystemStorage):
+    """
+    本地测试/离线开发使用的受控文件系统存储后端。
+    与 ProtectedRustFSStorage 保持相同的 delete() 拦截与 _controlled_physical_delete() 语义。
+    """
+
+    def delete(self, name):
+        logger.warning(
+            "ControlledFileSystemStorage.delete called for %s - intercepted to protect references.",
+            name,
+        )
+        return
+
+    def _controlled_physical_delete(self, name):
         return super().delete(name)

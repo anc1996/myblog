@@ -13,7 +13,8 @@ comments.services
 import hashlib
 import logging
 from datetime import timedelta
-from django.db import transaction
+from django.contrib.auth import get_user_model
+from django.db import connection, transaction
 from django.db.models import F
 from django.db.models.functions import Greatest
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -36,6 +37,37 @@ logger = logging.getLogger(__name__)
 
 
 class CommentService:
+
+    @classmethod
+    def _lock_and_verify_active_user(cls, user) -> None:
+        """
+        在锁定 Comment 之前先核验并按共享键锁（FOR KEY SHARE）锁定目标 User，
+        确保全站统一遵循 User -> Comment 单向锁顺序。
+
+        教学说明：
+        1. AccountLifecycleService.hard_delete 删除账号时按“先锁 User，再锁 Comment”加锁；
+           评论写操作也必须先锁定目标 User 再锁 Comment，防止高并发下锁序相反触发死锁。
+        2. PostgreSQL 下使用 FOR KEY SHARE 而非 FOR UPDATE：
+           并发点赞、发评均只加 FOR KEY SHARE，彼此兼容互不阻塞；
+           同时又能与账号停用/硬删的 FOR UPDATE 互斥，确保停用或注销后不会写出孤儿外键。
+        """
+        user_id = getattr(user, "pk", None)
+        if not user_id:
+            raise PermissionDenied("账号已停用或不存在，无法执行操作。")
+
+        if connection.vendor == "postgresql":
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT 1 FROM identity_user WHERE id = %s AND is_active = TRUE FOR KEY SHARE",
+                    [user_id],
+                )
+                row = cursor.fetchone()
+            if row is None:
+                raise PermissionDenied("账号已停用或不存在，无法执行操作。")
+        else:
+            user_model = get_user_model()
+            if not user_model.objects.filter(pk=user_id, is_active=True).exists():
+                raise PermissionDenied("账号已停用或不存在，无法执行操作。")
 
     @classmethod
     def post_comment(
@@ -89,6 +121,33 @@ class CommentService:
         edit_window = now + timedelta(minutes=5)
 
         with transaction.atomic():
+            # 先收集并按 User.id 升序获取共享键锁，严格保证 User -> Comment 单向锁序，防止与 hard_delete 形成 AB-BA 等待
+            target_reply_user_id = None
+            if parent_id is not None and reply_to_comment_id:
+                reply_row = Comment.objects.filter(id=reply_to_comment_id).values("page_id", "author_id").first()
+                if reply_row and reply_row["page_id"] == page.id and reply_row["author_id"]:
+                    target_reply_user_id = reply_row["author_id"]
+
+            lock_user_pairs: list[tuple[int, bool]] = []
+            if author and getattr(author, "is_authenticated", False):
+                lock_user_pairs.append((int(author.pk), True))
+            if target_reply_user_id is not None and (not author or int(target_reply_user_id) != int(getattr(author, "pk", 0) or 0)):
+                lock_user_pairs.append((int(target_reply_user_id), False))
+
+            reply_user_alive = target_reply_user_id is not None
+            for uid, must_be_active in sorted(lock_user_pairs, key=lambda x: x[0]):
+                if must_be_active:
+                    cls._lock_and_verify_active_user(author)
+                else:
+                    if connection.vendor == "postgresql":
+                        with connection.cursor() as cursor:
+                            cursor.execute("SELECT 1 FROM identity_user WHERE id = %s FOR KEY SHARE", [uid])
+                            if cursor.fetchone() is None:
+                                reply_user_alive = False
+                    else:
+                        if not get_user_model().objects.filter(pk=uid).exists():
+                            reply_user_alive = False
+
             root_comment = None
             replied_to_user = None
             actual_reply_to = None
@@ -113,7 +172,7 @@ class CommentService:
                         actual_reply_to = Comment.objects.select_related("author").get(id=reply_to_comment_id)
                         if actual_reply_to.page_id != page.id:
                             raise ValidationError("回复的目标评论与当前页面不一致。")
-                        replied_to_user = actual_reply_to.author
+                        replied_to_user = actual_reply_to.author if reply_user_alive else None
                     except Comment.DoesNotExist:
                         pass
 
@@ -195,6 +254,9 @@ class CommentService:
         safe_html, _ = inspect_links_and_sanitize(new_raw_content)
 
         with transaction.atomic():
+            if author and getattr(author, "is_authenticated", False):
+                cls._lock_and_verify_active_user(author)
+
             comment = Comment.objects.select_for_update().get(id=comment_id)
             if comment.author_id != getattr(author, "id", None) and not getattr(author, "is_superuser", False):
                 raise PermissionDenied("仅原作者有权编辑本人评论。")
@@ -440,6 +502,7 @@ class CommentService:
             raise PermissionDenied("请先登录后再参与互动。")
 
         with transaction.atomic():
+            cls._lock_and_verify_active_user(user)
             comment = Comment.objects.select_for_update().get(id=comment_id)
             if not comment.is_publicly_visible:
                 raise ValidationError("无法对未公开或已删除的评论进行互动。")

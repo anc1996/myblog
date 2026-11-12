@@ -14,6 +14,7 @@ comments.models
 import hashlib
 import uuid
 from datetime import timedelta
+from typing import Any
 from django.conf import settings
 from django.db import models
 from django.db.models import Q, F
@@ -232,11 +233,80 @@ class Comment(models.Model):
             return self.page.title
         return f"{self.page_title_snapshot} [页面已永久销毁]"
 
+    def get_author_presentation(self) -> dict[str, Any]:
+        """
+        统一计算评论作者的前后台展示结构，精确区分会员、已注销用户、访客与未知主体。
+
+        教学说明：
+        1. 注册会员（author_id 存在且 author 不为空）：
+           优先读取关联 MemberProfile 的 display_name 与 avatar_url，无资料行时回退 username；
+        2. 已注销用户（author_id 为 None 且 author_subject_key 以 "user:" 开头）：
+           账号彻底删除后外键置空（SET_NULL），但稳定主体标识保留为 "user:<id>"，
+           据此识别为 deleted_member（"已注销用户"），避免与普通访客混淆；
+        3. 访客（author_subject_key 以 "ip:" 或 "guest:" 开头）：
+           返回 kind="guest"，展示 guest_name 或兜底 "访客"；
+        4. 空主体兜底（author_id 为 None 且 author_subject_key 为空）：
+           仅当 guest_name 非空时视为访客，否则必须返回 kind="unknown"（"未知用户"），
+           绝不把空主体误判成“已注销用户”或“访客”。
+        """
+        if self.author_id and self.author is not None:
+            profile = getattr(self.author, "member_profile", None)
+            return {
+                "id": self.author_id,
+                "username": self.author.username,
+                "display_name": (profile.display_name if profile else self.author.username),
+                "kind": "member",
+                "avatar_url": (profile.avatar_url if profile else ""),
+            }
+
+        subject_key = self.author_subject_key or ""
+        if self.author_id is None and subject_key.startswith("user:"):
+            return {
+                "id": None,
+                "username": "已注销用户",
+                "display_name": "已注销用户",
+                "kind": "deleted_member",
+                "avatar_url": "",
+            }
+
+        if subject_key.startswith(("ip:", "guest:")):
+            guest_label = self.guest_name or "访客"
+            return {
+                "id": None,
+                "username": guest_label,
+                "display_name": guest_label,
+                "kind": "guest",
+                "avatar_url": "",
+            }
+
+        if self.author_id is None and not subject_key:
+            if self.guest_name:
+                return {
+                    "id": None,
+                    "username": self.guest_name,
+                    "display_name": self.guest_name,
+                    "kind": "guest",
+                    "avatar_url": "",
+                }
+            return {
+                "id": None,
+                "username": "未知用户",
+                "display_name": "未知用户",
+                "kind": "unknown",
+                "avatar_url": "",
+            }
+
+        return {
+            "id": None,
+            "username": "未知用户",
+            "display_name": "未知用户",
+            "kind": "unknown",
+            "avatar_url": "",
+        }
+
     @property
     def author_display(self) -> str:
-        if self.author:
-            return self.author.username
-        return self.guest_name or "匿名/已注销"
+        return self.get_author_presentation()["display_name"]
 
     @property
     def content_snippet(self) -> str:
@@ -284,8 +354,7 @@ class Comment(models.Model):
 
     def __str__(self):
         page_str = self.page.title if self.page else self.page_title_snapshot
-        author_str = self.author.username if self.author else "匿名/已注销"
-        return f"Comment #{self.id} on '{page_str}' by {author_str} ({self.status})"
+        return f"Comment #{self.id} on '{page_str}' by {self.author_display} ({self.status})"
 
 
 class CommentVersion(models.Model):

@@ -379,7 +379,7 @@ class CommentViewSet(ModelViewSet):
     page_display.short_description = "所属页面"
 
     def author_display(self, obj):
-        return obj.author.username if obj.author else "匿名/已注销"
+        return obj.author_display
     author_display.short_description = "作者"
 
     def content_snippet(self, obj):

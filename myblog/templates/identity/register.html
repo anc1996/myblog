@@ -1,0 +1,244 @@
+{% extends "base.html" %}
+
+{% block title %}会员注册{% endblock %}
+
+{% block extra_css %}
+<style>
+  .identity-shell {
+    max-width: 520px;
+    margin: 36px auto;
+    padding: 0 20px;
+  }
+  .identity-card {
+    background: var(--bg-card, #ffffff);
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: var(--radius-lg, 12px);
+    padding: 28px;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+  }
+  .identity-title {
+    margin: 0 0 6px 0;
+    font-size: 1.45rem;
+    font-weight: 700;
+    color: var(--text-main, #0f172a);
+  }
+  .identity-subtitle {
+    margin: 0 0 22px 0;
+    font-size: 0.92rem;
+    color: var(--text-muted, #64748b);
+  }
+  .identity-alert {
+    padding: 10px 14px;
+    border-radius: var(--radius-sm, 6px);
+    font-size: 0.9rem;
+    margin-bottom: 16px;
+  }
+  .identity-alert-error {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    color: #991b1b;
+  }
+  .identity-form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .identity-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .identity-label {
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: #1e293b;
+  }
+  .identity-form input[type="text"],
+  .identity-form input[type="password"] {
+    width: 100%;
+    padding: 10px 12px;
+    font-size: 0.95rem;
+    border: 1px solid #cbd5e1;
+    border-radius: var(--radius-sm, 6px);
+    background: #ffffff;
+    color: var(--text-main, #0f172a);
+  }
+  .identity-form input:focus {
+    outline: none;
+    border-color: var(--primary-color, #2563eb);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  }
+  .identity-help {
+    font-size: 0.82rem;
+    color: var(--text-muted, #64748b);
+  }
+  .identity-error-list {
+    margin: 2px 0 0 0;
+    padding-left: 18px;
+    color: #b91c1c;
+    font-size: 0.85rem;
+  }
+  .identity-captcha-box {
+    padding: 14px;
+    background: #f8fafc;
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: var(--radius-md, 8px);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .identity-btn {
+    width: 100%;
+    padding: 11px 16px;
+    border: none;
+    border-radius: var(--radius-sm, 6px);
+    background: var(--primary-color, #2563eb);
+    color: #ffffff;
+    font-size: 0.96rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .identity-btn:hover {
+    background: var(--primary-hover, #1d4ed8);
+  }
+  .identity-footer-link {
+    margin-top: 18px;
+    padding-top: 14px;
+    border-top: 1px solid #f1f5f9;
+    font-size: 0.9rem;
+    color: var(--text-muted, #64748b);
+    text-align: center;
+  }
+  .identity-footer-link a {
+    color: var(--primary-color, #2563eb);
+    text-decoration: none;
+    font-weight: 600;
+  }
+  .identity-footer-link a:hover {
+    text-decoration: underline;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="identity-shell" aria-label="会员注册">
+  <div class="identity-card">
+    <h1 class="identity-title">注册会员账号</h1>
+    <p class="identity-subtitle">注册后即可管理个人资料、头像并查看您的评论审核状态。</p>
+
+    {% if page_error %}
+      <div class="identity-alert identity-alert-error" role="alert">{{ page_error }}</div>
+    {% endif %}
+
+    {% if form.non_field_errors %}
+      <div class="identity-alert identity-alert-error" role="alert">
+        <ul class="identity-error-list" style="margin: 0;">
+          {% for err in form.non_field_errors %}
+            <li>{{ err }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+
+    <form method="post" action="{% url 'identity:register' %}" class="identity-form" novalidate>
+      {% csrf_token %}
+      {% if next_url %}
+        <input type="hidden" name="next" value="{{ next_url }}">
+      {% endif %}
+
+      {# 蜜罐隐藏字段：正常访客不可见，爬虫填写将被静默拦截 #}
+      <div style="display: none !important;" aria-hidden="true">
+        <label for="{{ form.website.id_for_label }}">Website</label>
+        {{ form.website }}
+      </div>
+
+      <div class="identity-field">
+        <label class="identity-label" for="{{ form.username.id_for_label }}">{{ form.username.label }} *</label>
+        {{ form.username }}
+        {% if form.username.help_text %}
+          <span class="identity-help">{{ form.username.help_text }}</span>
+        {% endif %}
+        {% if form.username.errors %}
+          <ul class="identity-error-list">
+            {% for err in form.username.errors %}<li>{{ err }}</li>{% endfor %}
+          </ul>
+        {% endif %}
+      </div>
+
+      <div class="identity-field">
+        <label class="identity-label" for="{{ form.password.id_for_label }}">{{ form.password.label }} *</label>
+        {{ form.password }}
+        {% if form.password.help_text %}
+          <span class="identity-help">{{ form.password.help_text }}</span>
+        {% endif %}
+        {% if form.password.errors %}
+          <ul class="identity-error-list">
+            {% for err in form.password.errors %}<li>{{ err }}</li>{% endfor %}
+          </ul>
+        {% endif %}
+      </div>
+
+      <div class="identity-field">
+        <label class="identity-label" for="{{ form.password_confirm.id_for_label }}">{{ form.password_confirm.label }} *</label>
+        {{ form.password_confirm }}
+        {% if form.password_confirm.errors %}
+          <ul class="identity-error-list">
+            {% for err in form.password_confirm.errors %}<li>{{ err }}</li>{% endfor %}
+          </ul>
+        {% endif %}
+      </div>
+
+      <div class="identity-field">
+        <label class="identity-label" for="{{ form.nickname.id_for_label }}">{{ form.nickname.label }}</label>
+        {{ form.nickname }}
+        {% if form.nickname.help_text %}
+          <span class="identity-help">{{ form.nickname.help_text }}</span>
+        {% endif %}
+        {% if form.nickname.errors %}
+          <ul class="identity-error-list">
+            {% for err in form.nickname.errors %}<li>{{ err }}</li>{% endfor %}
+          </ul>
+        {% endif %}
+      </div>
+
+      <div class="identity-field">
+        <label class="identity-label" for="{{ form.recovery_hint.id_for_label }}">{{ form.recovery_hint.label }}</label>
+        {{ form.recovery_hint }}
+        <span class="identity-help">人工核密线索，仅忘记密码联系管理员核实使用，绝不公开</span>
+        {% if form.recovery_hint.errors %}
+          <ul class="identity-error-list">
+            {% for err in form.recovery_hint.errors %}<li>{{ err }}</li>{% endfor %}
+          </ul>
+        {% endif %}
+      </div>
+
+      <div class="identity-captcha-box">
+        <div class="identity-field">
+          <label class="identity-label" for="{{ form.captcha_id.id_for_label }}">{{ form.captcha_id.label }}</label>
+          {{ form.captcha_id }}
+          {% if form.captcha_id.errors %}
+            <ul class="identity-error-list">
+              {% for err in form.captcha_id.errors %}<li>{{ err }}</li>{% endfor %}
+            </ul>
+          {% endif %}
+        </div>
+        <div class="identity-field">
+          <label class="identity-label" for="{{ form.captcha_code.id_for_label }}">{{ form.captcha_code.label }}</label>
+          {{ form.captcha_code }}
+          {% if form.captcha_code.errors %}
+            <ul class="identity-error-list">
+              {% for err in form.captcha_code.errors %}<li>{{ err }}</li>{% endfor %}
+            </ul>
+          {% endif %}
+        </div>
+      </div>
+
+      <button type="submit" class="identity-btn">立即注册</button>
+    </form>
+
+    <div class="identity-footer-link">
+      已有账号？<a href="{% url 'identity:login' %}{% if next_url %}?next={{ next_url|urlencode }}{% endif %}">立即登录</a>
+    </div>
+  </div>
+</section>
+{% endblock %}

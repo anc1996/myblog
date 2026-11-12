@@ -29,7 +29,8 @@ from django.utils import timezone
 from wagtail.models import Page
 from home.models import HomePage
 from blog.models import BlogPage, BlogIndexPage
-from identity.models import User
+from identity.account_lifecycle import AccountLifecycleService
+from identity.models import MemberProfile, User
 from comments.models import (
     Comment,
     CommentVersion,
@@ -45,6 +46,8 @@ from comments.sanitizer import (
 )
 from comments.wagtail_hooks import comment_viewset
 from content_lifecycle.recycle import RecycleService
+from external_content.models import OutboxEvent
+from external_content.outbox import OutboxProcessor, UnsupportedOutboxEvent
 
 
 class CommentGovernanceTests(unittest.TestCase):
@@ -55,7 +58,7 @@ class CommentGovernanceTests(unittest.TestCase):
         cls.factory = RequestFactory()
         cls.home = HomePage.objects.first()
 
-        cls.admin_user = User.objects.filter(is_superuser=True).first()
+        cls.admin_user = User.objects.filter(is_superuser=True, is_active=True).first()
         if not cls.admin_user:
             cls.admin_user = User.objects.create_superuser(
                 username=f"admin_gov_{uuid4().hex[:6]}",
@@ -543,8 +546,16 @@ class CommentGovernanceTests(unittest.TestCase):
             )
         finally:
             self.client.logout()
-            plain_staff.delete()
-            mod_user.delete()
+            AccountLifecycleService.hard_delete(
+                actor=self.admin_user,
+                target_user_id=plain_staff.id,
+                confirmed=True,
+            )
+            AccountLifecycleService.hard_delete(
+                actor=self.admin_user,
+                target_user_id=mod_user.id,
+                confirmed=True,
+            )
 
     def test_0003_backfill_restores_nulled_version_pointers(self):
         import importlib
@@ -577,3 +588,216 @@ class CommentGovernanceTests(unittest.TestCase):
         self.assertEqual(c.pending_version_id, v2.id)
         self.assertIsNotNone(c.pending_submitted_at)
         self.assertEqual(c.author_subject_key, f"user:{self.normal_user.id}")
+
+    def test_comment_author_presentation_deleted_member_guest_and_unknown(self):
+        """验证 Comment.get_author_presentation 区分已注销用户、访客与空主体未知用户"""
+        temp_member = User.objects.create_user(
+            username=f"gov_mem_{uuid4().hex[:6]}",
+            password="password123",
+        )
+        try:
+            profile = MemberProfile.get_or_create_for_user(temp_member)
+            profile.nickname = "治理测试昵称"
+            profile.save(update_fields=["nickname"])
+
+            c_member = CommentService.post_comment(
+                page=self.test_page,
+                author=temp_member,
+                raw_content="即将注销的会员评论",
+                auto_approve=True,
+            )
+            c_loaded = Comment.objects.select_related("author", "author__member_profile").get(id=c_member.id)
+            self.assertEqual(c_loaded.author_display, "治理测试昵称")
+            self.assertEqual(c_loaded.get_author_presentation()["kind"], "member")
+
+            AccountLifecycleService.hard_delete(
+                actor=self.admin_user,
+                target_user_id=temp_member.id,
+                confirmed=True,
+            )
+            c_member.refresh_from_db()
+            self.assertIsNone(c_member.author_id)
+            self.assertTrue(c_member.author_subject_key.startswith("user:"))
+            self.assertEqual(
+                c_member.get_author_presentation(),
+                {
+                    "id": None,
+                    "username": "已注销用户",
+                    "display_name": "已注销用户",
+                    "kind": "deleted_member",
+                    "avatar_url": "",
+                },
+            )
+            self.assertEqual(c_member.author_display, "已注销用户")
+            self.assertIn("已注销用户", str(c_member))
+
+            c_guest_ip = CommentService.post_comment(
+                page=self.test_page,
+                author=None,
+                guest_name="",
+                raw_content="IP访客评论",
+                ip_address="198.51.100.7",
+                auto_approve=True,
+            )
+            self.assertEqual(
+                c_guest_ip.get_author_presentation(),
+                {
+                    "id": None,
+                    "username": "访客",
+                    "display_name": "访客",
+                    "kind": "guest",
+                    "avatar_url": "",
+                },
+            )
+            self.assertEqual(c_guest_ip.author_display, "访客")
+
+            c_guest_named = CommentService.post_comment(
+                page=self.test_page,
+                author=None,
+                guest_name="路人甲",
+                raw_content="命名访客评论",
+                ip_address="198.51.100.8",
+                auto_approve=True,
+            )
+            Comment.objects.filter(id=c_guest_named.id).update(author_subject_key="guest:anon-1")
+            c_guest_named.refresh_from_db()
+            self.assertEqual(c_guest_named.get_author_presentation()["kind"], "guest")
+            self.assertEqual(c_guest_named.author_display, "路人甲")
+
+            c_unknown = CommentService.post_comment(
+                page=self.test_page,
+                author=None,
+                guest_name="",
+                raw_content="空主体未知用户测试",
+                ip_address="198.51.100.9",
+                auto_approve=True,
+            )
+            Comment.objects.filter(id=c_unknown.id).update(
+                author=None,
+                author_subject_key="",
+                guest_name="",
+            )
+            c_unknown.refresh_from_db()
+            self.assertEqual(
+                c_unknown.get_author_presentation(),
+                {
+                    "id": None,
+                    "username": "未知用户",
+                    "display_name": "未知用户",
+                    "kind": "unknown",
+                    "avatar_url": "",
+                },
+            )
+            self.assertEqual(c_unknown.author_display, "未知用户")
+
+            Comment.objects.filter(id=c_unknown.id).update(guest_name="匿名热心网友")
+            c_unknown.refresh_from_db()
+            self.assertEqual(c_unknown.get_author_presentation()["kind"], "guest")
+            self.assertEqual(c_unknown.author_display, "匿名热心网友")
+        finally:
+            if User.objects.filter(id=temp_member.id).exists():
+                AccountLifecycleService.hard_delete(
+                    actor=self.admin_user,
+                    target_user_id=temp_member.id,
+                    confirmed=True,
+                )
+
+    def test_deactivated_user_blocked_on_comment_mutations(self):
+        """验证已停用账号在发评、编辑与点赞前被锁序核验拒绝"""
+        temp_user = User.objects.create_user(
+            username=f"gov_deact_{uuid4().hex[:6]}",
+            password="password123",
+        )
+        try:
+            own_comment = CommentService.post_comment(
+                page=self.test_page,
+                author=temp_user,
+                raw_content="停用前发表的评论",
+                auto_approve=True,
+            )
+            other_comment = CommentService.post_comment(
+                page=self.test_page,
+                author=self.normal_user,
+                raw_content="其他人的正常评论",
+                auto_approve=True,
+            )
+
+            AccountLifecycleService.deactivate_user(
+                actor=self.admin_user,
+                target_user_id=temp_user.id,
+                reason="测试停用拦截",
+            )
+
+            with self.assertRaises(PermissionDenied):
+                CommentService.post_comment(
+                    page=self.test_page,
+                    author=temp_user,
+                    raw_content="停用后发评",
+                )
+            with self.assertRaises(PermissionDenied):
+                CommentService.edit_comment(
+                    comment_id=own_comment.id,
+                    author=temp_user,
+                    new_raw_content="停用后编辑",
+                )
+            with self.assertRaises(PermissionDenied):
+                CommentService.react_comment(
+                    comment_id=other_comment.id,
+                    user=temp_user,
+                    target_reaction=1,
+                )
+        finally:
+            if User.objects.filter(id=temp_user.id).exists():
+                AccountLifecycleService.hard_delete(
+                    actor=self.admin_user,
+                    target_user_id=temp_user.id,
+                    confirmed=True,
+                )
+
+    def test_outbox_rejects_unsupported_event_and_batch_continues(self):
+        """验证 OutboxProcessor 拒绝未知事件类型，且批处理单条跳过并继续处理后续合法事件"""
+        while OutboxProcessor.process_pending_events(batch_size=100) > 0:
+            pass
+
+        created_ids = []
+        try:
+            bad_direct = OutboxEvent.objects.create(
+                event_type="unknown.direct.event",
+                page_id=self.test_page.id,
+                payload={"case": "direct"},
+            )
+            created_ids.append(bad_direct.id)
+
+            with self.assertRaises(UnsupportedOutboxEvent):
+                OutboxProcessor.dispatch_event(bad_direct)
+            bad_direct.refresh_from_db()
+            self.assertEqual(bad_direct.status, "failed")
+            self.assertEqual(bad_direct.retry_count, 1)
+
+            bad_batch = OutboxEvent.objects.create(
+                event_type="unknown.batch.event",
+                page_id=self.test_page.id,
+                payload={"case": "batch"},
+            )
+            good_batch = OutboxEvent.objects.create(
+                event_type="page.published",
+                page_id=self.test_page.id,
+                payload={"case": "valid"},
+            )
+            created_ids.extend([bad_batch.id, good_batch.id])
+
+            OutboxEvent.objects.filter(id=bad_batch.id).update(
+                created_at=timezone.now() - timedelta(seconds=10)
+            )
+
+            processed = OutboxProcessor.process_pending_events(batch_size=50)
+            self.assertEqual(processed, 1)
+
+            bad_batch.refresh_from_db()
+            good_batch.refresh_from_db()
+            self.assertEqual(bad_batch.status, "failed")
+            self.assertEqual(bad_batch.retry_count, 1)
+            self.assertEqual(good_batch.status, "processed")
+            self.assertIsNotNone(good_batch.processed_at)
+        finally:
+            OutboxEvent.objects.filter(id__in=created_ids).delete()

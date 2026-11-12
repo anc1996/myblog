@@ -25,7 +25,8 @@ from home.models import HomePage
 from blog.models import BlogIndexPage, BlogPage
 from guides.models import GuideIndexPage, GuidePage, GuideTopic
 from portfolio.models import PortfolioIndexPage, ProjectPage
-from identity.models import User
+from identity.account_lifecycle import AccountLifecycleService
+from identity.models import MemberProfile, User
 from comments.models import Comment, PageCommentSettings
 from comments.services import CommentService
 from content_lifecycle.recycle import RecycleService
@@ -37,7 +38,7 @@ class CommentFrontendIntegrationTests(unittest.TestCase):
     def setUpClass(cls):
         cls.home = HomePage.objects.first()
         cls.site = Site.objects.filter(is_default_site=True).first()
-        cls.admin_user = User.objects.filter(is_superuser=True).first()
+        cls.admin_user = User.objects.filter(is_superuser=True, is_active=True).first()
         if not cls.admin_user:
             cls.admin_user = User.objects.create_superuser(
                 username=f"fe_admin_{uuid4().hex[:6]}",
@@ -212,7 +213,12 @@ class CommentFrontendIntegrationTests(unittest.TestCase):
             self.assertEqual(cancel_react.status_code, 200)
             self.assertEqual(cancel_react.json()["data"]["like_count"], 0)
         finally:
-            other.delete()
+            self.client.logout()
+            AccountLifecycleService.hard_delete(
+                actor=self.admin_user,
+                target_user_id=other.id,
+                confirmed=True,
+            )
 
     def test_draft_preview_renders_notice_instead_of_failing_widget(self):
         """草稿预览模式不加载注定 403 的公开评论 API"""
@@ -285,3 +291,143 @@ class CommentFrontendIntegrationTests(unittest.TestCase):
         list_resp = reader_client.get(f"/api/v1/pages/{blog.id}/comments/")
         self.assertEqual(list_resp.json()["items"][0]["kind"], "author_deleted")
         self.assertEqual(reader_client.get(f"/api/v1/comments/{root_id}/replies/").status_code, 200)
+
+    def test_api_author_presentation_distinguishes_member_deleted_guest_and_unknown(self):
+        """评论列表与回复 API 正确区分会员、已注销用户、访客与空主体未知用户，且不暴露 author_subject_key"""
+        blog = self._create_blog_page()
+        member_user = User.objects.create_user(
+            username=f"fe_mem_{uuid4().hex[:6]}",
+            password="password123",
+        )
+        deleted_user = User.objects.create_user(
+            username=f"fe_del_{uuid4().hex[:6]}",
+            password="password123",
+        )
+        try:
+            profile = MemberProfile.get_or_create_for_user(member_user)
+            profile.nickname = "前端专栏昵称"
+            profile.save(update_fields=["nickname"])
+
+            c_member = CommentService.post_comment(
+                page=blog,
+                author=member_user,
+                raw_content="在任会员评论",
+                auto_approve=True,
+            )
+            c_deleted = CommentService.post_comment(
+                page=blog,
+                author=deleted_user,
+                raw_content="待注销会员评论",
+                auto_approve=True,
+            )
+            c_guest = CommentService.post_comment(
+                page=blog,
+                author=None,
+                guest_name="",
+                raw_content="匿名访客评论",
+                ip_address="192.0.2.10",
+                auto_approve=True,
+            )
+            c_unknown = CommentService.post_comment(
+                page=blog,
+                author=None,
+                guest_name="",
+                raw_content="历史空主体评论",
+                ip_address="192.0.2.11",
+                auto_approve=True,
+            )
+            Comment.objects.filter(id=c_unknown.id).update(
+                author=None,
+                author_subject_key="",
+                guest_name="",
+            )
+
+            CommentService.post_comment(
+                page=blog,
+                author=self.reader_user,
+                raw_content="回复专栏作者",
+                parent_id=c_member.id,
+                reply_to_comment_id=c_member.id,
+                auto_approve=True,
+            )
+
+            AccountLifecycleService.hard_delete(
+                actor=self.admin_user,
+                target_user_id=deleted_user.id,
+                confirmed=True,
+            )
+
+            list_resp = self.client.get(f"/api/v1/pages/{blog.id}/comments/")
+            self.assertEqual(list_resp.status_code, 200)
+            by_id = {item["id"]: item for item in list_resp.json()["items"]}
+
+            self.assertEqual(
+                by_id[c_member.id]["author"],
+                {
+                    "id": member_user.id,
+                    "username": member_user.username,
+                    "display_name": "前端专栏昵称",
+                    "kind": "member",
+                    "avatar_url": "",
+                },
+            )
+            self.assertEqual(
+                by_id[c_deleted.id]["author"],
+                {
+                    "id": None,
+                    "username": "已注销用户",
+                    "display_name": "已注销用户",
+                    "kind": "deleted_member",
+                    "avatar_url": "",
+                },
+            )
+            self.assertEqual(
+                by_id[c_guest.id]["author"],
+                {
+                    "id": None,
+                    "username": "访客",
+                    "display_name": "访客",
+                    "kind": "guest",
+                    "avatar_url": "",
+                },
+            )
+            self.assertEqual(
+                by_id[c_unknown.id]["author"],
+                {
+                    "id": None,
+                    "username": "未知用户",
+                    "display_name": "未知用户",
+                    "kind": "unknown",
+                    "avatar_url": "",
+                },
+            )
+            for item in by_id.values():
+                self.assertNotIn("author_subject_key", item)
+                self.assertNotIn("author_subject_key", item["author"])
+
+            replies_resp = self.client.get(f"/api/v1/comments/{c_member.id}/replies/")
+            self.assertEqual(replies_resp.status_code, 200)
+            reply_item = replies_resp.json()["items"][0]
+            self.assertEqual(
+                reply_item["replied_to_user"],
+                {
+                    "id": member_user.id,
+                    "username": member_user.username,
+                    "display_name": "前端专栏昵称",
+                },
+            )
+            self.assertEqual(reply_item["author"]["kind"], "member")
+            self.assertNotIn("author_subject_key", reply_item["author"])
+        finally:
+            if User.objects.filter(id=member_user.id).exists():
+                AccountLifecycleService.hard_delete(
+                    actor=self.admin_user,
+                    target_user_id=member_user.id,
+                    confirmed=True,
+                )
+            if User.objects.filter(id=deleted_user.id).exists():
+                AccountLifecycleService.hard_delete(
+                    actor=self.admin_user,
+                    target_user_id=deleted_user.id,
+                    confirmed=True,
+                )
