@@ -1,5 +1,6 @@
 import uuid
 from django.db import models
+from django.urls import reverse
 from wagtail.images.models import AbstractImage, AbstractRendition, Image
 from wagtail.documents.models import AbstractDocument, Document
 from wagtail.snippets.models import register_snippet
@@ -63,6 +64,13 @@ class CustomRendition(AbstractRendition):
         unique_together = (("image", "filter_spec", "focal_point_key"),)
         verbose_name = "派生图片"
         verbose_name_plural = "派生图片"
+
+    @property
+    def url(self):
+        """统一通过受控媒体网关交付派生图与原图下载，避免直出内网 RustFS 地址。"""
+        if self.pk:
+            return reverse("media_gateway_rendition", args=[self.pk])
+        return super().url
 
 
 class CustomDocument(AbstractDocument):

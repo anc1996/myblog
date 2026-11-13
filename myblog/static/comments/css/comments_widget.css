@@ -133,6 +133,25 @@
   color: #991b1b;
 }
 
+.comment-card-inline-alert {
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.comment-card-inline-alert.is-error {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+}
+
+.comment-card-inline-alert.is-success {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  color: #166534;
+}
+
 .comment-replying-notice {
   display: flex;
   justify-content: space-between;

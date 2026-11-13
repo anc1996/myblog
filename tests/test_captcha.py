@@ -67,20 +67,22 @@ class CaptchaModuleTests(unittest.TestCase):
         try:
             r = _get_redis_client(write=True)
             if r is not None:
+                from captcha.service import _resolve_prefix
+                p = _resolve_prefix()
                 keys = []
                 for ip in self.tracked_ips:
                     keys.extend([
-                        f"myblog:captcha:rl:ip:{ip}",
-                        f"myblog:rl:reg:hr:{ip}",
-                        f"myblog:rl:reg:day:{ip}",
-                        f"myblog:loginfail:ip:{ip}",
-                        f"myblog:logintry:ip:{ip}",
+                        f"{p}:captcha:rl:ip:{ip}",
+                        f"{p}:rl:reg:hr:{ip}",
+                        f"{p}:rl:reg:day:{ip}",
+                        f"{p}:loginfail:ip:{ip}",
+                        f"{p}:logintry:ip:{ip}",
                     ])
                 for uname in self.tracked_usernames:
-                    keys.append(f"myblog:loginfail:user:{uname.lower()}")
-                    keys.append(f"myblog:logintry:user:{uname.lower()}")
+                    keys.append(f"{p}:loginfail:user:{uname.lower()}")
+                    keys.append(f"{p}:logintry:user:{uname.lower()}")
                 for cid in self.tracked_captcha_ids:
-                    keys.extend([f"myblog:captcha:ch:{cid}", f"myblog:captcha:img:{cid}"])
+                    keys.extend([f"{p}:captcha:ch:{cid}", f"{p}:captcha:img:{cid}"])
                 if keys:
                     r.delete(*keys)
         except Exception:

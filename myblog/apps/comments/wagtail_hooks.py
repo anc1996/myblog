@@ -98,7 +98,13 @@ class CommentIndexView(CommentViewPermissionMixin, generic.IndexView):
         return None
 
     def get_queryset(self):
-        qs = super().get_queryset()
+        qs = super().get_queryset().select_related(
+            "page",
+            "author",
+            "latest_version",
+            "approved_version",
+            "pending_version",
+        )
         page_type = self.request.GET.get("page_type", "all")
         if page_type == "blog_page":
             qs = qs.filter(page__content_type__model="blogpage")
@@ -309,7 +315,14 @@ class CommentViewSet(ModelViewSet):
         Column("actions_column", label="审核操作"),
     ]
     list_filter = ["status", "is_publicly_visible", "created_at"]
-    search_fields = ["author__username", "page_title_snapshot"]
+    search_fields = [
+        "author__username",
+        "guest_name",
+        "page_title_snapshot",
+        "latest_version__raw_content",
+        "pending_version__raw_content",
+        "approved_version__raw_content",
+    ]
 
     inspect_view_fields = [
         "id",

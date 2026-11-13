@@ -135,21 +135,23 @@ class CommentPhase3Tests(unittest.TestCase):
             r = _get_redis_client(write=True)
             if r is None:
                 return
+            from comments.rate_limit import _resolve_prefix
+            p = _resolve_prefix()
             for uid in self.created_user_ids:
-                for k in r.scan_iter(match=f"myblog:ratelimit:comment:user:{uid}:*"):
+                for k in r.scan_iter(match=f"{p}:ratelimit:comment:user:{uid}:*"):
                     r.delete(k)
             for ip in self.tracked_ips:
                 for pattern in (
-                    f"myblog:ratelimit:comment:ip:{ip}:*",
-                    f"myblog:captcha:rl:ip:{ip}",
+                    f"{p}:ratelimit:comment:ip:{ip}:*",
+                    f"{p}:captcha:rl:ip:{ip}",
                 ):
                     for k in r.scan_iter(match=pattern):
                         r.delete(k)
             for bkey in self.tracked_browser_keys:
-                for k in r.scan_iter(match=f"myblog:ratelimit:comment:browser:{bkey}:*"):
+                for k in r.scan_iter(match=f"{p}:ratelimit:comment:browser:{bkey}:*"):
                     r.delete(k)
             for cid in self.tracked_captcha_ids:
-                r.delete(f"myblog:captcha:ch:{cid}", f"myblog:captcha:img:{cid}")
+                r.delete(f"{p}:captcha:ch:{cid}", f"{p}:captcha:img:{cid}")
         except Exception:
             pass
 

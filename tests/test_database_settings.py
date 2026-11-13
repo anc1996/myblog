@@ -12,9 +12,12 @@ SETTINGS = Path(__file__).resolve().parents[1] / "myblog" / "settings" / "base.p
 
 
 class DatabaseSettingsTests(unittest.TestCase):
-    def config(self, env_file, **variables):
+    def load_settings(self, env_file, **variables):
         with patch.dict(os.environ, {"MYBLOG_ENV_FILE": str(env_file), **variables}, clear=True):
-            return runpy.run_path(str(SETTINGS))["DATABASES"]["default"]
+            return runpy.run_path(str(SETTINGS))
+
+    def config(self, env_file, **variables):
+        return self.load_settings(env_file, **variables)["DATABASES"]["default"]
 
     def test_unconfigured_database_stays_postgres_without_a_builtin_password(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -44,6 +47,24 @@ class DatabaseSettingsTests(unittest.TestCase):
             )
         self.assertEqual(database["TEST"]["NAME"], "test_myblog_isolated")
         self.assertNotEqual(database["NAME"], database["TEST"]["NAME"])
+
+    def test_redis_db_and_key_prefix_read_from_env_and_environment(self):
+        with tempfile.TemporaryDirectory() as directory:
+            env_file = Path(directory) / "test.env"
+            env_file.write_text(
+                "REDIS_HOST=127.0.0.1\nREDIS_PORT=6379\n"
+                "REDIS_DB=11\nREDIS_KEY_PREFIX=myblog:test\n",
+                encoding="utf-8",
+            )
+            ns = self.load_settings(env_file)
+            self.assertTrue(ns["CACHES"]["default"]["LOCATION"].endswith("/11"))
+            self.assertEqual(ns["CACHES"]["default"]["KEY_PREFIX"], "myblog:test")
+            self.assertEqual(ns["REDIS_KEY_PREFIX"], "myblog:test")
+
+            ns_override = self.load_settings(env_file, REDIS_DB="9", REDIS_KEY_PREFIX="myblog:dev:")
+            self.assertTrue(ns_override["CACHES"]["default"]["LOCATION"].endswith("/9"))
+            self.assertEqual(ns_override["CACHES"]["default"]["KEY_PREFIX"], "myblog:dev")
+            self.assertEqual(ns_override["REDIS_KEY_PREFIX"], "myblog:dev")
 
 
 if __name__ == "__main__":

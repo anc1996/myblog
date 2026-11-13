@@ -136,19 +136,21 @@ class IdentityFrontendTests(unittest.TestCase):
             client = backend.get_client(write=True) if backend and hasattr(backend, "get_client") else None
             if client is None:
                 return
+            from identity.credentials import _resolve_prefix
+            p = _resolve_prefix()
             keys = []
             for ip in self.redis_ips:
                 keys.extend(
                     [
-                        f"myblog:rl:reg:hr:{ip}",
-                        f"myblog:rl:reg:day:{ip}",
-                        f"myblog:loginfail:ip:{ip}",
-                        f"myblog:logintry:ip:{ip}",
+                        f"{p}:rl:reg:hr:{ip}",
+                        f"{p}:rl:reg:day:{ip}",
+                        f"{p}:loginfail:ip:{ip}",
+                        f"{p}:logintry:ip:{ip}",
                     ]
                 )
             for uname in self.redis_usernames:
-                keys.append(f"myblog:loginfail:user:{uname.strip().lower()}")
-                keys.append(f"myblog:logintry:user:{uname.strip().lower()}")
+                keys.append(f"{p}:loginfail:user:{uname.strip().lower()}")
+                keys.append(f"{p}:logintry:user:{uname.strip().lower()}")
             if keys:
                 client.delete(*keys)
         except Exception:

@@ -405,6 +405,20 @@ class CustomBasePage(Page):
             raise Http404(f"页面 '{self.title}' 当前处于回收站中")
         return super().serve(request, *args, **kwargs)
 
+    def route(self, request, path_components):
+        """已回收页面在具备查看权的工作人员访问原前台 URL 时交由 before_serve_page 展示恢复引导，其余返回 404。"""
+        if not path_components and getattr(self, "is_recycled", False):
+            from content_lifecycle.wagtail_hooks import can_user_view_recycled_notice
+
+            if can_user_view_recycled_notice(getattr(request, "user", None), self):
+                from wagtail.url_routing import RouteResult
+
+                return RouteResult(self)
+            from django.http import Http404
+
+            raise Http404(f"页面 '{self.title}' 当前处于回收站中")
+        return super().route(request, path_components)
+
 
 class ContentMutationGuard(models.Model):
     """

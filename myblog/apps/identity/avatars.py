@@ -106,14 +106,16 @@ def sanitize_and_encode_avatar(uploaded_file) -> bytes:
                     return out.getvalue()
             except ValidationError:
                 raise
+            except UnidentifiedImageError:
+                raise ValidationError("无法识别的图像文件，请上传有效的静态 JPG、PNG 或 WebP 图片。")
+            except (Image.DecompressionBombError, Image.DecompressionBombWarning):
+                raise ValidationError("图像像素尺寸过大或存在解压缩风险，请压缩后再试。")
             except (
-                UnidentifiedImageError,
-                Image.DecompressionBombError,
-                Image.DecompressionBombWarning,
                 OSError,
                 ValueError,
             ) as exc:
-                raise ValidationError(f"头像图像无法安全解析，请更换正常静态图片重试：{exc}") from exc
+                logger.warning("Avatar image sanitize failed (%s)", type(exc).__name__)
+                raise ValidationError("头像图像无法安全解析，请更换正常静态图片重试。") from exc
     finally:
         Image.MAX_IMAGE_PIXELS = prev_max_pixels
 

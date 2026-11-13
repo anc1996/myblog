@@ -106,13 +106,15 @@ class CommentsSystemTests(unittest.TestCase):
         try:
             r = _get_redis_client(write=True)
             if r is not None:
+                from comments.rate_limit import _resolve_prefix
+                p = _resolve_prefix()
                 for pattern in (
-                    f"myblog:ratelimit:comment:user:{self.user_a.id}:*",
-                    f"myblog:ratelimit:comment:user:{self.user_b.id}:*",
-                    f"myblog:ratelimit:comment:user:{self.user_c.id}:*",
-                    "myblog:ratelimit:comment:ip:127.0.0.1:*",
-                    "myblog:ratelimit:comment:ip:10.243.1.7:*",
-                    "myblog:captcha:rl:ip:10.243.1.7",
+                    f"{p}:ratelimit:comment:user:{self.user_a.id}:*",
+                    f"{p}:ratelimit:comment:user:{self.user_b.id}:*",
+                    f"{p}:ratelimit:comment:user:{self.user_c.id}:*",
+                    f"{p}:ratelimit:comment:ip:127.0.0.1:*",
+                    f"{p}:ratelimit:comment:ip:10.243.1.7:*",
+                    f"{p}:captcha:rl:ip:10.243.1.7",
                 ):
                     for key in r.scan_iter(match=pattern):
                         r.delete(key)

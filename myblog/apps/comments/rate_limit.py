@@ -80,6 +80,11 @@ def _get_redis_client(*, write: bool = True):
     return None
 
 
+def _resolve_prefix() -> str:
+    prefix = getattr(settings, "REDIS_KEY_PREFIX", "") or settings.CACHES.get("default", {}).get("KEY_PREFIX", "myblog")
+    return str(prefix or "myblog").strip().rstrip(":") or "myblog"
+
+
 def get_client_ip(request) -> str:
     """
     安全解析客户端 IP（防止 X-Forwarded-For 左端伪造绕过）：
@@ -172,15 +177,16 @@ def check_comment_rate_limit(
 
     keys: list[str] = []
     limits: list[int] = []
+    prefix = _resolve_prefix()
     if tier == "guest" and guest_browser_key and browser_limit > 0:
-        keys.append(f"myblog:ratelimit:comment:browser:{guest_browser_key}:{action}")
+        keys.append(f"{prefix}:ratelimit:comment:browser:{guest_browser_key}:{action}")
         limits.append(browser_limit)
     if user and getattr(user, "is_authenticated", False) and user_limit > 0:
-        keys.append(f"myblog:ratelimit:comment:user:{user.id}:{action}")
+        keys.append(f"{prefix}:ratelimit:comment:user:{user.id}:{action}")
         limits.append(user_limit)
         if burst_limit > 0:
             burst_idx = len(keys)
-    keys.append(f"myblog:ratelimit:comment:ip:{ip}:{action}")
+    keys.append(f"{prefix}:ratelimit:comment:ip:{ip}:{action}")
     limits.append(ip_limit)
 
     try:
@@ -233,7 +239,7 @@ def is_member_comment_captcha_required(request, user, raw_content: str = "") -> 
     if burst_threshold <= 0:
         return True
 
-    user_key = f"myblog:ratelimit:comment:user:{user.id}:post"
+    user_key = f"{_resolve_prefix()}:ratelimit:comment:user:{user.id}:post"
     now = time.time()
     cutoff = now - 60
     try:

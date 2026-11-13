@@ -114,10 +114,12 @@ class CommentFrontendIntegrationTests(unittest.TestCase):
         try:
             r = _get_redis_client(write=True)
             if r is not None:
+                from comments.rate_limit import _resolve_prefix
+                p = _resolve_prefix()
                 for pattern in (
-                    f"myblog:ratelimit:comment:user:{self.reader_user.id}:*",
-                    f"myblog:ratelimit:comment:user:{self.admin_user.id}:*",
-                    "myblog:ratelimit:comment:ip:127.0.0.1:*",
+                    f"{p}:ratelimit:comment:user:{self.reader_user.id}:*",
+                    f"{p}:ratelimit:comment:user:{self.admin_user.id}:*",
+                    f"{p}:ratelimit:comment:ip:127.0.0.1:*",
                 ):
                     for key in r.scan_iter(match=pattern):
                         r.delete(key)

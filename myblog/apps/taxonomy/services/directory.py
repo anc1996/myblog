@@ -32,6 +32,16 @@ from taxonomy.models import TagDirectoryMetadata
 logger = logging.getLogger(__name__)
 
 
+def _build_tag_detail_url(index_page: Any, request: Any, tag_slug: str) -> str:
+    """构造带标签大厅根路径前缀的完整标签详情 URL，避免在子路径下退化为相对路径。"""
+    base_url = (index_page.get_url(request) or "/tags/").rstrip("/")
+    try:
+        sub_path = index_page.reverse_subpage("detail", kwargs={"tag_slug": tag_slug}).lstrip("/")
+        return f"{base_url}/{sub_path}"
+    except Exception:
+        return f"{base_url}/{tag_slug}/"
+
+
 @dataclass
 class TagDirectoryItem:
     """单个标签在大厅中的展示结构"""
@@ -117,10 +127,7 @@ class TagDirectoryService:
             if not safe_slug:
                 safe_slug = f"sym-{t_id}"
 
-            try:
-                tag_url = index_page.reverse_subpage("detail", kwargs={"tag_slug": safe_slug})
-            except Exception:
-                tag_url = f"{index_page.get_url(request)}{safe_slug}/"
+            tag_url = _build_tag_detail_url(index_page, request, safe_slug)
 
             directory_items.append(
                 TagDirectoryItem(
@@ -195,10 +202,7 @@ class TagDetailService:
             recommended = []
             for ct in candidate_tags:
                 s_slug = ct["tag_slug"] or "sym"
-                try:
-                    t_url = index_page.reverse_subpage("detail", kwargs={"tag_slug": s_slug})
-                except Exception:
-                    t_url = f"{index_page.get_url(request)}{s_slug}/"
+                t_url = _build_tag_detail_url(index_page, request, s_slug)
                 recommended.append({
                     "name": ct["tag_name"],
                     "slug": s_slug,

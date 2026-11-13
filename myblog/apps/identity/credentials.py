@@ -102,6 +102,11 @@ def _get_redis_client(*, write: bool = True):
     return None
 
 
+def _resolve_prefix() -> str:
+    prefix = getattr(settings, "REDIS_KEY_PREFIX", "") or settings.CACHES.get("default", {}).get("KEY_PREFIX", "myblog")
+    return str(prefix or "myblog").strip().rstrip(":") or "myblog"
+
+
 def check_and_consume_register_quota(ip_address: str) -> None:
     """同 IP 注册防刷限制：每小时最多 5 个、每日最多 10 个。Redis 不可用时 Fail-Closed。"""
     hr_limit = int(getattr(settings, "IDENTITY_REGISTER_HOURLY_IP_LIMIT", 5))
@@ -113,8 +118,8 @@ def check_and_consume_register_quota(ip_address: str) -> None:
         res = r.eval(
             _REGISTER_QUOTA_LUA,
             2,
-            f"myblog:rl:reg:hr:{ip_address}",
-            f"myblog:rl:reg:day:{ip_address}",
+            f"{_resolve_prefix()}:rl:reg:hr:{ip_address}",
+            f"{_resolve_prefix()}:rl:reg:day:{ip_address}",
             hr_limit,
             day_limit,
             3600,
@@ -175,17 +180,19 @@ return {'ok', 0}
 
 def _login_keys(username: str, ip_address: str) -> tuple[str, str]:
     norm_user = (username or "").strip().lower()
+    prefix = _resolve_prefix()
     return (
-        f"myblog:loginfail:ip:{ip_address}",
-        f"myblog:loginfail:user:{norm_user}" if norm_user else "",
+        f"{prefix}:loginfail:ip:{ip_address}",
+        f"{prefix}:loginfail:user:{norm_user}" if norm_user else "",
     )
 
 
 def _login_try_keys(username: str, ip_address: str) -> tuple[str, str]:
     norm_user = (username or "").strip().lower()
+    prefix = _resolve_prefix()
     return (
-        f"myblog:logintry:ip:{ip_address}",
-        f"myblog:logintry:user:{norm_user}" if norm_user else "",
+        f"{prefix}:logintry:ip:{ip_address}",
+        f"{prefix}:logintry:user:{norm_user}" if norm_user else "",
     )
 
 

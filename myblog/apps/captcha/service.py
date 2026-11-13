@@ -119,16 +119,21 @@ def _get_redis_client(*, write: bool = True):
     return None
 
 
+def _resolve_prefix() -> str:
+    prefix = getattr(settings, "REDIS_KEY_PREFIX", "") or settings.CACHES.get("default", {}).get("KEY_PREFIX", "myblog")
+    return str(prefix or "myblog").strip().rstrip(":") or "myblog"
+
+
 def _ch_key(captcha_id: str) -> str:
-    return f"myblog:captcha:ch:{captcha_id}"
+    return f"{_resolve_prefix()}:captcha:ch:{captcha_id}"
 
 
 def _img_key(captcha_id: str) -> str:
-    return f"myblog:captcha:img:{captcha_id}"
+    return f"{_resolve_prefix()}:captcha:img:{captcha_id}"
 
 
 def _active_key(binding_hash: str) -> str:
-    return f"myblog:captcha:active:{binding_hash}"
+    return f"{_resolve_prefix()}:captcha:active:{binding_hash}"
 
 
 def _compute_binding_hash(binding_token: str) -> str:
@@ -221,7 +226,7 @@ def issue_captcha_challenge(
         res = r.eval(
             _RESERVE_CAPTCHA_LUA,
             2,
-            f"myblog:captcha:rl:ip:{ip_address}",
+            f"{_resolve_prefix()}:captcha:rl:ip:{ip_address}",
             _active_key(binding_hash),
             ip_limit,
             60,

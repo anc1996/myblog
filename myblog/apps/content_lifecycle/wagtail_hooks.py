@@ -438,6 +438,20 @@ def hide_recycled_pages_in_chooser(queryset, request):
     return queryset.exclude(id__in=recycled_pks)
 
 
+def can_user_view_recycled_notice(user, page) -> bool:
+    """判断访问已回收页面原前台 URL 的用户是否有权查看受控回收站恢复引导。"""
+    if not user or not getattr(user, "is_authenticated", False) or not getattr(user, "is_active", False):
+        return False
+    if getattr(user, "is_superuser", False):
+        return True
+    has_admin = bool(getattr(user, "is_staff", False) or user.has_perm("wagtailadmin.access_admin"))
+    if not has_admin:
+        return False
+    if not user_is_restricted_author_for_page(user, page):
+        return True
+    return getattr(page, "owner_id", None) == user.pk
+
+
 @hooks.register("before_serve_page")
 def block_recycled_pages_front_serve(page, request, serve_args, serve_kwargs):
     """
@@ -457,16 +471,7 @@ def block_recycled_pages_front_serve(page, request, serve_args, serve_kwargs):
 
     if is_recycled:
         user = getattr(request, "user", None)
-        has_admin = bool(
-            user
-            and getattr(user, "is_authenticated", False)
-            and (
-                getattr(user, "is_superuser", False)
-                or getattr(user, "is_staff", False)
-                or user.has_perm("wagtailadmin.access_admin")
-            )
-        )
-        if has_admin:
+        if can_user_view_recycled_notice(user, page):
             from content_lifecycle.models import RecycleEntry
             entry = RecycleEntry.objects.filter(page_id=page.id, status="recycled").select_related("batch").first()
             recycled_time = entry.batch.recycled_at.strftime("%Y-%m-%d %H:%M:%S") if entry and entry.batch and entry.batch.recycled_at else "近期"

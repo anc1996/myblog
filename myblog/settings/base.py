@@ -176,13 +176,21 @@ MONGO_SETTINGS = {
 _redis_host = _database_env.get("REDIS_HOST", "127.0.0.1")
 _redis_port = _database_env.get("REDIS_PORT", "6379")
 _redis_password = _database_env.get("REDIS_PASSWORD", "")
-_redis_url = f"redis://:{_redis_password}@{_redis_host}:{_redis_port}/1" if _redis_password else f"redis://{_redis_host}:{_redis_port}/1"
+_redis_db = str(_database_env.get("REDIS_DB", "1")).strip() or "1"
+_redis_key_prefix = str(_database_env.get("REDIS_KEY_PREFIX", "myblog")).strip().rstrip(":") or "myblog"
+_redis_url = (
+    f"redis://:{_redis_password}@{_redis_host}:{_redis_port}/{_redis_db}"
+    if _redis_password
+    else f"redis://{_redis_host}:{_redis_port}/{_redis_db}"
+)
+
+REDIS_KEY_PREFIX = _redis_key_prefix
 
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.redis.RedisCache",
         "LOCATION": _redis_url,
-        "KEY_PREFIX": "myblog",
+        "KEY_PREFIX": _redis_key_prefix,
         "TIMEOUT": 300,
     }
 }

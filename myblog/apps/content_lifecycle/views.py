@@ -13,12 +13,14 @@
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404, redirect
 from django.views.generic import TemplateView
-from wagtail.admin.ui.tables import BaseColumn
+from wagtail.admin.ui.tables import Column
 from wagtail.admin.views import generic
 from wagtail.admin.views.pages.choose_parent import GenericChooseParentView
 from wagtail.admin.views.pages.copy import CopyView
 from wagtail.admin.views.pages.create import AddSubpageView, CreateView
-from wagtail.admin.views.pages.preview import PreviewOnCreateView
+from wagtail.admin.views.pages.edit import EditView
+from wagtail.admin.views.pages.preview import PreviewOnCreateView, PreviewOnEditView, ViewDraftView
+from wagtail.admin.views.pages.revisions import RevisionsCompareView
 from wagtail.admin.viewsets.pages import PageViewSet
 from wagtail.models import Page
 
@@ -26,6 +28,21 @@ from content_lifecycle.permissions import (
     get_author_allow_child_content_type_ids,
     user_is_restricted_author_for_page,
 )
+
+
+def _ensure_page_hydrated(page, *, force_public: bool = False):
+    """
+    确保从 PostgreSQL 加载的脱水页面实例在进入后台编辑/预览/历史对比前已按生效版本从 MongoDB 水合。
+    解决已发布且无未发布草稿时 Wagtail 基类 Page.get_latest_revision_as_object() 直接返回脱水 self.specific 的问题。
+    """
+    if hasattr(page, "hydrate_from_mongo") and not getattr(page, "_hydrated_from_revision", False):
+        from content_lifecycle.access import AccessContext, AccessMode
+
+        is_clean_live = bool(getattr(page, "live", False) and not getattr(page, "has_unpublished_changes", False))
+        mode = AccessMode.PUBLIC if (force_public or is_clean_live) else AccessMode.PREVIEW_DRAFT
+        page.hydrate_from_mongo(access_context=AccessContext(mode=mode))
+        page._hydrated_from_revision = True
+    return page
 
 
 class OwnershipAddSubpageView(AddSubpageView):
@@ -167,6 +184,56 @@ class OwnershipCopyView(CopyView):
         return form
 
 
+class OwnershipEditView(EditView):
+    """收口后台编辑视图：通过 specific 调用子类水合逻辑，避免无草稿已发布页打开编辑器正文为空。"""
+
+    def get_object(self):
+        page = self.real_page_record.specific.get_latest_revision_as_object()
+        return _ensure_page_hydrated(page)
+
+
+class OwnershipPreviewOnEditView(PreviewOnEditView):
+    """收口编辑预览视图：确保基础页面未修改正文时也能从 MongoDB 还原生效正文。"""
+
+    def get_object(self):
+        page = (
+            get_object_or_404(
+                Page.objects.select_related("latest_revision"),
+                id=self.kwargs["page_id"],
+            )
+            .specific.get_latest_revision_as_object()
+        )
+        page = _ensure_page_hydrated(page)
+        page_perms = page.permissions_for_user(self.request.user)
+        if not page_perms.can_edit():
+            raise PermissionDenied
+        return page
+
+
+class OwnershipViewDraftView(ViewDraftView):
+    """收口后台草稿查看视图：确保水合当前最新或已发布正文。"""
+
+    def dispatch(self, request, page_id, *args, **kwargs):
+        page = get_object_or_404(Page, id=page_id).specific.get_latest_revision_as_object()
+        page = _ensure_page_hydrated(page)
+        perms = page.permissions_for_user(request.user)
+        if not (perms.can_publish() or perms.can_edit()):
+            raise PermissionDenied
+        try:
+            preview_mode = request.GET.get("mode", page.default_preview_mode)
+        except IndexError as exc:
+            raise PermissionDenied from exc
+        return page.make_preview_request(request, preview_mode)
+
+
+class OwnershipRevisionsCompareView(RevisionsCompareView):
+    """收口版本对比视图：确保 live 正式版基准在比较前完成水合。"""
+
+    def get_object(self, queryset=None):
+        page = super().get_object(queryset=queryset)
+        return _ensure_page_hydrated(page, force_public=bool(getattr(page, "live", False)))
+
+
 class OwnershipPageViewSet(PageViewSet):
     """替换 Wagtail 默认 base_page_viewset 的通用页面视图集。"""
 
@@ -174,7 +241,11 @@ class OwnershipPageViewSet(PageViewSet):
     add_subpage_view_class = OwnershipAddSubpageView
     choose_parent_view_class = OwnershipChooseParentView
     copy_view_class = OwnershipCopyView
+    edit_view_class = OwnershipEditView
     preview_on_add_view_class = OwnershipPreviewOnCreateView
+    preview_on_edit_view_class = OwnershipPreviewOnEditView
+    view_draft_view_class = OwnershipViewDraftView
+    revisions_compare_view_class = OwnershipRevisionsCompareView
 
 
 class RecycleBatchIndexView(generic.IndexView):
@@ -207,19 +278,25 @@ class RecycleBatchInspectView(generic.InspectView):
         return obj
 
 
-class RecycleBatchActionsColumn(BaseColumn):
+class RecycleBatchActionsColumn(Column):
     """按请求用户角色动态渲染回收站操作列：非超管绝不渲染'彻底销毁'按钮。"""
 
-    def render_cell_html(self, instance, parent_context):
+    def get_value(self, instance):
+        return ""
+
+    def get_cell_context_data(self, instance, parent_context):
+        context = super().get_cell_context_data(instance, parent_context)
         from django.urls import reverse
         from django.utils.safestring import mark_safe
 
         request = parent_context.get("request")
         user = getattr(request, "user", None) if request else None
         if instance.status == "restored":
-            return mark_safe('<span style="color:#16a34a;font-weight:600;">已恢复为草稿</span>')
+            context["value"] = mark_safe('<span style="color:#16a34a;font-weight:600;">已恢复为草稿</span>')
+            return context
         if instance.status != "recycled":
-            return mark_safe('<span style="color:#94a3b8;">已彻底销毁</span>')
+            context["value"] = mark_safe('<span style="color:#94a3b8;">已彻底销毁</span>')
+            return context
 
         buttons = []
         try:
@@ -237,4 +314,5 @@ class RecycleBatchActionsColumn(BaseColumn):
                 )
             except Exception:
                 pass
-        return mark_safe("".join(buttons) or "待恢复处理")
+        context["value"] = mark_safe("".join(buttons) or "待恢复处理")
+        return context

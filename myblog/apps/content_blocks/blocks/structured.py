@@ -12,6 +12,7 @@ content_blocks.blocks.structured
 """
 
 import html
+import re
 from typing import Any
 from django.utils.safestring import mark_safe
 from wagtail import blocks
@@ -34,6 +35,16 @@ TIP_CHOICES = [
     ("warning", "⚠️ 踩坑预警 (Warning)"),
     ("danger", "🛑 高危操作 (Danger)"),
 ]
+
+
+def _strip_rich_text(value: Any) -> str:
+    """剥离 Wagtail RichTextBlock 中的 HTML 标签并反转义实体，输出干净纯文本供搜索和摘要复用。"""
+    if not value:
+        return ""
+    raw = str(value)
+    no_tags = re.sub(r"<[^>]+>", " ", raw)
+    unescaped = html.unescape(no_tags)
+    return re.sub(r"\s+", " ", unescaped).strip()
 
 
 class CustomLeadBlock(blocks.StructBlock):
@@ -78,10 +89,11 @@ class CustomLeadBlock(blocks.StructBlock):
         if not value:
             return BlockTextExtraction(plain_text="", logical_segments=[])
         title = str(value.get("title") or "")
-        prereq = str(value.get("prerequisites") or "")
-        overview = str(value.get("overview") or "")
-        combined = f"{title}\n{prereq}\n{overview}".strip()
-        return BlockTextExtraction(plain_text=combined, logical_segments=[title, prereq, overview])
+        prereq = _strip_rich_text(value.get("prerequisites"))
+        overview = _strip_rich_text(value.get("overview"))
+        segments = [s for s in (title, prereq, overview) if s]
+        combined = "\n".join(segments).strip()
+        return BlockTextExtraction(plain_text=combined, logical_segments=segments)
 
     def extract_media_refs(self, value: Any, path: str = "") -> list[MediaReference]:
         return []
@@ -167,10 +179,10 @@ class CustomStepBlock(blocks.StructBlock):
         if not value:
             return BlockTextExtraction(plain_text="", logical_segments=[])
         title = str(value.get("title") or "")
-        content = str(value.get("content") or "")
+        content = _strip_rich_text(value.get("content"))
         code = str(value.get("code_snippet") or "")
         caption = str(value.get("image_caption") or "")
-        segments = [title, content]
+        segments = [s for s in (title, content) if s]
         if code:
             segments.append(code)
         if caption:
@@ -235,9 +247,10 @@ class CustomTipBlock(blocks.StructBlock):
         if not value:
             return BlockTextExtraction(plain_text="", logical_segments=[])
         title = str(value.get("title") or "")
-        content = str(value.get("content") or "")
-        combined = f"{title}\n{content}".strip()
-        return BlockTextExtraction(plain_text=combined, logical_segments=[title, content])
+        content = _strip_rich_text(value.get("content"))
+        segments = [s for s in (title, content) if s]
+        combined = "\n".join(segments).strip()
+        return BlockTextExtraction(plain_text=combined, logical_segments=segments)
 
     def extract_media_refs(self, value: Any, path: str = "") -> list[MediaReference]:
         return []
@@ -282,8 +295,9 @@ class CustomFaqBlock(blocks.StructBlock):
         if not value:
             return BlockTextExtraction(plain_text="", logical_segments=[])
         q = str(value.get("question") or "")
-        a = str(value.get("answer") or "")
-        return BlockTextExtraction(plain_text=f"{q}\n{a}", logical_segments=[q, a])
+        a = _strip_rich_text(value.get("answer"))
+        segments = [s for s in (q, a) if s]
+        return BlockTextExtraction(plain_text="\n".join(segments), logical_segments=segments)
 
     def extract_media_refs(self, value: Any, path: str = "") -> list[MediaReference]:
         return []

@@ -11,6 +11,7 @@ api.limiter
 
 import time
 import logging
+from django.conf import settings
 from django.core.cache import cache
 from django.http import JsonResponse
 
@@ -19,6 +20,12 @@ logger = logging.getLogger(__name__)
 
 class RateLimiter:
     """基于 Redis 的滑动窗口限流器"""
+
+    @staticmethod
+    def build_redis_key(scope: str, ip: str) -> str:
+        prefix = getattr(settings, "REDIS_KEY_PREFIX", "") or settings.CACHES.get("default", {}).get("KEY_PREFIX", "myblog")
+        clean_prefix = str(prefix or "myblog").strip().rstrip(":") or "myblog"
+        return f"{clean_prefix}:ratelimit:{scope}:{ip}"
 
     @classmethod
     def get_client_ip(cls, request) -> str:
@@ -45,7 +52,7 @@ class RateLimiter:
         ip = cls.get_client_ip(request)
         now = time.time()
         window_start = now - window_seconds
-        redis_key = f"myblog:ratelimit:{scope}:{ip}"
+        redis_key = cls.build_redis_key(scope, ip)
 
         try:
             client = getattr(cache, "_cache", None)

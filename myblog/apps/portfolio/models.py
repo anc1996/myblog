@@ -185,6 +185,18 @@ class ExternalStreamPageMixin:
                     store.close()
         return obj
 
+    def get_latest_revision_as_object(self):
+        """后台编辑或预览时，从最新草稿或已发布版本指针中水合正文"""
+        from content_lifecycle.access import AccessContext, AccessMode
+
+        page = super().get_latest_revision_as_object()
+        if not getattr(page, "_hydrated_from_revision", False) and hasattr(page, "hydrate_from_mongo"):
+            is_clean_live = bool(getattr(page, "live", False) and not getattr(page, "has_unpublished_changes", False))
+            mode = AccessMode.PUBLIC if is_clean_live else AccessMode.PREVIEW_DRAFT
+            page.hydrate_from_mongo(access_context=AccessContext(mode=mode))
+            page._hydrated_from_revision = True
+        return page
+
     def hydrate_from_mongo(self, access_context=None):
         """内存对象按需水合正文"""
         if getattr(self, "body", None) and len(self.body) > 0:

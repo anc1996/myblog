@@ -119,6 +119,29 @@
       }, 5000);
     }
 
+    function showCardFeedback(targetBtn, msg, isSuccess = false) {
+      const card = targetBtn ? targetBtn.closest('.comment-card') : null;
+      if (!card) return;
+      let box = card.querySelector('.comment-card-inline-alert');
+      if (!box) {
+        box = document.createElement('div');
+        box.setAttribute('role', 'alert');
+        const footer = card.querySelector('.comment-card-footer');
+        if (footer && footer.parentNode) {
+          footer.insertAdjacentElement('afterend', box);
+        } else {
+          card.appendChild(box);
+        }
+      }
+      box.className = `comment-card-inline-alert ${isSuccess ? 'is-success' : 'is-error'}`;
+      box.textContent = msg;
+      box.style.display = 'block';
+      clearTimeout(box._timer);
+      box._timer = setTimeout(() => {
+        box.style.display = 'none';
+      }, 5000);
+    }
+
     function renderCommentCard(c, isReply = false, rootId = null) {
       const effectiveRootId = isReply ? (rootId || c.root_id || c.id) : c.id;
       const card = document.createElement('div');
@@ -452,8 +475,15 @@
               reactBtn.setAttribute('data-liked', nowLiked ? '1' : '0');
               reactBtn.classList.toggle('is-reacted', nowLiked);
             } else {
-              showAlert((data && data.message) || '操作失败，请先登录后重试。', false);
+              const errMsg = (data && data.message) || '操作失败，请先登录后重试。';
+              showCardFeedback(reactBtn, errMsg, false);
+              showAlert(errMsg, false);
             }
+          })
+          .catch(() => {
+            const errMsg = '网络异常，互动操作失败，请稍后重试。';
+            showCardFeedback(reactBtn, errMsg, false);
+            showAlert(errMsg, false);
           });
         return;
       }
