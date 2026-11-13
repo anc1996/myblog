@@ -1,10 +1,10 @@
 # myblog 项目工程与技术规范入口
 
-更新日期：2026-11-12。**第一阶段全部核心能力、会员/身份底座（Phase 1）、公共图片验证码模块（Phase 2）与双轨防刷评论配额体系（Phase 3）已完成代码实现并在测试环境验证通过**（全站 187 项单元与集成测试 100% PASS、Django 系统检查 0 错误 0 警告、Playwright 浏览器冒烟通过）。
+更新日期：2026-11-12。**第一阶段全部核心能力、会员/身份底座（Phase 1）、公共图片验证码模块（Phase 2）、双轨防刷评论配额体系（Phase 3）与通用多角色作者/媒体/回收站隔离（Phase 4）已完成代码实现并在测试环境验证通过**（全站 195 项单元与集成测试 100% PASS、Django 系统检查 0 错误 0 警告）。
 
 ## 建议阅读顺序
 
-0. [会员体系、多角色创作权限与双轨防刷评论架构方案](myblog_会员体系与多角色创作权限架构方案_RFC_2026-11-11.md)：**【Phase 1–3 已实现并完成独立安全复核与全量测试 · Phase 4–5 待实施】** 前台会员中心（`/account/*`）、`MemberProfile` 独立头像（Pillow 13.0.0 重编码 + `/avatar-gateway/` + `AvatarPurgeTask`）、`IdentitySessionGuardMiddleware` 会话代次守卫、受控账号删除过户与孤儿头像对账（Phase 1）、全站公共图片验证码 `captcha`（Phase 2，`Pillow + Redis Lua` 原子一次性核销）以及双轨防刷评论配额（Phase 3，`CommunitySettings`、`PageCommentSettings.allow_guest_comments`、`CommentDailyQuota`、Redis Lua 原子限流与 P0-6 字段级权限隔离）均已落地；`CustomBasePage` 通用作者直发隔离（Phase 4）待后续阶段实施。
+0. [会员体系、多角色创作权限与双轨防刷评论架构方案](myblog_会员体系与多角色创作权限架构方案_RFC_2026-11-11.md)：**【Phase 1–4 已实现并完成测试库全量验证 · Phase 5 最终浏览器冒烟与开发库同步待授权】** 前台会员中心（`/account/*`）、`MemberProfile` 独立头像与 `AvatarPurgeTask`、会话代次守卫与账号硬删过户（Phase 1）、全站公共图片验证码 `captcha`（Phase 2）、双轨防刷评论配额与字段级隔离（Phase 3），以及基于 `CustomBasePage` 与 Wagtail 通用生命周期的作者隔离、媒体隔离与超管专属 Purge（Phase 4）均已落地。
 0. [第一阶段技术实现方案与架构规范](myblog_第一阶段技术方案_v1.0.md)：**【核心必读】** 系统完整落地实现蓝图，涵盖彻底脱水模式、受控回收站原树恢复、中文搜索与 GIN 索引、专栏体系、通用评论系统、全站多页面 RSS/Atom 订阅与时间线归档、RESTful JSON API 规范与架构拓扑图。
 1. [全站多页面评论后台管理与多维治理系统 RFC](myblog_全站多页面评论管理与多维治理系统_RFC_2026-11-10.md)：**【RFC-020 最新】** 全局分类与溯源中控台、Page 编辑器【💬 评论与互动】Tab（100% 异步隔离 Wagtail 自动保存）、Purge 级联物理清空、作者自删占位、V1/V2 审核隔离与 24h 主体限制。
 1. [全站层级列表与多维检索通用框架 RFC](myblog_全站层级列表与多维检索通用框架_RFC_2026-11-09.md)：通用 HierarchicalListingMixin、IndexListingService、Keyset 签名游标、双模同构与 Wagtail 8.1 后台预览守卫闭环。
@@ -28,7 +28,7 @@
 - **指南体系**：支持主题绑定、教程积木、365 天未复核过时提示与发布强校验门禁。
 - **全站多页面评论与治理系统 (RFC-020)**：外键直连 `wagtailcore.Page`，两级扁平反嵌套，版本化审核与 CAS 防盲批，`is_publicly_visible` 布尔跃迁防翻倍计数；Page 彻底销毁级联清空（DO_NOTHING 版本指针彻底消除崩溃）；作者自删根占位条并保留回复；编辑待审 V2 期间前台保全展示 V1；Page 编辑器内嵌纯异步评论 Tab（B-03 隔离）；全站 24h 主体限制与跨页面批量治理；Wagtail Explorer 挂载快捷动作。
 - **全站通用订阅与归档**：RSS 2.0 与 Atom 1.0 全维度订阅，RFC 4287 合规，弱 ETag 304 快速协商，PostgreSQL SARGable 时间线年月归档。
-- **测试与质量**：全站 187 项自动化单元与并发集成测试 100% 通过；36 项 Wagtail 8.1 生命周期演练 100% 通过；Django 系统检查 0 错误 0 警告。
+- **测试与质量**：全站 195 项自动化单元与并发集成测试 100% 通过；36 项 Wagtail 8.1 生命周期演练 100% 通过；Django 系统检查 0 错误 0 警告。
 - **前端与交互闭环**：
   - **全局响应式导航与页脚**：绑定 `site_settings`，纯 CSS 移动端汉堡菜单自适应；
   - **首页综合门户**：Hero 标语导引 + 文章流 + 专栏推荐 + 开源项目 + 热门标签云；

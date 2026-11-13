@@ -26,8 +26,8 @@ from taggit.models import TaggedItemBase
 from wagtail.models import Page, Orderable
 from wagtail.fields import StreamField
 from wagtail.admin.panels import FieldPanel, InlinePanel, MultiFieldPanel
-from wagtail.admin.forms import WagtailAdminPageForm
 
+from content_lifecycle.forms import CustomBasePageAdminForm
 from content_lifecycle.models import CustomBasePage
 from content_lifecycle.access import AccessContext, AccessMode
 from media_library.models import CustomImage
@@ -53,7 +53,7 @@ DIFFICULTY_CHOICES = [
 ]
 
 
-class GuidePageAdminForm(WagtailAdminPageForm):
+class GuidePageAdminForm(CustomBasePageAdminForm):
     """
     Wagtail 8.1 专栏定制后台表单。
     精细识别“保存草稿/预览”与“公开发布/提交审核”动作，解决原生 Page.live 默认 True 的校验冲突。
@@ -171,6 +171,7 @@ class GuidePage(CustomBasePage):
     正文 body 彻底脱水外置于 MongoDB。
     """
     supports_comments = True
+    author_creatable = True
     base_form_class = GuidePageAdminForm
 
     topic = models.ForeignKey(
@@ -269,18 +270,10 @@ class GuidePage(CustomBasePage):
         if getattr(self, "_is_publishing_validation", False) or (not hasattr(self, "_is_deferred_draft_validation") and self.live):
             self._validate_publish_gate()
 
-    def publish(self, revision=None, user=None, changed=True, log_action=True, previous_revision=None, **kwargs):
-        """编程接口发布守卫：防止跳过后台表单直接通过 revision.publish() 上线空壳文章"""
-        target_obj = revision.as_object() if revision else self
-        target_obj._validate_publish_gate()
-        return super().publish(
-            revision=revision,
-            user=user,
-            changed=changed,
-            log_action=log_action,
-            previous_revision=previous_revision,
-            **kwargs,
-        )
+    def validate_for_publish(self, user=None, revision=None) -> None:
+        """叠加专栏发布门禁（Topic 与至少一个 step 块），对后台与编程接口统一生效。"""
+        super().validate_for_publish(user=user, revision=revision)
+        self._validate_publish_gate()
 
     def is_outdated(self) -> tuple[bool, int, str]:
         """决策一：技术复核时效检查（容忍 datetime 与 date）"""
@@ -448,58 +441,9 @@ class GuidePage(CustomBasePage):
                 GuidePage.objects.filter(id=self.id).update(body=[])
                 self.body = raw_body
 
-                # 登记媒体引用到 MEDIA-REF-01 (封面图与步骤配图)
-                try:
-                    from media_library.references import MediaReferenceTracker
-                    from content_blocks.contracts import MediaReference
-                    refs = []
-                    if self.featured_image:
-                        refs.append(MediaReference(
-                            asset_id=str(self.featured_image.public_id),
-                            asset_type="image",
-                            block_path="featured_image",
-                        ))
-                    if raw_body:
-                        for i, child in enumerate(raw_body):
-                            block = getattr(child, "block", None)
-                            if block and hasattr(block, "extract_media_refs"):
-                                refs.extend(block.extract_media_refs(child.value, path=f"body.{i}"))
-                    MediaReferenceTracker.register_revision_references(
-                        page_id=self.id,
-                        revision_id=revision.id,
-                        references=refs,
-                    )
-                except Exception as ref_exc:
-                    logger.debug("Failed to register media refs for GuidePage %s: %s", self.id, ref_exc)
-
                 # 草稿修剪契约 (RECYCLE-RETENTION-03)
-                was_ever_published = bool(
-                    self.first_published_at
-                    or (self.live and getattr(self, "live_revision_id", None))
-                    or getattr(self, "approved_go_live_at", None)
-                )
-                if not was_ever_published and self.id:
-                    from wagtail.models import Page
-                    from django.db.models import Q
-                    was_ever_published = Page.objects.filter(id=self.id).filter(
-                        Q(first_published_at__isnull=False) | Q(live=True)
-                    ).exists()
-
-                if not was_ever_published:
-                    from content_lifecycle.models import RecycleEntry
-                    if RecycleEntry.objects.filter(page_id=self.id, was_live=True).exists():
-                        was_ever_published = True
-
-                if not was_ever_published:
-                    from wagtail.models import Revision
-                    draft_revs = list(Revision.objects.filter(object_id=str(self.id)).order_by("-created_at"))
-                    if len(draft_revs) > 20:
-                        to_delete = draft_revs[20:]
-                        from media_library.models import MediaReferenceRecord
-                        for old_rev in to_delete:
-                            if old_rev.id != revision.id:
-                                MediaReferenceRecord.objects.filter(page_id=self.id, revision_id=old_rev.id).delete()
-                                old_rev.delete()
+                if hasattr(self, "prune_unpublished_draft_revisions"):
+                    self.prune_unpublished_draft_revisions(current_revision=revision)
 
             except Exception:
                 self.latest_revision = old_latest_rev

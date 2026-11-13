@@ -252,13 +252,13 @@ class S11IntegrationDrillsTests(unittest.TestCase):
         token = plan["confirmed_plan_token"]
 
         # 2. 未传确认凭证：默认阻断 (409 conflict)，文章保持 live
-        res_blocked = restrict_asset("image", img.public_id, confirmed_plan_token=None)
+        res_blocked = restrict_asset("image", img.public_id, confirmed_plan_token=None, system_authorized=True)
         self.assertEqual(res_blocked["status"], "conflict")
         page.refresh_from_db()
         self.assertTrue(page.live, "未确认时页面绝不能被下架")
 
         # 3. 传有效凭证：执行连带下架，图片变受限，文章被正式下架
-        res_confirmed = restrict_asset("image", img.public_id, confirmed_plan_token=token)
+        res_confirmed = restrict_asset("image", img.public_id, confirmed_plan_token=token, system_authorized=True)
         self.assertEqual(res_confirmed["status"], "success")
         img.refresh_from_db()
         self.assertEqual(img.visibility, VisibilityChoices.RESTRICTED)
@@ -279,7 +279,7 @@ class S11IntegrationDrillsTests(unittest.TestCase):
         child.save_revision().publish()
 
         # 整树回收
-        batch = RecycleService.recycle_page_or_subtree(col)
+        batch = RecycleService.recycle_page_or_subtree(col, system_authorized=True)
         col.refresh_from_db()
         child.refresh_from_db()
         self.assertTrue(col.is_recycled)
@@ -287,7 +287,7 @@ class S11IntegrationDrillsTests(unittest.TestCase):
         self.assertFalse(child.live)
 
         # 一键还原整树
-        res = RecycleService.restore_page_or_subtree(batch.batch_id)
+        res = RecycleService.restore_page_or_subtree(batch.batch_id, system_authorized=True)
         self.assertEqual(res["status"], "success")
         col.refresh_from_db()
         child.refresh_from_db()
@@ -386,14 +386,14 @@ class S11IntegrationDrillsTests(unittest.TestCase):
         page_id = page.id
 
         # 必须先移入回收站
-        RecycleService.recycle_page_or_subtree(page)
+        RecycleService.recycle_page_or_subtree(page, system_authorized=True)
 
         store = MongoContentStore()
         col = store._get_db()["content_field_versions"]
         self.assertGreater(col.count_documents({"document_uuid": doc_uuid}), 0, "销毁前 Mongo 中存在版本")
 
         # 执行受控永久删除
-        res = RecycleService.purge_page_or_subtree(page_id)
+        res = RecycleService.purge_page_or_subtree(page_id, system_authorized=True)
         self.assertEqual(res["status"], "success")
 
         # 执行 Outbox 消费全量事件

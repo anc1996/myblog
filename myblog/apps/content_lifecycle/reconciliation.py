@@ -360,7 +360,7 @@ class CrossStorageReconciler:
 
         # 3. 过滤可安全修剪的普通无排期草稿
         candidate_qs = (
-            Revision.objects.filter(object_id=str(page_id), approved_go_live_at__isnull=True)
+            Revision.objects.page_revisions().filter(object_id=str(page_id), approved_go_live_at__isnull=True)
             .exclude(id__in=protected_rev_ids)
             .order_by("-created_at")
         )

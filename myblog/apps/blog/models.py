@@ -117,6 +117,7 @@ class BlogIndexPage(HierarchicalListingMixin, CustomBasePage):
 class BlogPage(CustomBasePage):
     """核心博客文章页面"""
     supports_comments = True
+    author_creatable = True
 
     authored_on = models.DateField(
         default=timezone.now,
@@ -339,33 +340,7 @@ class BlogPage(CustomBasePage):
                 self.body = raw_body
 
                 # 5. 草稿版本滑动窗口修剪契约 (RECYCLE-RETENTION-03)
-                was_ever_published = bool(
-                    self.first_published_at
-                    or (self.live and getattr(self, "live_revision_id", None))
-                    or getattr(self, "approved_go_live_at", None)
-                )
-                if not was_ever_published and self.id:
-                    from wagtail.models import Page
-                    from django.db.models import Q
-                    was_ever_published = Page.objects.filter(id=self.id).filter(
-                        Q(first_published_at__isnull=False) | Q(live=True)
-                    ).exists()
-
-                if not was_ever_published:
-                    from content_lifecycle.models import RecycleEntry
-                    if RecycleEntry.objects.filter(page_id=self.id, was_live=True).exists():
-                        was_ever_published = True
-
-                if not was_ever_published:
-                    from wagtail.models import Revision
-                    draft_revs = list(Revision.objects.filter(object_id=str(self.id)).order_by("-created_at"))
-                    if len(draft_revs) > 20:
-                        to_delete = draft_revs[20:]
-                        from media_library.models import MediaReferenceRecord
-                        for old_rev in to_delete:
-                            if old_rev.id != revision.id:
-                                MediaReferenceRecord.objects.filter(page_id=self.id, revision_id=old_rev.id).delete()
-                                old_rev.delete()
+                self.prune_unpublished_draft_revisions(current_revision=revision)
 
             except Exception:
                 self.latest_revision = old_latest_rev

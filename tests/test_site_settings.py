@@ -54,7 +54,7 @@ class SiteSettingsTestCase(unittest.TestCase):
         self.recycled_page = BlogPage(title=f"回收页面-{uuid.uuid4().hex[:6]}", slug=f"rec-{uuid.uuid4().hex[:6]}")
         self.home.add_child(instance=self.recycled_page)
         self.recycled_page.save_revision().publish()
-        RecycleService.recycle_page_or_subtree(self.recycled_page, actor=None)
+        RecycleService.recycle_page_or_subtree(self.recycled_page, actor=None, system_authorized=True)
 
         # 配置 NavigationSettings
         self.nav_setting, _ = NavigationSettings.objects.get_or_create(singleton_key=1)

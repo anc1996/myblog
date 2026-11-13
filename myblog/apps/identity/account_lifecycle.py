@@ -109,6 +109,17 @@ class AccountLifecycleService:
                     target.is_active = False
                     target.save(update_fields=["is_active"])
             cls.bump_session_epoch([target.id])
+            from wagtail.models import Revision
+
+            owned_unlive_ids = [
+                str(pid)
+                for pid in Page.objects.filter(owner_id=target.id, live=False).values_list("id", flat=True)
+            ]
+            if owned_unlive_ids:
+                Revision.objects.page_revisions().filter(
+                    object_id__in=owned_unlive_ids,
+                    approved_go_live_at__isnull=False,
+                ).update(approved_go_live_at=None)
             AccountAuditLog.objects.create(
                 action="deactivate",
                 actor_id_snapshot=actor.id,
@@ -282,6 +293,7 @@ class AccountLifecycleService:
         from content_lifecycle.guard import content_mutation_guard
         from content_lifecycle.models import RecycleBatch
         from media_library.models import CustomDocument, CustomImage
+        from people.models import Person
         from wagtail.users.models import UserProfile
 
         lock_ids = sorted({int(actor.id), int(target_user_id)} | ({int(transfer_to_user_id)} if transfer_to_user_id is not None else set()))
@@ -413,6 +425,7 @@ class AccountLifecycleService:
             # 5. 写入审计日志
             target_username_snap = target.username
             target_id_snap = target.id
+            linked_person_id = Person.objects.filter(linked_user_id=target.id).values_list("id", flat=True).first()
             AccountAuditLog.objects.create(
                 action="hard_delete",
                 actor_id_snapshot=locked_actor.id,
@@ -426,6 +439,7 @@ class AccountLifecycleService:
                     "transferred_images": len(owned_image_ids),
                     "transferred_documents": len(owned_doc_ids),
                     "transferred_batches": len(owned_batch_ids),
+                    "unlinked_person_id": linked_person_id,
                     "recounted_comments": len(reaction_comment_ids),
                     "deleted_reactions": deleted_reactions_count,
                     "queued_avatar_keys": queued_keys,
@@ -447,6 +461,7 @@ class AccountLifecycleService:
             "transferred_images": len(owned_image_ids),
             "transferred_documents": len(owned_doc_ids),
             "transferred_batches": len(owned_batch_ids),
+            "unlinked_person_id": linked_person_id,
             "recounted_comments": len(reaction_comment_ids),
             "queued_avatar_keys": queued_keys,
         }

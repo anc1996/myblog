@@ -48,7 +48,7 @@ class S8RecycleRestoreTests(unittest.TestCase):
         self.assertFalse(page.is_recycled)
 
         # 2. 移入回收站
-        batch = RecycleService.recycle_page_or_subtree(page)
+        batch = RecycleService.recycle_page_or_subtree(page, system_authorized=True)
         page.refresh_from_db()
         self.assertTrue(page.is_recycled, "回收后必须标记 is_recycled=True")
         self.assertFalse(page.live, "回收后必须正式下架 live=False")
@@ -60,7 +60,7 @@ class S8RecycleRestoreTests(unittest.TestCase):
         self.assertEqual(len(plan["conflicts"]), 0)
 
         # 4. 执行原位一键还原
-        res = RecycleService.restore_page_or_subtree(batch.batch_id)
+        res = RecycleService.restore_page_or_subtree(batch.batch_id, system_authorized=True)
         self.assertEqual(res["status"], "success")
         page.refresh_from_db()
 
@@ -89,7 +89,7 @@ class S8RecycleRestoreTests(unittest.TestCase):
         child_page.save_revision().publish()
 
         # 回收主栏目：整棵子树 2 个节点一起回收
-        batch = RecycleService.recycle_page_or_subtree(index)
+        batch = RecycleService.recycle_page_or_subtree(index, system_authorized=True)
         index.refresh_from_db()
         child_page.refresh_from_db()
         self.assertTrue(index.is_recycled)
@@ -98,7 +98,7 @@ class S8RecycleRestoreTests(unittest.TestCase):
         self.assertEqual(batch.total_pages, 2)
 
         # 整树一键恢复
-        res = RecycleService.restore_page_or_subtree(batch.batch_id)
+        res = RecycleService.restore_page_or_subtree(batch.batch_id, system_authorized=True)
         self.assertEqual(res["status"], "success")
         index.refresh_from_db()
         child_page.refresh_from_db()
@@ -131,7 +131,7 @@ class S8RecycleRestoreTests(unittest.TestCase):
         page1 = BlogPage(title="旧文章", slug=f"{slug}-old")
         col2.add_child(instance=page1)
         page1.save_revision().publish()
-        batch = RecycleService.recycle_page_or_subtree(page1)
+        batch = RecycleService.recycle_page_or_subtree(page1, system_authorized=True)
         entry = batch.entries.first()
         entry.original_slug = slug
         entry.save(update_fields=["original_slug"])
@@ -149,13 +149,14 @@ class S8RecycleRestoreTests(unittest.TestCase):
 
         # 2. 未提供 slug_overrides 盲目恢复：抛出 ValidationError 拒绝
         with self.assertRaises(ValidationError):
-            RecycleService.restore_page_or_subtree(batch.batch_id)
+            RecycleService.restore_page_or_subtree(batch.batch_id, system_authorized=True)
 
         # 3. 提供改名映射：改名恢复成功
         new_slug = f"{slug}-renamed"
         res = RecycleService.restore_page_or_subtree(
             batch.batch_id,
             slug_overrides={page1.id: new_slug},
+            system_authorized=True,
         )
         self.assertEqual(res["status"], "success")
         page1.refresh_from_db()
@@ -183,7 +184,7 @@ class S8RecycleRestoreTests(unittest.TestCase):
         home = HomePage.objects.first()
         page = BlogPage(title="被回收页面", slug=f"hook-test-{uuid4().hex[:6]}")
         home.add_child(instance=page)
-        RecycleService.recycle_page_or_subtree(page)
+        RecycleService.recycle_page_or_subtree(page, system_authorized=True)
 
         # 1. 验证在 Explorer 查询集中被排除
         qs = Page.objects.filter(id=page.id)

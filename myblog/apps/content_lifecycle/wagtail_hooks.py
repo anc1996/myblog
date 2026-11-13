@@ -9,41 +9,36 @@ Wagtail 管理后台回收站隔离与菜单集成钩子。
 5. 注册回收站管理菜单、30天超期惰性清理与冲突处理安全操作视图。
 """
 
-from datetime import timedelta
 from django.http import Http404, HttpResponse
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.dispatch import receiver
 from django.urls import path, reverse
 from django.shortcuts import get_object_or_404, redirect
 from django.middleware.csrf import get_token
-from django.utils import timezone
 from django.utils.html import escape
-from django.utils.safestring import mark_safe
 from wagtail import hooks
 from wagtail.admin import messages
 from wagtail.admin.viewsets.model import ModelViewSet
 from wagtail.models import Page
-from content_lifecycle.models import RecycleBatch, RecycleEntry
+from wagtail.signals import init_new_page
+from content_lifecycle.models import CustomBasePage, RecycleBatch, RecycleEntry
+from content_lifecycle.permissions import (
+    can_restore_recycled_page,
+    user_is_restricted_author_for_page,
+)
+from content_lifecycle.views import (
+    OwnershipPageViewSet,
+    RecycleBatchActionsColumn,
+    RecycleBatchIndexView,
+    RecycleBatchInspectView,
+)
 
 
 class RecycleBatchViewSet(ModelViewSet):
     """
     Wagtail 8.1 管理后台【受控回收站】专属管理视图集。
-    在左侧菜单栏常驻“受控回收站”，提供回收批次列表查看、一键精准恢复与彻底物理销毁入口。
-
-    【配置属性与变量解析】：
-    - model (Model): 绑定的主模型为 RecycleBatch（回收操作批次主表）；
-    - menu_label (str): 管理后台左侧导航栏显示的菜单名称（"受控回收站"）；
-    - icon / menu_icon (str): 菜单图标，使用 Wagtail 内置的 "bin"（垃圾桶）；
-    - menu_order (int): 菜单在导航栏中的排列顺序序号（220，置于页面树与设置之间）；
-    - add_to_admin_menu (bool): True 声明自动注入左侧主管理菜单；
-    - list_display (list[str]): 列表表格呈现的列字段名，包含：
-      * root_page_title: 根页面标题；
-      * total_pages: 子树包含页面总数；
-      * recycled_at: 移入回收站时间；
-      * retention_status: 30 天保留倒计时（自定义方法，<=3天标红预警）；
-      * actor_username: 执行回收的操作人；
-      * status: 当前状态（已回收 / 已恢复 / 已永久删除）；
-      * actions: 交互操作列（自定义方法，动态渲染一键恢复与彻底销毁按钮）。
+    在左侧菜单栏常驻“受控回收站”，仅提供按归属过滤的列表查看、一键精准恢复与超管专属彻底物理销毁入口，
+    彻底剪除原生 add/edit/delete 表单旁路并关闭打开列表时的自动清库。
     """
     model = RecycleBatch
     menu_label = "受控回收站"
@@ -51,58 +46,32 @@ class RecycleBatchViewSet(ModelViewSet):
     menu_icon = "bin"
     menu_order = 220
     add_to_admin_menu = True
-    list_display = ["root_page_title", "total_pages", "recycled_at", "retention_status", "actor_username", "status", "actions"]
+    index_view_class = RecycleBatchIndexView
+    inspect_view_class = RecycleBatchInspectView
+    list_display = [
+        "root_page_title",
+        "total_pages",
+        "recycled_at",
+        "retention_status",
+        "actor_username",
+        "status",
+        RecycleBatchActionsColumn("actions", label="回收站操作"),
+    ]
     list_filter = ["status", "recycled_at"]
     search_fields = ["root_page_title", "actor_username"]
     inspect_view_enabled = True
     inspect_view_fields = ["batch_id", "root_page_title", "total_pages", "recycled_at", "actor_username", "status"]
-    form_fields = ["status"]
-
-    def _lazy_cleanup_expired_batches(self):
-        """
-        【惰性自愈扫描机制（Lazy Self-Healing Sweep）】
-
-        【教学点】：
-        在本地开发环境（如 WSL2 或离线容器）中，通常不会常驻运行 Celery 或 Linux Cron 定时任务。
-        通过在管理员每次打开回收站列表（index_view）时“顺手”扫描一次，
-        系统能够以极低开销实现“无需外部定时器常驻”的超期 30 天自动物理销毁与容量回收！
-
-        【核心变量】：
-        - cutoff: 30 天时间截断点（当前时间减去 30 天）；
-        - expired: 查询出所有 status='recycled' 且回收时间早于 cutoff 的过期批次；
-        - cleaned_count: 累计清理的批次数；
-        - OutboxProcessor.process_pending_events: 顺手触发外发信箱处理器，物理抹除 Mongo 中的历史正文。
-        """
-        from content_lifecycle.recycle import RecycleService
-        from external_content.outbox import OutboxProcessor
-
-        cutoff = timezone.now() - timedelta(days=30)
-        expired = RecycleBatch.objects.filter(status="recycled", recycled_at__lte=cutoff)
-        cleaned_count = 0
-        for b in expired:
-            try:
-                RecycleService.purge_page_or_subtree(b.root_page_id, actor=None, batch_id=b.batch_id)
-                cleaned_count += 1
-            except Exception:
-                pass
-        if cleaned_count > 0:
-            try:
-                OutboxProcessor.process_pending_events(batch_size=50)
-            except Exception:
-                pass
 
     def get_urlpatterns(self):
-        """扩展 ModelViewSet 的专属操作子路由：注册恢复与销毁的处理视图"""
-        urlpatterns = super().get_urlpatterns()
-        return urlpatterns + [
+        """仅注册受控只读列表、详情以及恢复与超管销毁视图，剪除 add/edit/delete 旁路。"""
+        conv = self.pk_path_converter
+        return [
+            path("", self.index_view, name="index"),
+            path("results/", self.index_results_view, name="index_results"),
+            path(f"inspect/<{conv}:pk>/", self.inspect_view, name="inspect"),
             path("<int:pk>/restore/", self.restore_view, name="restore"),
             path("<int:pk>/purge/", self.purge_view, name="purge"),
         ]
-
-    def index_view(self, request):
-        """回收站列表页入口：先执行惰性到期自愈清理，再调用父类渲染管理列表"""
-        self._lazy_cleanup_expired_batches()
-        return super().index_view(request)
 
     def restore_view(self, request, pk):
         """
@@ -126,9 +95,8 @@ class RecycleBatchViewSet(ModelViewSet):
 
         try:
             root_page = Page.objects.get(id=batch.root_page_id).specific
-            perms = root_page.permissions_for_user(request.user)
-            if not (perms.can_edit() or perms.can_delete() or request.user.is_superuser):
-                raise PermissionDenied("当前用户无权恢复此页面")
+            if not can_restore_recycled_page(request.user, root_page, batch):
+                raise PermissionDenied("当前用户无权恢复此回收批次")
         except Page.DoesNotExist:
             messages.error(request, "目标根页面在数据库中不存在，无法恢复！")
             return redirect(self.get_url_name("index"))
@@ -247,33 +215,18 @@ class RecycleBatchViewSet(ModelViewSet):
 
     def purge_view(self, request, pk):
         """
-        【彻底物理销毁交互视图（不可逆粉碎操作）】
-
-        【教学点与权限升级防御】：
-        1. 权限升级准则：若该批次中包含曾正式发布过的页面（any(e.was_live for e in entries)），
-           必须具备“发布权限（can_publish）”或“超级管理员”，普通低权限编辑坚决禁止销毁；
-        2. 二次确认警示页：GET 请求展示带有高危红色背景的确认页，警示将永久擦除 PG、Mongo 与 S3 数据；
-        3. POST 销毁与对账：
-           - 调用 RecycleService.purge_page_or_subtree 从数据库移除；
-           - 同步触发 OutboxProcessor 物理清除 MongoDB 历史正文快照；
-           - 核查 OutboxEvent 事件处理状态，若全部处理完成提示彻底销毁，若 Mongo 未完成则提示告警待对账。
+        【彻底物理销毁交互视图（仅限超级管理员）】
         """
+        if not request.user.is_authenticated or not request.user.is_superuser:
+            raise PermissionDenied("彻底物理销毁仅限超级管理员执行")
+
         batch = get_object_or_404(RecycleBatch, pk=pk)
         if batch.status != "recycled":
             messages.error(request, "该批次不处于已回收状态，旧销毁链接已失效")
             return redirect(self.get_url_name("index"))
 
         try:
-            root_page = Page.objects.get(id=batch.root_page_id).specific
-            perms = root_page.permissions_for_user(request.user)
-            entries = batch.entries.all()
-            has_live = any(e.was_live for e in entries)
-            if has_live:
-                if not ((perms.can_delete() and perms.can_publish()) or request.user.is_superuser):
-                    raise PermissionDenied("当前用户无权永久销毁曾发布页面（需具备发布权限或管理员权限）")
-            else:
-                if not (perms.can_delete() or request.user.is_superuser):
-                    raise PermissionDenied("当前用户无权永久销毁此页面")
+            Page.objects.get(id=batch.root_page_id)
         except Page.DoesNotExist:
             messages.error(request, "目标页面已被销毁，无法重复操作")
             return redirect(self.get_url_name("index"))
@@ -308,7 +261,7 @@ class RecycleBatchViewSet(ModelViewSet):
             from external_content.models import OutboxEvent
             OutboxProcessor.process_pending_events(batch_size=50)
 
-            purged_ids = [n["page_id"] for n in res.get("purged_summaries", [])] or [batch.root_page_id]
+            purged_ids = [n["page_id"] for n in res.get("nodes", [])] or [batch.root_page_id]
             events = list(OutboxEvent.objects.filter(event_type="page.purged", page_id__in=purged_ids))
             all_processed = bool(events) and all(e.status == "processed" for e in events)
 
@@ -325,11 +278,138 @@ class RecycleBatchViewSet(ModelViewSet):
 
 
 recycle_batch_viewset = RecycleBatchViewSet("recycle_bin")
+ownership_page_viewset = OwnershipPageViewSet()
 
 
 @hooks.register("register_admin_viewset")
 def register_recycle_batch_viewset():
     return recycle_batch_viewset
+
+
+@hooks.register("register_admin_viewset", order=0)
+def register_ownership_page_viewset():
+    return ownership_page_viewset
+
+
+@hooks.register("before_create_page")
+def guard_restricted_author_page_create(request, parent_page, page_class):
+    """通用建页门禁：受限作者只能在 author_allow_child_creation 父页下创建 author_creatable 模型。"""
+    if user_is_restricted_author_for_page(request.user, parent_page):
+        if (
+            getattr(parent_page, "is_recycled", False)
+            or not getattr(parent_page, "author_allow_child_creation", False)
+            or not getattr(page_class, "author_creatable", False)
+        ):
+            raise PermissionDenied("受限作者仅可在授权栏目大厅下创建允许的内容页面。")
+
+
+@hooks.register("before_publish_page")
+def guard_page_publish_lifecycle(request, page):
+    """通用发布门禁：触发 CustomBasePage.validate_for_publish 核查回收状态、权限与受限媒体归属。"""
+    specific = page.specific
+    if hasattr(specific, "validate_for_publish"):
+        try:
+            specific.validate_for_publish(user=request.user, revision=specific.get_latest_revision())
+        except ValidationError as exc:
+            msg = "; ".join(exc.messages) if hasattr(exc, "messages") else str(exc)
+            messages.error(request, msg)
+            return redirect("wagtailadmin_pages:edit", page.id)
+
+
+@hooks.register("before_copy_page")
+def guard_restricted_author_copy(request, page):
+    """通用复制门禁：禁止受限作者创建 Alias 别名或直接复制上线。"""
+    if user_is_restricted_author_for_page(request.user, page):
+        if not page.permissions_for_user(request.user).can_copy():
+            raise PermissionDenied("无权复制此页面。")
+        if request.method == "POST":
+            if request.POST.get("alias") or request.POST.get("publish_copies") or request.POST.get("copy_subpages"):
+                raise PermissionDenied("受限作者禁止创建页面别名、批量复制子页或直接复制发布。")
+
+
+@hooks.register("after_copy_page")
+def enforce_copied_page_ownership(request, page, new_page):
+    """受限作者复制产物强约束：归属本人、全新未发布草稿。"""
+    if user_is_restricted_author_for_page(request.user, page):
+        updates = {}
+        if new_page.owner_id != request.user.pk:
+            updates["owner_id"] = request.user.pk
+        if new_page.live:
+            updates["live"] = False
+            updates["live_revision_id"] = None
+            updates["has_unpublished_changes"] = True
+        if updates:
+            Page.objects.filter(pk=new_page.pk).update(**updates)
+
+
+@hooks.register("before_bulk_action", order=-1)
+def guard_page_bulk_actions(request, action_type, objects, bulk_action):
+    """通用批量动作门禁：任一选中页面未通过对象级权限或发布门禁则整批拒绝。"""
+    if not issubclass(bulk_action.model, Page):
+        return None
+    if action_type not in ("publish", "unpublish", "delete"):
+        return None
+
+    raw_ids = [int(i) for i in request.GET.getlist("id") if str(i).isdigit()]
+    check_pages = list(Page.objects.filter(pk__in=raw_ids)) if raw_ids else list(objects)
+    if not check_pages:
+        return None
+
+    for page in check_pages:
+        perms = page.permissions_for_user(request.user)
+        if action_type == "publish":
+            if not perms.can_publish():
+                raise PermissionDenied("批量发布包含无权发布的页面，已整批拒绝。")
+            specific = page.specific
+            if hasattr(specific, "validate_for_publish"):
+                try:
+                    specific.validate_for_publish(user=request.user, revision=specific.get_latest_revision())
+                except ValidationError as exc:
+                    msg = "; ".join(exc.messages) if hasattr(exc, "messages") else str(exc)
+                    messages.error(request, msg)
+                    return redirect(bulk_action.next_url)
+        elif action_type == "unpublish":
+            if not perms.can_unpublish():
+                raise PermissionDenied("批量下架包含无权下架的页面，已整批拒绝。")
+        elif action_type == "delete":
+            if not perms.can_delete():
+                raise PermissionDenied("批量删除包含无权删除的页面，已整批拒绝。")
+
+    return None
+
+
+@receiver(init_new_page)
+def prefill_linked_person_on_new_page(sender, page, parent, **kwargs):
+    """通用作者关联预填 (P1-4)：为已绑定 linked_user 的创作者自动预填第一署名人物。"""
+    if not isinstance(page, CustomBasePage):
+        return
+    owner = getattr(page, "owner", None)
+    if not owner or not getattr(owner, "is_authenticated", False):
+        return
+    if not hasattr(page, "authors"):
+        return
+    try:
+        if list(page.authors.all()):
+            return
+    except Exception:
+        pass
+
+    from people.models import Person
+
+    person = Person.objects.filter(linked_user_id=owner.pk).first()
+    if not person:
+        return
+    rel_descriptor = getattr(type(page), "authors", None)
+    rel_model = getattr(getattr(rel_descriptor, "rel", None), "related_model", None)
+    if rel_model is not None:
+        role_kwargs = {}
+        try:
+            role_field = rel_model._meta.get_field("role")
+            if role_field.choices:
+                role_kwargs["role"] = "primary_author"
+        except Exception:
+            pass
+        page.authors.add(rel_model(person=person, sort_order=0, **role_kwargs))
 
 
 @hooks.register("construct_explorer_page_queryset")
@@ -377,7 +457,16 @@ def block_recycled_pages_front_serve(page, request, serve_args, serve_kwargs):
 
     if is_recycled:
         user = getattr(request, "user", None)
-        if user and getattr(user, "is_authenticated", False) and (getattr(user, "is_staff", False) or getattr(user, "is_superuser", False)):
+        has_admin = bool(
+            user
+            and getattr(user, "is_authenticated", False)
+            and (
+                getattr(user, "is_superuser", False)
+                or getattr(user, "is_staff", False)
+                or user.has_perm("wagtailadmin.access_admin")
+            )
+        )
+        if has_admin:
             from content_lifecycle.models import RecycleEntry
             entry = RecycleEntry.objects.filter(page_id=page.id, status="recycled").select_related("batch").first()
             recycled_time = entry.batch.recycled_at.strftime("%Y-%m-%d %H:%M:%S") if entry and entry.batch and entry.batch.recycled_at else "近期"

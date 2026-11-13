@@ -76,6 +76,7 @@ class ExternalStreamPageMixin:
         return data
 
     def save_revision(self, user=None, approved_go_live_at=None, changed=True, log_action=True, previous_revision=None, clean=True, overwrite_revision=None, **kwargs):
+        from django.db import transaction
         from external_content.store import MongoContentStore
         from external_content.contracts import FieldVersionPointer
         from external_content.revision import bind_pointers_to_revision_content
@@ -86,6 +87,11 @@ class ExternalStreamPageMixin:
                 self.full_clean()
             else:
                 self.minimal_clean()
+
+        # 严禁原地覆写已上线版本或排期版本
+        if overwrite_revision:
+            if overwrite_revision.id == getattr(self, "live_revision_id", None) or getattr(overwrite_revision, "approved_go_live_at", None) is not None:
+                overwrite_revision = None
 
         store = None
         pointers = []
@@ -120,21 +126,24 @@ class ExternalStreamPageMixin:
         self._pending_external_pointers = pointers_dict_list
 
         try:
-            revision = super().save_revision(
-                user=user,
-                approved_go_live_at=approved_go_live_at,
-                changed=changed,
-                log_action=log_action,
-                previous_revision=previous_revision,
-                clean=False,
-                overwrite_revision=overwrite_revision,
-                **kwargs,
-            )
-            content_dict = revision.content if isinstance(revision.content, dict) else json.loads(revision.content)
-            bind_pointers_to_revision_content(content_dict, pointers)
-            content_dict["body"] = []
-            revision.content = content_dict
-            revision.save(update_fields=["content"])
+            with transaction.atomic():
+                revision = super().save_revision(
+                    user=user,
+                    approved_go_live_at=approved_go_live_at,
+                    changed=changed,
+                    log_action=log_action,
+                    previous_revision=previous_revision,
+                    clean=False,
+                    overwrite_revision=overwrite_revision,
+                    **kwargs,
+                )
+                content_dict = revision.content if isinstance(revision.content, dict) else json.loads(revision.content)
+                bind_pointers_to_revision_content(content_dict, pointers)
+                content_dict["body"] = []
+                revision.content = content_dict
+                revision.save(update_fields=["content"])
+                if hasattr(self, "prune_unpublished_draft_revisions"):
+                    self.prune_unpublished_draft_revisions(current_revision=revision)
             return revision
         finally:
             self._pending_external_pointers = None
@@ -246,6 +255,7 @@ class ProjectPage(ExternalStreamPageMixin, CustomBasePage):
     parent_page_types = ["portfolio.PortfolioIndexPage"]
     subpage_types = []
     supports_comments = True
+    author_creatable = True
     allow_comments = True
 
     project_status = models.CharField(

@@ -8,6 +8,7 @@
 """
 
 import uuid
+from django.conf import settings
 from django.db import models
 from wagtail.snippets.models import register_snippet
 from wagtail.admin.panels import FieldPanel
@@ -36,6 +37,15 @@ class Person(models.Model):
     )
     bio = models.TextField(blank=True, verbose_name="公开简介")
     email = models.EmailField(blank=True, verbose_name="公开联系邮箱")
+    linked_user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="person_profile",
+        verbose_name="关联后台账号",
+        help_text="仅由管理员人工核验后手工绑定，用于创作后台自动预填作者署名，禁止自动认领",
+    )
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="创建时间")
 
     panels = [
@@ -43,6 +53,7 @@ class Person(models.Model):
         FieldPanel("avatar"),
         FieldPanel("bio"),
         FieldPanel("email"),
+        FieldPanel("linked_user", permission="identity.change_user"),
     ]
 
     class Meta:

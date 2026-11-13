@@ -38,10 +38,8 @@ INSTALLED_APPS = [
     # 1. 业务核心子应用 (收敛于 myblog/apps/* 目录下)
     "identity.apps.IdentityConfig",
     "captcha.apps.CaptchaConfig",
-    "media_library.apps.MediaLibraryConfig",
     "content_blocks.apps.ContentBlocksConfig",
     "external_content.apps.ExternalContentConfig",
-    "content_lifecycle.apps.ContentLifecycleConfig",
     "discovery.apps.DiscoveryConfig",
     "people.apps.PeopleConfig",
     "taxonomy.apps.TaxonomyConfig",
@@ -66,6 +64,10 @@ INSTALLED_APPS = [
     "wagtail.search",
     "wagtail.admin",
     "wagtail",
+
+    # 置于 Wagtail 核心之后，确保在 AppConfig.ready() 阶段可靠覆盖默认权限策略、表单与删除信号
+    "media_library.apps.MediaLibraryConfig",
+    "content_lifecycle.apps.ContentLifecycleConfig",
 
     # 3. 第三方优质工具库
     "modelcluster",
@@ -300,6 +302,8 @@ AUTH_USER_MODEL = "identity.User"
 # 自定义 Wagtail 媒体模型（带 ACL 访问控制与 RustFS 私有存储）
 WAGTAILIMAGES_IMAGE_MODEL = "media_library.CustomImage"
 WAGTAILDOCS_DOCUMENT_MODEL = "media_library.CustomDocument"
+WAGTAILIMAGES_IMAGE_FORM_BASE = "media_library.forms.ProtectedImageForm"
+WAGTAILDOCS_DOCUMENT_FORM_BASE = "media_library.forms.ProtectedDocumentForm"
 
 # 全文搜索后端
 WAGTAILSEARCH_BACKENDS = {

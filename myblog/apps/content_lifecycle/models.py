@@ -82,6 +82,12 @@ class CustomBasePage(Page):
     supports_comments = False
     allow_comments = True  # 向后兼容属性
 
+    # 4. 声明式作者创作与子节点允许策略（零单页面硬编码）
+    # - author_creatable: 是否允许受限作者（仅 add+publish，无 change）创建/编辑/发布/删除本人页面
+    # - author_allow_child_creation: 是否允许受限作者在该页面下创建 author_creatable=True 的子页面
+    author_creatable = False
+    author_allow_child_creation = False
+
     @classmethod
     def get_edit_handler(cls):
         handler = super().get_edit_handler()
@@ -106,8 +112,122 @@ class CustomBasePage(Page):
     class Meta:
         abstract = True
 
-    def publish(self, revision=None, user=None, changed=True, log_action=True, previous_revision=None, **kwargs):
-        """发布守卫：自身或任一祖先处于回收状态时坚决拒绝发布"""
+    def permissions_for_user(self, user):
+        from content_lifecycle.permissions import OwnershipPagePermissionTester
+        return OwnershipPagePermissionTester(user, self)
+
+    def collect_media_references(self) -> list:
+        """
+        通用媒体引用采集：
+        自动扫描 featured_image、gallery_images 与所有 StreamField 积木提取 MediaReference。
+        """
+        from wagtail.fields import StreamField
+        from content_blocks.contracts import MediaReference
+
+        refs: list[MediaReference] = []
+        featured_img = getattr(self, "featured_image", None)
+        if featured_img is not None and getattr(featured_img, "public_id", None):
+            refs.append(
+                MediaReference(
+                    asset_id=str(featured_img.public_id),
+                    asset_type="image",
+                    block_path="featured_image",
+                    extra={"field_name": "featured_image"},
+                )
+            )
+
+        if hasattr(self, "gallery_images"):
+            try:
+                for idx, item in enumerate(self.gallery_images.all()):
+                    img = getattr(item, "image", None)
+                    if img is not None and getattr(img, "public_id", None):
+                        refs.append(
+                            MediaReference(
+                                asset_id=str(img.public_id),
+                                asset_type="image",
+                                block_path=f"gallery_images.{idx}",
+                                extra={"field_name": "gallery_images"},
+                            )
+                        )
+            except Exception:
+                pass
+
+        for field in self._meta.get_fields():
+            if isinstance(field, StreamField):
+                stream_val = getattr(self, field.name, None)
+                if not stream_val:
+                    continue
+                for idx, child in enumerate(stream_val):
+                    block = getattr(child, "block", None)
+                    if block and hasattr(block, "extract_media_refs"):
+                        extracted = block.extract_media_refs(child.value, path=f"{field.name}.{idx}")
+                        for ref in extracted:
+                            extra = dict(ref.extra) if getattr(ref, "extra", None) else {}
+                            extra.setdefault("field_name", field.name)
+                            refs.append(
+                                MediaReference(
+                                    asset_id=ref.asset_id,
+                                    asset_type=ref.asset_type,
+                                    block_path=ref.block_path,
+                                    extra=extra,
+                                )
+                            )
+        return refs
+
+    def register_revision_media_references(self, revision) -> None:
+        """在 Revision 生成时统一登记 MEDIA-REF-01 媒体引用记录。"""
+        if not self.id or not getattr(revision, "id", None):
+            return
+        from media_library.references import MediaReferenceTracker
+
+        MediaReferenceTracker.register_revision_references(
+            page_id=self.id,
+            revision_id=revision.id,
+            references=self.collect_media_references(),
+        )
+
+    def prune_unpublished_draft_revisions(self, current_revision=None, keep: int = 20) -> None:
+        """滑动窗口修剪从未发布过页面的多余草稿版本（白名单保护曾发布与排期页面）。"""
+        if not self.id:
+            return
+        was_ever_published = bool(
+            self.first_published_at
+            or (self.live and getattr(self, "live_revision_id", None))
+            or getattr(self, "approved_go_live_at", None)
+        )
+        if not was_ever_published:
+            from django.db.models import Q
+            was_ever_published = Page.objects.filter(id=self.id).filter(
+                Q(first_published_at__isnull=False) | Q(live=True)
+            ).exists()
+        if not was_ever_published:
+            from content_lifecycle.models import RecycleEntry
+            if RecycleEntry.objects.filter(page_id=self.id, was_live=True).exists():
+                was_ever_published = True
+        if was_ever_published:
+            return
+
+        from wagtail.models import Revision
+        from media_library.models import MediaReferenceRecord
+
+        draft_revs = list(Revision.objects.for_instance(self).order_by("-created_at", "-id"))
+        if len(draft_revs) <= keep:
+            return
+        current_id = getattr(current_revision, "id", None)
+        for old_rev in draft_revs[keep:]:
+            if old_rev.id != current_id and getattr(old_rev, "approved_go_live_at", None) is None:
+                MediaReferenceRecord.objects.filter(page_id=self.id, revision_id=old_rev.id).delete()
+                old_rev.delete()
+
+    def validate_for_publish(self, user=None, revision=None) -> None:
+        """
+        全站统一发布前门禁校验（供 CustomBasePage.publish 与 before_publish_page 钩子共同调用）：
+        1. 自身或祖先处于回收站则拒绝发布；
+        2. 若指定了操作人，重查用户激活状态与对象级发布权限；
+        3. 核验所引用的受限媒体：严禁发布引用了他人名下仍为 RESTRICTED 媒体的页面。
+        """
+        from django.core.exceptions import ValidationError
+
         if self.is_recycled:
             raise PermissionDenied(f"页面 '{self.title}' 当前处于回收站中，禁止发布！")
         ancestor_ids = list(self.get_ancestors().values_list("id", flat=True))
@@ -118,6 +238,86 @@ class CustomBasePage(Page):
         for ancestor in self.get_ancestors():
             if getattr(ancestor, "is_recycled", False):
                 raise PermissionDenied(f"父级页面 '{ancestor.title}' 处于回收站中，禁止发布子页面！")
+
+        from django.contrib.auth import get_user_model
+        UserModel = get_user_model()
+        if user is not None:
+            fresh_user = UserModel.objects.filter(pk=user.pk).first() if getattr(user, "pk", None) else user
+            if fresh_user is None or not getattr(fresh_user, "is_active", False):
+                raise PermissionDenied("当前账号已停用，禁止发布页面。")
+            if not getattr(fresh_user, "is_superuser", False):
+                if not self.permissions_for_user(fresh_user).can_publish():
+                    raise PermissionDenied("当前用户无权发布此页面。")
+        elif revision is not None and getattr(revision, "approved_go_live_at", None) is not None:
+            rev_user = getattr(revision, "user", None)
+            if rev_user is not None:
+                fresh_rev_user = UserModel.objects.filter(pk=rev_user.pk).first() if getattr(rev_user, "pk", None) else rev_user
+                if fresh_rev_user is None or not getattr(fresh_rev_user, "is_active", False):
+                    raise PermissionDenied("排期发布人账号已停用，禁止自动发布。")
+                if not getattr(fresh_rev_user, "is_superuser", False) and not self.permissions_for_user(fresh_rev_user).can_publish():
+                    raise PermissionDenied("排期发布人已被撤权，禁止自动发布。")
+
+        # 核查受限媒体引用归属：避免越权通过发布将他人受限媒体暴露给公众
+        from media_library.models import (
+            CustomDocument,
+            CustomImage,
+            MediaReferenceRecord,
+            VisibilityChoices,
+        )
+
+        ref_pairs: list[tuple[str, str]] = []
+        rev_id = getattr(revision, "id", None)
+        if self.pk and rev_id:
+            db_refs = list(
+                MediaReferenceRecord.objects.filter(page_id=self.pk, revision_id=rev_id)
+                .values_list("asset_type", "asset_id")
+            )
+            ref_pairs.extend((atype, str(aid)) for atype, aid in db_refs)
+        if not ref_pairs:
+            for ref in self.collect_media_references():
+                if ref.asset_id:
+                    ref_pairs.append((ref.asset_type, str(ref.asset_id)))
+
+        image_ids = {aid for atype, aid in ref_pairs if atype == "image"}
+        doc_ids = {aid for atype, aid in ref_pairs if atype == "document"}
+
+        def _check_restricted_assets(model_cls, raw_ids):
+            if not raw_ids:
+                return
+            uuid_vals = []
+            pk_vals = []
+            for raw in raw_ids:
+                try:
+                    uuid_vals.append(uuid.UUID(str(raw)))
+                except Exception:
+                    if str(raw).isdigit():
+                        pk_vals.append(int(str(raw)))
+            q = models.Q()
+            if uuid_vals:
+                q |= models.Q(public_id__in=uuid_vals)
+            if pk_vals:
+                q |= models.Q(pk__in=pk_vals)
+            if not q:
+                return
+            for asset in model_cls.objects.filter(q).filter(visibility=VisibilityChoices.RESTRICTED):
+                if asset.uploaded_by_user_id != self.owner_id:
+                    if not (user is not None and getattr(user, "is_superuser", False)):
+                        raise ValidationError(
+                            f"页面引用了非本页面作者上传的受限媒体文件（{asset.title}），禁止直接发布！"
+                        )
+
+        _check_restricted_assets(CustomImage, image_ids)
+        _check_restricted_assets(CustomDocument, doc_ids)
+
+    def save_revision(self, *args, **kwargs):
+        revision = super().save_revision(*args, **kwargs)
+        self.register_revision_media_references(revision)
+        return revision
+
+    def publish(self, revision=None, user=None, changed=True, log_action=True, previous_revision=None, **kwargs):
+        """发布守卫：统一调用 validate_for_publish 执行回收隔离、权限与媒体归属门禁"""
+        target_obj = revision.as_object() if revision else self
+        target_obj.validate_for_publish(user=user, revision=revision)
         return super().publish(
             revision=revision,
             user=user,
@@ -264,29 +464,12 @@ class RecycleBatch(models.Model):
 
     def actions(self):
         """
-        【Wagtail 管理后台操作列动态按钮生成】
-
-        【教学点】：
-        在 Wagtail Snippet/ModelAdmin 列表页中，通过在模型中定义方法并指定 short_description，
-        可以直接为每一行动态渲染交互按钮。
-
-        【状态分支与变量说明】：
-        - restore_url (str): 解析一键恢复视图的 URL（路由指向 recycle_bin:restore，带当前批次主键 self.pk）；
-        - purge_url (str): 解析彻底销毁视图的 URL（路由指向 recycle_bin:purge，带当前批次主键 self.pk）；
-        - mark_safe: Django 安全模块，将拼接的 HTML 标记为安全，避免被模板引擎转义为纯文本。
+        状态摘要兜底方法（管理列表真实操作按钮已由感知 request.user 的 RecycleBatchActionsColumn 渲染，
+        防止对非超管渲染“彻底销毁”链接）。
         """
         from django.utils.safestring import mark_safe
-        from django.urls import reverse
         if self.status == "recycled":
-            try:
-                restore_url = reverse("recycle_bin:restore", args=[self.pk])
-                purge_url = reverse("recycle_bin:purge", args=[self.pk])
-                return mark_safe(
-                    f'<a href="{restore_url}" class="button button-small button-secondary" style="margin-right:8px;" onclick="return confirm(\'确认将该页面/子树原位恢复为未发布草稿？\')">一键恢复</a>'
-                    f'<a href="{purge_url}" class="button button-small button-danger" style="background:#dc2626;color:#fff;" onclick="return confirm(\'警告：永久删除将彻底物理销毁该页面及 MongoDB 中的全部历史版本，不可撤销！确认删除？\')">彻底销毁</a>'
-                )
-            except Exception:
-                return "待操作"
+            return mark_safe('<span style="color:#d97706;font-weight:600;">已回收待处理</span>')
         elif self.status == "restored":
             return mark_safe('<span style="color:#16a34a;font-weight:600;">已恢复为草稿</span>')
         else:

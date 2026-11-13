@@ -244,12 +244,12 @@ class S9SearchAndDiscoveryTests(unittest.TestCase):
         self.assertEqual(res_draft.total_count, 0, "未发布的新草稿内容绝不能出现在搜索结果中！")
 
         # 3. 移入回收站：搜索原关键词立即归零
-        batch = RecycleService.recycle_page_or_subtree(page)
+        batch = RecycleService.recycle_page_or_subtree(page, system_authorized=True)
         res_recycled = ContentQuery.execute(spec_v1)
         self.assertEqual(res_recycled.total_count, 0, "页面移入回收站后必须立即从搜索中消失！")
 
         # 4. 从回收站恢复为草稿态：依然不能出现在搜索中，直到重新发布！
-        RecycleService.restore_page_or_subtree(batch.batch_id)
+        RecycleService.restore_page_or_subtree(batch.batch_id, system_authorized=True)
         page.refresh_from_db()
         self.assertFalse(page.live, "恢复后严格保持草稿态")
         res_restored = ContentQuery.execute(spec_v1)

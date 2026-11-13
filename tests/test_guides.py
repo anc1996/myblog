@@ -180,7 +180,7 @@ class GuidesSystemTests(unittest.TestCase):
         self.index_page.add_child(instance=guide)
 
         # 1. 移入回收站
-        batch = RecycleService.recycle_page_or_subtree(guide)
+        batch = RecycleService.recycle_page_or_subtree(guide, system_authorized=True)
         guide.refresh_from_db()
         self.assertTrue(guide.is_recycled, "页面必须标记为 is_recycled")
 
@@ -191,7 +191,7 @@ class GuidesSystemTests(unittest.TestCase):
             block_recycled_pages_front_serve(guide, None, (), {})
 
         # 3. 从回收站原位恢复
-        res = RecycleService.restore_page_or_subtree(batch.batch_id)
+        res = RecycleService.restore_page_or_subtree(batch.batch_id, system_authorized=True)
         guide.refresh_from_db()
         self.assertFalse(guide.is_recycled, "恢复后取消回收标记")
         self.assertFalse(guide.live, "恢复后严格保持草稿态")

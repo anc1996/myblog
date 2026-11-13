@@ -26,6 +26,8 @@ class HierarchicalListingMixin:
     继承顺序须位于 CustomBasePage 之前以正确协作 MRO。
     """
     listing_policy: ListingPolicy = ListingPolicy(type_keys=("blog_page",))
+    # 聚合大厅允许受限作者在其下创建声明了 author_creatable=True 的子内容页
+    author_allow_child_creation = True
 
     def get_listing_policy(self, request: Any) -> ListingPolicy:
         """获取当前列表页面的能力策略定义，支持子类根据请求动态扩展"""

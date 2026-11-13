@@ -3,6 +3,9 @@ from wagtail.models import Page
 
 
 class HomePage(Page):
+    author_creatable = False
+    author_allow_child_creation = False
+
     # 约束首页下可创建的子页面类型
     subpage_types = [
         "blog.BlogIndexPage",
@@ -11,6 +14,10 @@ class HomePage(Page):
         "portfolio.PortfolioIndexPage",
         "taxonomy.TagIndexPage",
     ]
+
+    def permissions_for_user(self, user):
+        from content_lifecycle.permissions import OwnershipPagePermissionTester
+        return OwnershipPagePermissionTester(user, self)
 
     def get_context(self, request, *args, **kwargs):
         context = super().get_context(request, *args, **kwargs)

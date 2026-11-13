@@ -217,7 +217,7 @@ class PortfolioSystemTestCase(unittest.TestCase):
     def test_project_recycle_and_restore(self):
         """测试作品集项目受控回收与全量字段恢复 (H-02)"""
         # 1. 移入回收站
-        batch = RecycleService.recycle_page_or_subtree(self.project, actor=None)
+        batch = RecycleService.recycle_page_or_subtree(self.project, actor=None, system_authorized=True)
         self.project.refresh_from_db()
         self.assertTrue(self.project.is_recycled)
 
@@ -228,7 +228,7 @@ class PortfolioSystemTestCase(unittest.TestCase):
             project_detail_api(req_detail, slug=self.project_slug)
 
         # 2. 一键原位恢复
-        res = RecycleService.restore_page_or_subtree(batch.batch_id, actor=None)
+        res = RecycleService.restore_page_or_subtree(batch.batch_id, actor=None, system_authorized=True)
         self.assertEqual(res["status"], "success")
         self.project.refresh_from_db()
         self.assertFalse(self.project.is_recycled)

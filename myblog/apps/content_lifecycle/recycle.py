@@ -30,7 +30,7 @@ class RecycleService:
     """全站受控回收与恢复管理服务"""
 
     @classmethod
-    def recycle_page_or_subtree(cls, page: Page, actor: Any = None) -> RecycleBatch:
+    def recycle_page_or_subtree(cls, page: Page, actor: Any = None, *, system_authorized: bool = False) -> RecycleBatch:
         """
         【核心算法 1】：回收单页或整棵子树（原树占位回收模型）。
 
@@ -57,6 +57,15 @@ class RecycleService:
             db_page = Page.objects.select_for_update().get(id=page.id).specific
             if getattr(db_page, "is_recycled", False):
                 raise PermissionDenied(f"页面 '{db_page.title}' 已经在回收站中，无需重复回收。")
+
+            if not system_authorized:
+                if not actor or not getattr(actor, "is_authenticated", False) or not getattr(actor, "is_active", False):
+                    raise PermissionDenied("必须由已登录且有效的操作人执行页面回收操作。")
+                if not getattr(actor, "is_superuser", False):
+                    perms = db_page.permissions_for_user(actor)
+                    if not perms.can_delete(ignore_bulk=True):
+                        raise PermissionDenied("当前用户无权回收此页面或子树。")
+
             if hasattr(page, "is_recycled"):
                 page.is_recycled = True
             page = db_page
@@ -64,6 +73,13 @@ class RecycleService:
             # 获取目标节点及其所有活动后代子节点
             descendants = list(page.get_descendants().select_related())
             all_nodes = [page] + [d.specific for d in descendants if not getattr(d, "is_recycled", False)]
+
+            if not system_authorized and actor is not None and not getattr(actor, "is_superuser", False):
+                from content_lifecycle.permissions import user_is_restricted_author_for_page
+                if user_is_restricted_author_for_page(actor, db_page):
+                    for node in all_nodes:
+                        if not getattr(node, "author_creatable", False) or node.owner_id != actor.pk:
+                            raise PermissionDenied("受限作者仅可回收本人名下且允许创作的页面。")
 
             # 创建回收操作批次
             batch = RecycleBatch.objects.create(
@@ -115,7 +131,7 @@ class RecycleService:
                     node.unpublish(user=actor)
 
                 # 显式清空排期发布与取消审批流 (防止 publish_scheduled 误发)
-                Revision.objects.filter(object_id=str(node.id)).update(approved_go_live_at=None)
+                Revision.objects.for_instance(node).update(approved_go_live_at=None)
 
                 # 打上原树占位回收标记
                 node.is_recycled = True
@@ -242,6 +258,8 @@ class RecycleService:
         actor: Any = None,
         slug_overrides: dict[Any, str] | None = None,
         target_parent_id: int | None = None,
+        *,
+        system_authorized: bool = False,
     ) -> dict[str, Any]:
         """
         【核心算法 3】：精准恢复单页或整棵子树到原树物理位置。
@@ -277,12 +295,19 @@ class RecycleService:
             if not batch.entries.exists():
                 raise ValidationError("该批次无有效条目，不可恢复！")
 
-            if actor is not None:
+            if not system_authorized:
+                if not actor or not getattr(actor, "is_authenticated", False) or not getattr(actor, "is_active", False):
+                    raise PermissionDenied("必须由已登录且有效的操作人执行页面恢复操作。")
                 try:
                     root_p = Page.objects.get(id=batch.root_page_id).specific
-                    perms = root_p.permissions_for_user(actor)
-                    if not (perms.can_edit() or perms.can_delete() or actor.is_superuser):
-                        raise PermissionDenied("当前用户无权恢复此页面")
+                    from content_lifecycle.permissions import can_restore_recycled_page
+                    if not can_restore_recycled_page(actor, root_p, batch):
+                        raise PermissionDenied("当前用户无权恢复此回收批次（非本人批次或权限已被撤销）。")
+                    if not getattr(actor, "is_superuser", False):
+                        if target_parent_id:
+                            dest_parent = Page.objects.get(id=target_parent_id).specific
+                            if not dest_parent.permissions_for_user(actor).can_add_subpage():
+                                raise PermissionDenied("当前用户无权将页面恢复到目标父栏目下。")
                 except Page.DoesNotExist:
                     pass
 
@@ -450,7 +475,7 @@ class RecycleService:
             }
 
     @classmethod
-    def purge_page_or_subtree(cls, page_id: int, actor: Any = None, batch_id: Any = None) -> dict[str, Any]:
+    def purge_page_or_subtree(cls, page_id: int, actor: Any = None, batch_id: Any = None, *, system_authorized: bool = False) -> dict[str, Any]:
         """
         【核心算法 4】：受控永久销毁单页或整棵子树（Purge 彻底物理销毁）。
 
@@ -463,6 +488,15 @@ class RecycleService:
         4. 本地数据库硬删除：调用 Wagtail 原生 node.delete(allow_physical_purge=True) 执行物理抹除。
         """
         with content_mutation_guard(timeout_seconds=3):
+            if not system_authorized:
+                if (
+                    not actor
+                    or not getattr(actor, "is_authenticated", False)
+                    or not getattr(actor, "is_active", False)
+                    or not getattr(actor, "is_superuser", False)
+                ):
+                    raise PermissionDenied("彻底物理销毁（Purge）仅限超级管理员执行。")
+
             if batch_id:
                 batch = RecycleBatch.objects.select_for_update().filter(batch_id=batch_id).first()
                 if not batch or batch.status != "recycled":
@@ -481,18 +515,6 @@ class RecycleService:
 
             descendants = list(page.get_descendants().select_related())
             all_nodes = [page] + [d.specific for d in descendants]
-
-            # 对象级删除权限校验：若含有曾发布页面，必须具备发布权限或超级管理员权限
-            if actor is not None:
-                perms = page.permissions_for_user(actor)
-                sub_entries = RecycleEntry.objects.filter(page_id__in=[n.id for n in all_nodes])
-                any_was_live = any(e.was_live for e in sub_entries)
-                if any_was_live:
-                    if not ((perms.can_delete() and perms.can_publish()) or actor.is_superuser):
-                        raise PermissionDenied("当前用户无权永久销毁曾发布的页面（需具备发布权限或管理员权限）")
-                else:
-                    if not (perms.can_delete() or actor.is_superuser):
-                        raise PermissionDenied("当前用户无权永久销毁此页面")
             purged_summaries = []
 
             from content_lifecycle.models import authorize_physical_purge

@@ -121,14 +121,14 @@ class S7MediaDeliveryTests(unittest.TestCase):
         token = plan["confirmed_plan_token"]
 
         # 2. 未传确认凭证：默认阻断 (409 conflict)，文章保持 live
-        res_blocked = restrict_asset("image", img.public_id, confirmed_plan_token=None)
+        res_blocked = restrict_asset("image", img.public_id, confirmed_plan_token=None, system_authorized=True)
         self.assertEqual(res_blocked["status"], "conflict")
         self.assertEqual(res_blocked["error"], "affected_publications")
         page.refresh_from_db()
         self.assertTrue(page.live, "未确认时页面绝不能被下架")
 
         # 3. 传有效凭证：执行连带下架，图片变受限，文章被正式下架
-        res_confirmed = restrict_asset("image", img.public_id, confirmed_plan_token=token)
+        res_confirmed = restrict_asset("image", img.public_id, confirmed_plan_token=token, system_authorized=True)
         self.assertEqual(res_confirmed["status"], "success")
         img.refresh_from_db()
         self.assertEqual(img.visibility, VisibilityChoices.RESTRICTED)

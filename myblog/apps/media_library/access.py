@@ -11,8 +11,10 @@ import hashlib
 from uuid import UUID
 from typing import Any
 from django.conf import settings
+from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from wagtail.models import Page
+from wagtail.permissions import policy_registry
 
 from media_library.models import (
     CustomImage,
@@ -44,7 +46,9 @@ def check_media_access(asset: Any, request: Any = None) -> bool:
     """
     逐次访问权限校验：
     1. 若资源 visibility == 'public'，允许公开读取；
-    2. 若资源 visibility == 'restricted'，仅允许已登录的管理员或后台授权用户读取。
+    2. 若资源 visibility == 'restricted'，严禁仅凭 is_staff 放行：
+       仅允许超级管理员、上传者本人（uploaded_by_user == user），
+       或对该资源所属 Collection 具备 'change' 权限的主编读取。
     """
     if not asset:
         return False
@@ -54,8 +58,14 @@ def check_media_access(asset: Any, request: Any = None) -> bool:
     # 处于受限状态 (restricted)
     if request and hasattr(request, "user"):
         user = request.user
-        if user.is_authenticated and (user.is_staff or user.is_superuser):
+        if not user or not getattr(user, "is_authenticated", False) or not getattr(user, "is_active", False):
+            return False
+        if getattr(user, "is_superuser", False):
             return True
+        if isinstance(asset, (CustomImage, CustomDocument)):
+            policy = policy_registry.get_by_type(type(asset))
+            return bool(policy.user_has_permission_for_instance(user, "change", asset))
+        return bool(user.has_perm(f"{asset._meta.app_label}.change_{asset._meta.model_name}"))
 
     return False
 
@@ -111,12 +121,24 @@ def restrict_asset(
     asset_id: UUID | str,
     actor: Any = None,
     confirmed_plan_token: str | None = None,
+    *,
+    system_authorized: bool = False,
 ) -> dict[str, Any]:
     """
     执行 MEDIA-ACL-02 契约：
     1. 若存在受影响公开页面且未传有效确认凭证，默认阻断修改 (返回 409)；
     2. 若已确认，在全局 ContentMutationGuard 锁内原子修改资源权限并下架所有受影响页面！
+    3. 仅允许超级管理员或显式系统内部授权执行，严禁普通作者通过转受限连带下架他人页面。
     """
+    if not system_authorized:
+        if (
+            not actor
+            or not getattr(actor, "is_authenticated", False)
+            or not getattr(actor, "is_active", False)
+            or not getattr(actor, "is_superuser", False)
+        ):
+            raise PermissionDenied("影响页面公开访问的媒体转受限操作仅限超级管理员执行。")
+
     asset_uuid = UUID(str(asset_id))
 
     # 在全局行锁保护下执行评估与连带下架

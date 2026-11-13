@@ -262,7 +262,7 @@ class S10PresentationTests(unittest.TestCase):
         self.created_pages.append(live_page)
         live_page.save_revision().publish()
 
-        RecycleService.recycle_page_or_subtree(live_page)
+        RecycleService.recycle_page_or_subtree(live_page, system_authorized=True)
         live_page.refresh_from_db()
 
         # 回收后访问必须严格 404

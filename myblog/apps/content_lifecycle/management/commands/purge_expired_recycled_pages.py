@@ -70,6 +70,7 @@ class Command(BaseCommand):
                     page_id=b.root_page_id,
                     actor=None,
                     batch_id=b.batch_id,
+                    system_authorized=True,
                 )
                 purged_count += 1
                 self.stdout.write(self.style.SUCCESS(f"  成功销毁 SQL 记录（共 {res.get('purged_count', 1)} 页）"))
