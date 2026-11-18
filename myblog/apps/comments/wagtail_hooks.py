@@ -12,7 +12,7 @@ Wagtail 8.1 评论审核控制台钩子 (C-06 契约)。
 import html
 import logging
 from django.contrib.admin.utils import quote
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.http import HttpResponseNotAllowed, JsonResponse
 from django.urls import path, reverse
 from django.shortcuts import get_object_or_404, redirect
@@ -143,12 +143,19 @@ class CommentIndexView(CommentViewPermissionMixin, generic.IndexView):
         context["current_ip"] = self.request.GET.get("ip", "")
         context["current_status"] = self.request.GET.get("status", "")
         context["current_pending_queue"] = self.request.GET.get("pending_queue") == "1"
+        agg = base_qs.aggregate(
+            all=Count("id"),
+            blog_page=Count("id", filter=Q(page__content_type__model="blogpage")),
+            guide=Count("id", filter=Q(page__content_type__model="guidepage")),
+            project=Count("id", filter=Q(page__content_type__model="projectpage")),
+            pending=Count("id", filter=Q(pending_version__isnull=False) | Q(status="pending")),
+        )
         context["tab_counts"] = {
-            "all": base_qs.count(),
-            "blog_page": base_qs.filter(page__content_type__model="blogpage").count(),
-            "guide": base_qs.filter(page__content_type__model="guidepage").count(),
-            "project": base_qs.filter(page__content_type__model="projectpage").count(),
-            "pending": base_qs.filter(Q(pending_version__isnull=False) | Q(status="pending")).count(),
+            "all": agg["all"] or 0,
+            "blog_page": agg["blog_page"] or 0,
+            "guide": agg["guide"] or 0,
+            "project": agg["project"] or 0,
+            "pending": agg["pending"] or 0,
         }
         return context
 

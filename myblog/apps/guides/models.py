@@ -335,7 +335,9 @@ class GuidePage(CustomBasePage):
         """后台编辑或预览时，从最新草稿版本指针中水合正文"""
         page = super().get_latest_revision_as_object()
         if not getattr(page, "_hydrated_from_revision", False) and hasattr(page, "hydrate_from_mongo"):
-            page.hydrate_from_mongo(access_context=AccessContext(mode=AccessMode.PREVIEW_DRAFT))
+            is_clean_live = bool(getattr(page, "live", False) and not getattr(page, "has_unpublished_changes", False))
+            mode = AccessMode.PUBLIC if is_clean_live else AccessMode.PREVIEW_DRAFT
+            page.hydrate_from_mongo(access_context=AccessContext(mode=mode))
             page._hydrated_from_revision = True
         return page
 

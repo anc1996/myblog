@@ -148,15 +148,21 @@ def list_comments_api(request, page_id: int):
     comments = qs.select_related("author", "author__member_profile")[offset : offset + page_size]
 
     # 预加载当前批次生效的版本 HTML
-    ver_ids = [c.approved_version_id for c in comments if c.approved_version_id]
-    ver_map = {
-        v.id: v.safe_html
+    ver_ids = set()
+    is_authed = bool(request.user.is_authenticated)
+    for c in comments:
+        if c.approved_version_id:
+            ver_ids.add(c.approved_version_id)
+        if is_authed and c.author_id == request.user.id and c.latest_version_id:
+            ver_ids.add(c.latest_version_id)
+    ver_objs = {
+        v.id: v
         for v in CommentVersion.objects.filter(id__in=ver_ids)
     }
 
     # 若当前用户已登录，批量查询其点赞状态
     user_reactions = {}
-    if request.user.is_authenticated:
+    if is_authed:
         c_ids = [c.id for c in comments]
         user_reactions = dict(
             CommentReaction.objects.filter(comment_id__in=c_ids, user=request.user).values_list("comment_id", "reaction_type")
@@ -184,22 +190,32 @@ def list_comments_api(request, page_id: int):
                 "state_generation": c.state_generation,
             })
         else:
-            items.append({
+            is_owner = bool(is_authed and c.author_id == request.user.id)
+            is_editable = c.is_editable if is_owner else False
+            approved_ver = ver_objs.get(c.approved_version_id)
+            item_data = {
                 "id": c.id,
                 "kind": "comment",
                 "author": c.get_author_presentation(),
-                "safe_html": ver_map.get(c.approved_version_id, "（内容已归档）"),
+                "safe_html": approved_ver.safe_html if approved_ver else "（内容已归档）",
                 "like_count": c.like_count,
                 "dislike_count": c.dislike_count,
                 "reply_count": c.reply_count,
                 "user_reaction": user_reactions.get(c.id, 0),
                 "created_at": c.created_at.strftime("%Y-%m-%d %H:%M:%S"),
-                "is_editable": c.is_editable if (request.user.is_authenticated and c.author_id == request.user.id) else False,
+                "is_editable": is_editable,
                 "is_pinned": c.is_pinned,
-                "can_delete": bool(request.user.is_authenticated and c.author_id == request.user.id and c.status != "deleted"),
-                "can_react": bool(request.user.is_authenticated and c.author_id != request.user.id and allow_comments),
+                "can_delete": bool(is_owner and c.status != "deleted"),
+                "can_react": bool(is_authed and c.author_id != request.user.id and allow_comments),
                 "state_generation": c.state_generation,
-            })
+            }
+            if is_owner:
+                latest_ver = ver_objs.get(c.latest_version_id)
+                item_data["latest_version_id"] = c.latest_version_id
+                item_data["has_pending_edit"] = bool(c.pending_version_id)
+                if is_editable or c.pending_version_id:
+                    item_data["editable_raw_content"] = latest_ver.raw_content if latest_ver else ""
+            items.append(item_data)
 
     total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 1
     resp = _cors_json_response({
@@ -259,14 +275,20 @@ def list_replies_api(request, root_id: int):
         "replied_to_user__member_profile",
     ).order_by("created_at")
 
-    ver_ids = [r.approved_version_id for r in replies if r.approved_version_id]
-    ver_map = {
-        v.id: v.safe_html
+    ver_ids = set()
+    is_authed = bool(request.user.is_authenticated)
+    for r in replies:
+        if r.approved_version_id:
+            ver_ids.add(r.approved_version_id)
+        if is_authed and r.author_id == request.user.id and r.latest_version_id:
+            ver_ids.add(r.latest_version_id)
+    ver_objs = {
+        v.id: v
         for v in CommentVersion.objects.filter(id__in=ver_ids)
     }
 
     user_reactions = {}
-    if request.user.is_authenticated:
+    if is_authed:
         r_ids = [r.id for r in replies]
         user_reactions = dict(
             CommentReaction.objects.filter(comment_id__in=r_ids, user=request.user).values_list("comment_id", "reaction_type")
@@ -287,21 +309,31 @@ def list_replies_api(request, root_id: int):
                 ),
             }
 
-        items.append({
+        is_owner = bool(is_authed and r.author_id == request.user.id)
+        is_editable = r.is_editable if is_owner else False
+        approved_ver = ver_objs.get(r.approved_version_id)
+        reply_data = {
             "id": r.id,
             "root_id": root.id,
             "author": r.get_author_presentation(),
             "replied_to_user": replied_to_data,
-            "safe_html": ver_map.get(r.approved_version_id, "（内容已归档）"),
+            "safe_html": approved_ver.safe_html if approved_ver else "（内容已归档）",
             "like_count": r.like_count,
             "dislike_count": r.dislike_count,
             "user_reaction": user_reactions.get(r.id, 0),
             "created_at": r.created_at.strftime("%Y-%m-%d %H:%M:%S"),
-            "is_editable": r.is_editable if (request.user.is_authenticated and r.author_id == request.user.id) else False,
-            "can_delete": bool(request.user.is_authenticated and r.author_id == request.user.id and r.status != "deleted"),
-            "can_react": bool(request.user.is_authenticated and r.author_id != request.user.id and allow_comments),
+            "is_editable": is_editable,
+            "can_delete": bool(is_owner and r.status != "deleted"),
+            "can_react": bool(is_authed and r.author_id != request.user.id and allow_comments),
             "state_generation": r.state_generation,
-        })
+        }
+        if is_owner:
+            latest_ver = ver_objs.get(r.latest_version_id)
+            reply_data["latest_version_id"] = r.latest_version_id
+            reply_data["has_pending_edit"] = bool(r.pending_version_id)
+            if is_editable or r.pending_version_id:
+                reply_data["editable_raw_content"] = latest_ver.raw_content if latest_ver else ""
+        items.append(reply_data)
 
     resp = _cors_json_response({
         "status": "success",

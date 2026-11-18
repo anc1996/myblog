@@ -3,12 +3,12 @@
 | 文档属性 | 内容 |
 |---|---|
 | 标识 | MYBLOG-RFC-MEMBERSHIP-RBAC-01 |
-| 日期 | 2026-11-12（Asia/Singapore） |
-| 状态 | **Phase 1–3 Implemented & Verified（Phase 1 身份底座、Phase 2 公共图片验证码与 Phase 3 双轨防刷评论配额均已落地并通过 `gpt-6.1-terra` 只读安全审查、187 项全站测试与 Playwright 浏览器冒烟；Phase 4–5 待授权实施）** |
-| 独立审查 | `gemini-4-argon`（方案审查）；`gpt-6.1-terra`（分别完成 Phase 1、Phase 2 与 Phase 3 只读反例审查，全部 Blocker/P1 问题均已修复并补齐并发回归测试） |
+| 日期 | 2026-11-18（Asia/Singapore） |
+| 状态 | **Phase 1–5 Implemented & Verified（已完成全部 5 个阶段与 `gemini-4-argon` Wagtail 8.1 生命周期审核发现修复，通过全站 215 项测试与真实浏览器验收）** |
+| 独立审查 | `gemini-4-argon`（方案审查及最终 Wagtail 8.1 生命周期代码只读复核）；`gpt-6.1-terra`（完成 Phase 1–3 只读反例审查）；审查发现均已修复并补齐回归测试 |
 | 起草基线 | `main@0bc6429b9bb2bd435706a417c96517c96bdd0f73` |
 | 已核对依赖 | Django `6.1.2`、Wagtail `8.1`、psycopg `3.3.7`、Pillow `13.0.0`、redis-py `8.1.0`；未安装 `django-simple-captcha` |
-| 实施边界 | 测试库（`.env.test`）已应用 `identity 0002`、`comments 0003` 与 `comments 0004`；开发库（`.env.local`）已应用至 `comments 0003`（`comments 0004` 待所有者授权后执行 `migrate`）；全量 187 项测试与 Playwright 浏览器冒烟已在测试环境通过，Phase 3 代码提交/推送待所有者确认 |
+| 实施边界 | 测试库（`.env.test`）与开发库（`.env.local`）均已应用最新迁移并执行 `setup_author_roles`；`Audio`/`Video` 首期暂不新增作者归属迁移，维持超管维护与非超管发布受限音视频拦截；真实中文 IME 组合输入与独立容器故障注入尚未演练 |
 
 ---
 
@@ -305,6 +305,7 @@ flowchart TD
 ---
 
 ### 附：目前明确延后与未解决事项
-1. **已统一的历史口径差异**：本文明确将“回收站不自动清空、仅管理员二次确认人工 Purge”作为新规范定稿；进入实施前将同步修正 `第一阶段技术方案` 中关于自动惰性清理的旧表述。
-2. **人工找回密码的运营成本**：在一期暂不接入邮箱验证的前提下，若用户注册时未填 `recovery_hint` 备用核密线索，后续忘记密码将无法自动验证身份，只能靠管理员线下人工确认。
-3. **待完成范围**：开发库（`.env.local`）尚待按授权执行 `people 0002` 迁移及 `manage.py setup_author_roles`；`argon`（Wagtail 生命周期子代理）与多角色真实浏览器冒烟尚待补充完成；带版本策略 S3 桶的历史版本清理核查尚未执行。
+1. **30 天超期回收清理机制**：保留人工一键彻底销毁为主，同时在管理员/编辑登录时通过 Redis 6 小时冷却锁触发 `maybe_trigger_expired_recycle_purge`（每次最多处理 3 个超期批次），弥补非 24 小时开机环境定时任务遗漏风险。
+2. **音视频作者隔离边界**：`Audio`/`Video` 首期暂不做表结构迁移，保持超管维护与非超管发布受限音视频拦截；若后续需开放多作者自传音视频，需在 `media_library` 新增 `uploaded_by_user` 与 `collection` 迁移并接入 `AuthorIsolatedMediaPermissionPolicy`。
+3. **人工找回密码的运营成本**：在一期暂不接入邮箱验证的前提下，若用户注册时未填 `recovery_hint` 备用核密线索，后续忘记密码将无法自动验证身份，只能靠管理员线下人工确认。
+4. **按需专项未测范围**：真实中文输入法（IME）组合输入、带版本控制（versioning）S3 桶的历史对象版本擦除，以及独立故障容器演练留待按需专项验证。

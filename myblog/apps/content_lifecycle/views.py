@@ -12,6 +12,7 @@
 
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404, redirect
+from django.utils.translation import gettext as _
 from django.views.generic import TemplateView
 from wagtail.admin.ui.tables import Column
 from wagtail.admin.views import generic
@@ -183,6 +184,11 @@ class OwnershipCopyView(CopyView):
                 form.fields.pop("copy_subpages", None)
         return form
 
+    def form_valid(self, form):
+        if not form.cleaned_data.get("alias"):
+            self.page = _ensure_page_hydrated(self.page.specific)
+        return super().form_valid(form)
+
 
 class OwnershipEditView(EditView):
     """收口后台编辑视图：通过 specific 调用子类水合逻辑，避免无草稿已发布页打开编辑器正文为空。"""
@@ -232,6 +238,11 @@ class OwnershipRevisionsCompareView(RevisionsCompareView):
     def get_object(self, queryset=None):
         page = super().get_object(queryset=queryset)
         return _ensure_page_hydrated(page, force_public=bool(getattr(page, "live", False)))
+
+    def _get_revision_and_heading(self, revision_id):
+        if revision_id == "live" and getattr(self.object, "live_revision", None):
+            return self.object.live_revision.as_object(), _("Live")
+        return super()._get_revision_and_heading(revision_id)
 
 
 class OwnershipPageViewSet(PageViewSet):
@@ -294,8 +305,11 @@ class RecycleBatchActionsColumn(Column):
         if instance.status == "restored":
             context["value"] = mark_safe('<span style="color:#16a34a;font-weight:600;">已恢复为草稿</span>')
             return context
-        if instance.status != "recycled":
+        if instance.status == "purged":
             context["value"] = mark_safe('<span style="color:#94a3b8;">已彻底销毁</span>')
+            return context
+        if instance.status != "recycled":
+            context["value"] = mark_safe(f'<span style="color:#64748b;">{instance.get_status_display()}</span>')
             return context
 
         buttons = []

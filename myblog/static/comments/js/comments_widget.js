@@ -34,6 +34,7 @@
     const listUrl = section.getAttribute('data-list-url') || (form && form.getAttribute('data-list-url'));
     const postUrl = section.getAttribute('data-post-url') || (form && form.getAttribute('data-post-url'));
     const repliesUrlTpl = section.getAttribute('data-replies-url-tpl') || '/api/v1/comments/0/replies/';
+    const editUrlTpl = section.getAttribute('data-edit-url-tpl') || '/api/v1/comments/0/edit/';
     const reactUrlTpl = section.getAttribute('data-react-url-tpl') || '/api/v1/comments/0/react/';
     const deleteUrlTpl = section.getAttribute('data-delete-url-tpl') || '/api/v1/comments/0/delete/';
     let allowComments = section.getAttribute('data-allow-comments') !== 'false';
@@ -216,6 +217,18 @@
         actionsTop.appendChild(replyBtn);
       }
 
+      if (allowComments && c.is_editable) {
+        const editBtn = document.createElement('button');
+        editBtn.type = 'button';
+        editBtn.className = 'comment-text-btn edit-comment-btn';
+        editBtn.setAttribute('data-id', String(c.id));
+        editBtn.setAttribute('data-version-id', String(c.latest_version_id || ''));
+        editBtn.setAttribute('data-generation', String(c.state_generation || ''));
+        editBtn.setAttribute('data-raw-content', c.editable_raw_content || '');
+        editBtn.textContent = '编辑';
+        actionsTop.appendChild(editBtn);
+      }
+
       if (c.can_delete) {
         const delBtn = document.createElement('button');
         delBtn.type = 'button';
@@ -233,6 +246,13 @@
       bodyEl.className = 'comment-body-html';
       bodyEl.innerHTML = c.safe_html || '';
       card.appendChild(bodyEl);
+
+      if (c.has_pending_edit) {
+        const pendingBanner = document.createElement('div');
+        pendingBanner.className = 'comment-pending-edit-note';
+        pendingBanner.textContent = '您提交的修改版本正在等待审核，审核通过前公网仍展示原已批准版本。';
+        card.appendChild(pendingBanner);
+      }
 
       const footer = document.createElement('div');
       footer.className = 'comment-card-footer';
@@ -512,6 +532,94 @@
               showAlert((data && data.message) || '删除失败，请稍后重试。', false);
             }
           });
+        return;
+      }
+
+      // 5 分钟安全编辑窗口：展开内联编辑器并提交修改
+      const editBtn = e.target.closest('.edit-comment-btn');
+      if (editBtn) {
+        e.preventDefault();
+        const card = editBtn.closest('.comment-card');
+        if (!card) return;
+        const existingEditor = card.querySelector('.comment-inline-edit-form');
+        if (existingEditor) {
+          existingEditor.remove();
+          return;
+        }
+        const cid = editBtn.getAttribute('data-id');
+        const verId = editBtn.getAttribute('data-version-id') || '';
+        const gen = editBtn.getAttribute('data-generation') || '';
+        const rawContent = editBtn.getAttribute('data-raw-content') || '';
+
+        const editForm = document.createElement('form');
+        editForm.className = 'comment-inline-edit-form';
+        const ta = document.createElement('textarea');
+        ta.className = 'comment-textarea comment-inline-edit-textarea';
+        ta.rows = 3;
+        ta.required = true;
+        ta.maxLength = 2000;
+        ta.value = rawContent;
+        const btnRow = document.createElement('div');
+        btnRow.className = 'comment-inline-edit-actions';
+        const saveBtn = document.createElement('button');
+        saveBtn.type = 'submit';
+        saveBtn.className = 'comment-submit-btn';
+        saveBtn.textContent = '保存修改';
+        const cancelBtn = document.createElement('button');
+        cancelBtn.type = 'button';
+        cancelBtn.className = 'comment-text-btn cancel-inline-edit-btn';
+        cancelBtn.textContent = '取消';
+        cancelBtn.addEventListener('click', () => editForm.remove());
+        btnRow.appendChild(saveBtn);
+        btnRow.appendChild(cancelBtn);
+        editForm.appendChild(ta);
+        editForm.appendChild(btnRow);
+
+        editForm.addEventListener('submit', function (ev) {
+          ev.preventDefault();
+          const nextText = (ta.value || '').trim();
+          if (!nextText) {
+            showCardFeedback(editBtn, '修改后的评论内容不能为空。', false);
+            return;
+          }
+          saveBtn.disabled = true;
+          const fd = new FormData();
+          fd.append('content', nextText);
+          if (verId) fd.append('expected_version_id', verId);
+          if (gen) fd.append('expected_generation', gen);
+          fetch(buildActionUrl(editUrlTpl, cid), {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'X-CSRFToken': getCsrfToken() },
+            body: fd,
+          })
+            .then(parseJsonResponse)
+            .then(({ ok, data }) => {
+              saveBtn.disabled = false;
+              if (ok && data && data.status === 'success') {
+                const msg = (data.data && data.data.status === 'approved')
+                  ? '评论修改已生效。'
+                  : '修改已提交审核，审核通过前公网仍展示原版本。';
+                showAlert(msg, true);
+                editForm.remove();
+                loadComments(currentPage, false);
+              } else {
+                showCardFeedback(editBtn, (data && data.message) || '修改失败，请刷新后重试。', false);
+              }
+            })
+            .catch(() => {
+              saveBtn.disabled = false;
+              showCardFeedback(editBtn, '网络异常，修改提交失败。', false);
+            });
+        });
+
+        const footer = card.querySelector('.comment-card-footer');
+        if (footer) {
+          footer.insertAdjacentElement('afterend', editForm);
+        } else {
+          card.appendChild(editForm);
+        }
+        ta.focus();
       }
     });
 

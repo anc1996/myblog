@@ -14,6 +14,7 @@
          data-list-url="{% url 'api_v1:list_comments' page.id %}"
          data-post-url="{% url 'api_v1:post_comment' page.id %}"
          data-replies-url-tpl="{% url 'api_v1:list_replies' 0 %}"
+         data-edit-url-tpl="{% url 'api_v1:edit_comment' 0 %}"
          data-react-url-tpl="{% url 'api_v1:react_comment' 0 %}"
          data-delete-url-tpl="{% url 'api_v1:delete_comment' 0 %}"
          {% endif %}>

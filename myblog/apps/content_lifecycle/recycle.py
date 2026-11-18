@@ -13,10 +13,12 @@
 """
 
 import logging
+from datetime import timedelta
 from typing import Any
 from uuid import UUID
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
+from django.utils import timezone
 from wagtail.models import Page, Revision
 
 from content_lifecycle.models import RecycleBatch, RecycleEntry
@@ -403,9 +405,11 @@ class RecycleService:
                 # 方案 A 恢复关键闭环：从回收快照 Revision 完整同步标量字段与关系子表 (H-02)
                 if snapshot_obj is not None:
                     for attr in [
+                        "title", "draft_title", "seo_title", "search_description", "show_in_menus",
                         "intro", "body", "summary", "project_status", "featured_image_id",
                         "started_on", "completed_on", "authored_on", "demo_url", "repo_url",
-                        "primary_language", "license_name"
+                        "primary_language", "license_name", "star_count",
+                        "topic_id", "difficulty", "estimated_minutes", "last_reviewed_at",
                     ]:
                         if hasattr(snapshot_obj, attr):
                             setattr(page, attr, getattr(snapshot_obj, attr))
@@ -430,6 +434,45 @@ class RecycleService:
                                         rel_cls(page=page, person=person, role=role, sort_order=sort_order, pk=None)
                                     )
                             page.authors.set(author_items)
+                        except Exception:
+                            pass
+
+                    if hasattr(snapshot_obj, "gallery_images") and hasattr(page, "gallery_images"):
+                        try:
+                            gallery_items = []
+                            for g in snapshot_obj.gallery_images.all():
+                                img = getattr(g, "image", None)
+                                if img:
+                                    rel_cls = g.__class__
+                                    gallery_items.append(
+                                        rel_cls(
+                                            page=page,
+                                            image=img,
+                                            caption=getattr(g, "caption", ""),
+                                            sort_order=getattr(g, "sort_order", 0),
+                                            pk=None,
+                                        )
+                                    )
+                            page.gallery_images.set(gallery_items)
+                        except Exception:
+                            pass
+
+                    if hasattr(snapshot_obj, "related_guides") and hasattr(page, "related_guides"):
+                        try:
+                            rel_items = []
+                            for rg in snapshot_obj.related_guides.all():
+                                rel_page = getattr(rg, "related_page", None)
+                                if rel_page:
+                                    rel_cls = rg.__class__
+                                    rel_items.append(
+                                        rel_cls(
+                                            page=page,
+                                            related_page=rel_page,
+                                            sort_order=getattr(rg, "sort_order", 0),
+                                            pk=None,
+                                        )
+                                    )
+                            page.related_guides.set(rel_items)
                         except Exception:
                             pass
 
@@ -552,3 +595,46 @@ class RecycleService:
                 "purged_count": len(purged_summaries),
                 "nodes": purged_summaries,
             }
+
+
+def maybe_trigger_expired_recycle_purge(*, force: bool = False, days: int = 30, limit: int = 3) -> int:
+    """
+    非 24 小时开机环境保底清理器：
+    带 6 小时冷却锁（cache.add NX），每次最多受控物理销毁 limit 个超过 30 天的回收批次并推进 Outbox。
+    """
+    from django.core.cache import cache
+    from external_content.outbox import OutboxProcessor
+
+    if not force:
+        try:
+            if not cache.add("recycle:auto_purge_cooldown", "1", timeout=6 * 3600):
+                return 0
+        except Exception:
+            return 0
+
+    cutoff = timezone.now() - timedelta(days=days)
+    expired_batches = list(
+        RecycleBatch.objects.filter(status="recycled", recycled_at__lte=cutoff)
+        .order_by("recycled_at")[:limit]
+    )
+    if not expired_batches:
+        return 0
+
+    purged = 0
+    for batch in expired_batches:
+        try:
+            RecycleService.purge_page_or_subtree(
+                page_id=batch.root_page_id,
+                actor=None,
+                batch_id=batch.batch_id,
+                system_authorized=True,
+            )
+            purged += 1
+        except Exception as exc:
+            logger.warning("Auto purge expired batch %s failed: %s", batch.batch_id, exc)
+
+    try:
+        OutboxProcessor.process_pending_events(batch_size=50)
+    except Exception as exc:
+        logger.warning("Auto purge outbox processing warning: %s", exc)
+    return purged

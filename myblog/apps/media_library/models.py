@@ -108,6 +108,13 @@ class CustomDocument(AbstractDocument):
         verbose_name = "文档"
         verbose_name_plural = "文档"
 
+    @property
+    def url(self):
+        """统一通过受控媒体网关交付文档，避免暴露内网存储或绕过可见性策略。"""
+        if self.public_id:
+            return reverse("media_gateway_asset", args=["document", self.public_id])
+        return super().url
+
 
 @register_snippet
 class Audio(models.Model):

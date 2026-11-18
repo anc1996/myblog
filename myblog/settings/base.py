@@ -310,6 +310,7 @@ AUTH_USER_MODEL = "identity.User"
 # 自定义 Wagtail 媒体模型（带 ACL 访问控制与 RustFS 私有存储）
 WAGTAILIMAGES_IMAGE_MODEL = "media_library.CustomImage"
 WAGTAILDOCS_DOCUMENT_MODEL = "media_library.CustomDocument"
+WAGTAILDOCS_SERVE_METHOD = "serve_view"
 WAGTAILIMAGES_IMAGE_FORM_BASE = "media_library.forms.ProtectedImageForm"
 WAGTAILDOCS_DOCUMENT_FORM_BASE = "media_library.forms.ProtectedDocumentForm"
 

@@ -152,6 +152,31 @@
   color: #166534;
 }
 
+.comment-pending-edit-note {
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #92400e;
+}
+
+.comment-inline-edit-form {
+  margin-top: 10px;
+  padding: 10px;
+  border-radius: 6px;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+}
+
+.comment-inline-edit-actions {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .comment-replying-notice {
   display: flex;
   justify-content: space-between;

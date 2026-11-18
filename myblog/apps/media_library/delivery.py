@@ -77,6 +77,9 @@ def serve_media_asset(request, asset_type: str, asset_id: UUID):
         response = HttpResponse(content_type=content_type)
         response["X-Accel-Redirect"] = f"/internal-rustfs/{file_name}"
         response["Accept-Ranges"] = "bytes"
+        response["X-Content-Type-Options"] = "nosniff"
+        if asset_type == "document":
+            response["Content-Security-Policy"] = "default-src 'none'"
         return response
 
     # 检查 HTTP Range 请求头（音视频进度拖动）
@@ -95,6 +98,9 @@ def serve_media_asset(request, asset_type: str, asset_id: UUID):
         file_obj = asset.file.open("rb")
         response = FileResponse(file_obj, content_type=content_type)
         response["Accept-Ranges"] = "bytes"
+        response["X-Content-Type-Options"] = "nosniff"
+        if asset_type == "document":
+            response["Content-Security-Policy"] = "default-src 'none'"
         return response
     except Exception:
         return HttpResponseNotFound("404 Not Found: Unable to read file from storage")
@@ -102,8 +108,9 @@ def serve_media_asset(request, asset_type: str, asset_id: UUID):
 
 def serve_rendition_asset(request, rendition_id: int):
     """派生图片（缩略图）交付入口：由原图权限控制"""
+    from media_library.models import VisibilityChoices
     try:
-        rendition = CustomRendition.objects.get(id=rendition_id)
+        rendition = CustomRendition.objects.select_related("image", "image__collection").get(id=rendition_id)
     except CustomRendition.DoesNotExist:
         return HttpResponseNotFound("404 Not Found: Rendition does not exist")
 
@@ -117,14 +124,22 @@ def serve_rendition_asset(request, rendition_id: int):
     file_name = getattr(rendition.file, "name", "")
     content_type, _ = mimetypes.guess_type(file_name)
     content_type = content_type or "image/jpeg"
+    cache_control = (
+        "public, max-age=3600"
+        if getattr(rendition.image, "visibility", None) == VisibilityChoices.PUBLIC
+        else "private, max-age=300"
+    )
 
     if getattr(settings, "USE_X_ACCEL_REDIRECT", False):
         response = HttpResponse(content_type=content_type)
         response["X-Accel-Redirect"] = f"/internal-rustfs/{file_name}"
+        response["Cache-Control"] = cache_control
         return response
 
     try:
         file_obj = rendition.file.open("rb")
-        return FileResponse(file_obj, content_type=content_type)
+        response = FileResponse(file_obj, content_type=content_type)
+        response["Cache-Control"] = cache_control
+        return response
     except Exception:
         return HttpResponseNotFound("404 Not Found: Unable to read rendition file")

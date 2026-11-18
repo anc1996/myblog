@@ -105,9 +105,6 @@ class RecycleBatchViewSet(ModelViewSet):
         if request.method != "POST":
             try:
                 plan = RecycleService.plan_restore(batch.batch_id)
-                if not plan.get("can_restore_directly", True):
-                    messages.error(request, f"恢复失败: 存在未处置的恢复冲突: {plan.get('conflicts')}")
-                    return redirect(self.get_url_name("index"))
             except Exception as plan_exc:
                 messages.error(request, f"恢复失败: {plan_exc}")
                 return redirect(self.get_url_name("index"))
@@ -136,17 +133,38 @@ class RecycleBatchViewSet(ModelViewSet):
                         </div>
                         """
                     elif ctype == "parent_missing_or_recycled":
-                        conflict_inputs_html += f"""
-                        <div style='margin:8px 0 12px 16px;'>
-                            <p style='margin:4px 0;'><strong>处理选项：</strong></p>
-                            <label style='display:block;margin-bottom:6px;'>
-                                <input type='checkbox' name='restore_parent_batch' value='1' checked> 自动连带恢复上级栏目
-                            </label>
-                            <label style='display:block;'>
-                                或输入其他目标栏目 ID：<input type='number' name='target_parent_id' placeholder='留空则连带恢复上级' style='padding:4px 8px;border:1px solid #cbd5e1;border-radius:4px;width:150px;'>
-                            </label>
-                        </div>
-                        """
+                        parent_page = root_page.get_parent().specific if root_page.get_parent() else None
+                        p_batch = (
+                            RecycleBatch.objects.filter(entries__page_id=parent_page.id, status="recycled").first()
+                            if parent_page
+                            else None
+                        )
+                        can_restore_parent = bool(
+                            parent_page
+                            and p_batch
+                            and can_restore_recycled_page(request.user, parent_page, p_batch)
+                        )
+                        if can_restore_parent:
+                            conflict_inputs_html += """
+                            <div style='margin:8px 0 12px 16px;'>
+                                <p style='margin:4px 0;'><strong>处理选项：</strong></p>
+                                <label style='display:block;margin-bottom:6px;'>
+                                    <input type='checkbox' name='restore_parent_batch' value='1' checked> 自动连带恢复上级栏目
+                                </label>
+                                <label style='display:block;'>
+                                    或输入其他目标栏目 ID：<input type='number' name='target_parent_id' placeholder='留空则连带恢复上级' style='padding:4px 8px;border:1px solid #cbd5e1;border-radius:4px;width:150px;'>
+                                </label>
+                            </div>
+                            """
+                        else:
+                            conflict_inputs_html += """
+                            <div style='margin:8px 0 12px 16px;'>
+                                <p style='margin:4px 0;color:#b45309;'><strong>提示：</strong>您无权恢复上级栏目，请输入其他正常栏目的目标父页面 ID，或联系管理员先恢复上级栏目。</p>
+                                <label style='display:block;'>
+                                    目标栏目 ID：<input type='number' name='target_parent_id' placeholder='请输入目标父栏目 ID' style='padding:4px 8px;border:1px solid #cbd5e1;border-radius:4px;width:180px;' required>
+                                </label>
+                            </div>
+                            """
                 conflict_inputs_html += "</ul></div>"
 
             html = f"""<!DOCTYPE html>
@@ -196,8 +214,12 @@ class RecycleBatchViewSet(ModelViewSet):
                     p_batch = RecycleBatch.objects.filter(entries__page_id=parent.id, status="recycled").first()
                     if p_batch:
                         RecycleService.restore_page_or_subtree(p_batch.batch_id, actor=request.user)
+            except (PermissionDenied, ValidationError) as p_exc:
+                messages.error(request, f"连带恢复父栏目失败: {p_exc}")
+                return redirect(self.get_url_name("index"))
             except Exception as p_exc:
-                messages.warning(request, f"连带恢复父栏目出现提示: {p_exc}")
+                messages.error(request, f"连带恢复父栏目出现异常: {p_exc}")
+                return redirect(self.get_url_name("index"))
 
         try:
             res = RecycleService.restore_page_or_subtree(
@@ -314,6 +336,22 @@ def guard_page_publish_lifecycle(request, page):
             msg = "; ".join(exc.messages) if hasattr(exc, "messages") else str(exc)
             messages.error(request, msg)
             return redirect("wagtailadmin_pages:edit", page.id)
+
+
+@hooks.register("before_convert_alias_page")
+def hydrate_source_before_convert_alias(request, page):
+    """别名转为普通页面前从源页生效版本水合外置字段，确保初始 Revision 完整持久化正文。"""
+    alias_of = getattr(page, "alias_of", None)
+    if alias_of is None:
+        return None
+    source = alias_of.specific
+    from content_lifecycle.views import _ensure_page_hydrated
+
+    _ensure_page_hydrated(source, force_public=bool(getattr(source, "live", False)))
+    for field_name in ("intro", "body"):
+        if hasattr(page, field_name) and hasattr(source, field_name):
+            setattr(page, field_name, getattr(source, field_name))
+    return None
 
 
 @hooks.register("before_copy_page")
@@ -473,7 +511,13 @@ def block_recycled_pages_front_serve(page, request, serve_args, serve_kwargs):
         user = getattr(request, "user", None)
         if can_user_view_recycled_notice(user, page):
             from content_lifecycle.models import RecycleEntry
-            entry = RecycleEntry.objects.filter(page_id=page.id, status="recycled").select_related("batch").first()
+            ancestor_ids = list(page.get_ancestors(inclusive=True).values_list("id", flat=True))
+            entry = (
+                RecycleEntry.objects.filter(page_id__in=ancestor_ids, status="recycled")
+                .select_related("batch")
+                .order_by("-batch__recycled_at")
+                .first()
+            )
             recycled_time = entry.batch.recycled_at.strftime("%Y-%m-%d %H:%M:%S") if entry and entry.batch and entry.batch.recycled_at else "近期"
             restore_url = "/admin/recycle_bin/"
             safe_title = escape(page.title)

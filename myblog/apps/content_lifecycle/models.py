@@ -46,6 +46,7 @@ class CustomBasePage(Page):
     全站统一抽象页面基类 (CustomBasePage)。
     所有业务页面（如 BlogPage、GuidePage、ProjectPage）均继承本基类。
     """
+    exclude_fields_in_copy = ["document_uuid"]
 
     # 1. 业务文档唯一身份标识 (document_uuid)
     # 【原理与作用】：
@@ -309,6 +310,32 @@ class CustomBasePage(Page):
         _check_restricted_assets(CustomImage, image_ids)
         _check_restricted_assets(CustomDocument, doc_ids)
 
+        from media_library.models import Audio, Video
+        audio_ids = {aid for atype, aid in ref_pairs if atype == "audio"}
+        video_ids = {aid for atype, aid in ref_pairs if atype == "video"}
+        for av_cls, av_ids in ((Audio, audio_ids), (Video, video_ids)):
+            if not av_ids:
+                continue
+            uuid_vals = []
+            pk_vals = []
+            for raw in av_ids:
+                try:
+                    uuid_vals.append(uuid.UUID(str(raw)))
+                except Exception:
+                    if str(raw).isdigit():
+                        pk_vals.append(int(str(raw)))
+            q = models.Q()
+            if uuid_vals:
+                q |= models.Q(public_id__in=uuid_vals)
+            if pk_vals:
+                q |= models.Q(pk__in=pk_vals)
+            if q:
+                for asset in av_cls.objects.filter(q).filter(visibility=VisibilityChoices.RESTRICTED):
+                    if not (user is not None and getattr(user, "is_superuser", False)):
+                        raise ValidationError(
+                            f"页面引用了受限音视频文件（{asset.title}），请联系管理员确认公开后再发布！"
+                        )
+
     def save_revision(self, *args, **kwargs):
         revision = super().save_revision(*args, **kwargs)
         self.register_revision_media_references(revision)
@@ -344,6 +371,9 @@ class CustomBasePage(Page):
 
     def copy(self, *args, **kwargs):
         """复制守卫：排除已回收子页面，并确保新副本分配全新 document_uuid"""
+        from content_lifecycle.views import _ensure_page_hydrated
+
+        _ensure_page_hydrated(self)
         exclude_fields = kwargs.get("exclude_fields") or []
         if "document_uuid" not in exclude_fields:
             exclude_fields = list(exclude_fields) + ["document_uuid"]
@@ -405,9 +435,15 @@ class CustomBasePage(Page):
             raise Http404(f"页面 '{self.title}' 当前处于回收站中")
         return super().serve(request, *args, **kwargs)
 
+    def _is_self_or_ancestor_recycled(self) -> bool:
+        if getattr(self, "is_recycled", False):
+            return True
+        return any(getattr(a.specific_deferred, "is_recycled", False) for a in self.get_ancestors())
+
     def route(self, request, path_components):
         """已回收页面在具备查看权的工作人员访问原前台 URL 时交由 before_serve_page 展示恢复引导，其余返回 404。"""
-        if not path_components and getattr(self, "is_recycled", False):
+        is_recycled = self._is_self_or_ancestor_recycled()
+        if not path_components and is_recycled:
             from content_lifecycle.wagtail_hooks import can_user_view_recycled_notice
 
             if can_user_view_recycled_notice(getattr(request, "user", None), self):
@@ -417,7 +453,18 @@ class CustomBasePage(Page):
             from django.http import Http404
 
             raise Http404(f"页面 '{self.title}' 当前处于回收站中")
-        return super().route(request, path_components)
+        try:
+            return super().route(request, path_components)
+        except Exception as exc:
+            from django.http import Http404
+            from wagtail.contrib.routable_page.models import RoutablePageMixin
+            from wagtail.url_routing import RouteResult
+            from content_lifecycle.wagtail_hooks import can_user_view_recycled_notice
+
+            if isinstance(exc, Http404) and is_recycled and isinstance(self, RoutablePageMixin):
+                if can_user_view_recycled_notice(getattr(request, "user", None), self):
+                    return RouteResult(self)
+            raise
 
 
 class ContentMutationGuard(models.Model):

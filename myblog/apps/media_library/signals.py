@@ -71,6 +71,8 @@ def promote_owner_restricted_media_on_publish(sender, instance, revision=None, *
 
     image_ids = [aid for atype, aid in refs if atype == "image"]
     doc_ids = [aid for atype, aid in refs if atype == "document"]
+    audio_ids = [aid for atype, aid in refs if atype == "audio"]
+    video_ids = [aid for atype, aid in refs if atype == "video"]
 
     if image_ids:
         CustomImage.objects.filter(
@@ -85,6 +87,18 @@ def promote_owner_restricted_media_on_publish(sender, instance, revision=None, *
             uploaded_by_user_id=owner_id,
             visibility=VisibilityChoices.RESTRICTED,
         ).update(visibility=VisibilityChoices.PUBLIC)
+
+    if audio_ids or video_ids:
+        from django.contrib.auth import get_user_model
+        if get_user_model().objects.filter(pk=owner_id, is_superuser=True).exists():
+            if audio_ids:
+                Audio.objects.filter(public_id__in=audio_ids, visibility=VisibilityChoices.RESTRICTED).update(
+                    visibility=VisibilityChoices.PUBLIC
+                )
+            if video_ids:
+                Video.objects.filter(public_id__in=video_ids, visibility=VisibilityChoices.RESTRICTED).update(
+                    visibility=VisibilityChoices.PUBLIC
+                )
 
 
 def register_media_signals():
