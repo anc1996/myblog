@@ -4,7 +4,7 @@
 {% block title %}{{ page.title }}{% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" type="text/css" href="{% static 'content_blocks/css/table.css' %}">
+{% include "content_blocks/includes/_block_assets_css.html" %}
 <style>
 .project-detail-container { max-width: 960px; margin: 30px auto; padding: 0 20px; }
 .project-breadcrumbs { font-size: 13px; color: #64748b; margin-bottom: 18px; }
@@ -104,4 +104,8 @@
     {# 读者评论互动组件 #}
     {% include "comments/partials/_comment_section.html" %}
 </article>
+{% endblock %}
+
+{% block extra_js %}
+{% include "content_blocks/includes/_block_assets_js.html" %}
 {% endblock %}

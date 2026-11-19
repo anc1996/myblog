@@ -15,7 +15,9 @@ import json
 import re
 from typing import Any
 from django.utils.safestring import mark_safe
+from django.core.exceptions import ValidationError
 from wagtail import blocks
+from wagtail.blocks import StructBlockValidationError
 
 from content_blocks.contracts import (
     BlockContract,
@@ -25,6 +27,8 @@ from content_blocks.contracts import (
     MediaReference,
 )
 from content_blocks.sanitizer import sanitize_html
+from content_blocks.rendering.math import render_inline_math, render_math_in_html
+from content_blocks.rendering.media_refs import resolve_media_urls, extract_media_references
 
 
 ALIGN_CHOICES = [
@@ -71,18 +75,69 @@ class CustomTableBlock(blocks.StructBlock):
         icon = "table"
         label = "复杂表格"
 
+    def clean(self, value: Any) -> Any:
+        """
+        Wagtail 8.1 结构化块校验契约：
+        当表格数据损坏或非法时，抛出 StructBlockValidationError 并将错误精准标红到 table_data 字段。
+        """
+        result = super().clean(value)
+        val_res = self.validate_value(result)
+        if not val_res.is_valid:
+            err_msg = "; ".join(val_res.errors) if val_res.errors else "表格数据格式无效"
+            raise StructBlockValidationError(
+                block_errors={"table_data": ValidationError(err_msg)}
+            )
+        return result
+
     def validate_value(self, value: Any, context: Any = None) -> BlockValidationResult:
         if not value:
             return BlockValidationResult(is_valid=True)
         raw_data = value.get("table_data")
         if raw_data:
+            parsed = None
             if isinstance(raw_data, str):
                 try:
                     parsed = json.loads(raw_data)
-                    if not isinstance(parsed, (dict, list)):
-                        return BlockValidationResult(is_valid=False, errors=["表格数据必须为 JSON 对象或数组"])
                 except Exception as exc:
                     return BlockValidationResult(is_valid=False, errors=[f"表格数据 JSON 解析失败: {exc}"])
+            elif isinstance(raw_data, (dict, list)):
+                parsed = raw_data
+            else:
+                return BlockValidationResult(is_valid=False, errors=["表格数据必须为 JSON 字符串、对象或数组"])
+
+            if not isinstance(parsed, (dict, list)):
+                return BlockValidationResult(is_valid=False, errors=["表格数据必须为 JSON 对象或数组"])
+
+            rows = parsed.get("rows") if isinstance(parsed, dict) else parsed
+            if not isinstance(rows, list):
+                return BlockValidationResult(is_valid=False, errors=["表格 rows 属性必须为数组列表"])
+
+            errors = []
+            for r_idx, row in enumerate(rows):
+                if not isinstance(row, list):
+                    errors.append(f"表格第 {r_idx + 1} 行数据必须为单元格列表")
+                    continue
+                for c_idx, cell in enumerate(row):
+                    if isinstance(cell, dict):
+                        rowspan = cell.get("rowspan")
+                        colspan = cell.get("colspan")
+                        if rowspan is not None:
+                            try:
+                                r_val = int(rowspan)
+                                if r_val < 1:
+                                    errors.append(f"第 {r_idx + 1} 行第 {c_idx + 1} 列单元格 rowspan 必须大于等于 1")
+                            except (ValueError, TypeError):
+                                errors.append(f"第 {r_idx + 1} 行第 {c_idx + 1} 列单元格 rowspan 必须为有效整数")
+                        if colspan is not None:
+                            try:
+                                c_val = int(colspan)
+                                if c_val < 1:
+                                    errors.append(f"第 {r_idx + 1} 行第 {c_idx + 1} 列单元格 colspan 必须大于等于 1")
+                            except (ValueError, TypeError):
+                                errors.append(f"第 {r_idx + 1} 行第 {c_idx + 1} 列单元格 colspan 必须为有效整数")
+            if errors:
+                return BlockValidationResult(is_valid=False, errors=errors)
+
         return BlockValidationResult(is_valid=True)
 
     def render_clean(self, value: Any, context: Any = None) -> BlockRenderResult:
@@ -144,9 +199,9 @@ class CustomTableBlock(blocks.StructBlock):
     def _render_cell(self, cell: Any, default_tag: str = "td") -> str:
         """渲染单个单元格属性与内容"""
         if isinstance(cell, dict):
-            val = cell.get("value", "")
-            rowspan = int(cell.get("rowspan", 1))
-            colspan = int(cell.get("colspan", 1))
+            raw_val = str(cell.get("value", ""))
+            rowspan = max(1, int(cell.get("rowspan", 1)))
+            colspan = max(1, int(cell.get("colspan", 1)))
             align = cell.get("align", "")
             is_th = cell.get("header", default_tag == "th")
             tag = "th" if is_th else "td"
@@ -160,12 +215,17 @@ class CustomTableBlock(blocks.StructBlock):
                 attrs.append(f'align="{align}"')
 
             attr_str = f" {' '.join(attrs)}" if attrs else ""
-            # 单元格内容允许基础排版标签，经外层统一净化
-            return f"<{tag}{attr_str}>{val}</{tag}>"
+            # 单元格先做受控媒体网关转换与 nh3 白名单净化，再解析单元格内数学公式
+            resolved_val = resolve_media_urls(raw_val)
+            safe_val = sanitize_html(resolved_val)
+            rendered_content = render_math_in_html(safe_val)
+            return f"<{tag}{attr_str}>{rendered_content}</{tag}>"
         else:
-            # 普通标量值单元格
-            safe_val = html.escape(str(cell))
-            return f"<{default_tag}>{safe_val}</{default_tag}>"
+            # 普通标量值单元格：转义纯文本并支持内联 LaTeX 公式与媒体网关
+            raw_str = str(cell)
+            resolved_str = resolve_media_urls(raw_str)
+            rendered_content = render_inline_math(resolved_str)
+            return f"<{default_tag}>{rendered_content}</{default_tag}>"
 
     def extract_text(self, value: Any) -> BlockTextExtraction:
         if not value:
@@ -207,21 +267,6 @@ class CustomTableBlock(blocks.StructBlock):
         for r_idx, row in enumerate(rows):
             for c_idx, cell in enumerate(row):
                 cell_val = str(cell.get("value", "") if isinstance(cell, dict) else cell)
-                # 扫描单元格中嵌入的图片或文档资源 ID
-                for match in re.finditer(r'(?:asset://image/|data-asset-id="?)([0-9a-fA-F-]{36})', cell_val):
-                    refs.append(
-                        MediaReference(
-                            asset_id=match.group(1),
-                            asset_type="image",
-                            block_path=f"{path}.r{r_idx}c{c_idx}",
-                        )
-                    )
-                for match in re.finditer(r'asset://document/([0-9a-fA-F-]{36})', cell_val):
-                    refs.append(
-                        MediaReference(
-                            asset_id=match.group(1),
-                            asset_type="document",
-                            block_path=f"{path}.r{r_idx}c{c_idx}",
-                        )
-                    )
+                cell_refs = extract_media_references(cell_val, path=f"{path}.r{r_idx}c{c_idx}")
+                refs.extend(cell_refs)
         return refs

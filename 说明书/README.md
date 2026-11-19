@@ -1,6 +1,6 @@
 # myblog 项目工程与技术规范入口
 
-更新日期：2026-11-18。**第一阶段核心能力与会员体系、公共图片验证码、双轨防刷评论、通用多角色作者/媒体/回收站隔离（Phase 1–5）已完成实现并通过测试环境与真实浏览器复测**（隔离测试库全量 215 项测试通过、Django 系统检查 0 错误 0 警告；`.env.local` 与 `.env.test` 均已同步迁移并执行 `setup_author_roles`）。
+更新日期：2026-11-19。**第一阶段核心能力、会员权限体系、P1 公共内容积木渲染增强（Mermaid / LaTeX / 复杂表格 / 代码复制）与 SEO 底座（Sitemap & Robots）已全部完成实现并实测验证**（隔离测试库全量 224 项测试通过、Django 系统检查 0 错误 0 警告、ManifestStaticFilesStorage 839 个静态资源收集无异常；`.env.local` 与 `.env.test` 均同步就绪）。
 
 ## 建议阅读顺序
 
@@ -16,6 +16,7 @@
 5. [统一搜索与组合筛选方案](myblog_统一搜索与组合筛选方案_SEARCH-V2-FILTER_2026-11-04.md)：搜索接口、过滤、排序、权限及 GIN 索引细节。
 6. [RustFS 切换方案](myblog_RustFS切换方案_2026-11-03.md)：私有对象存储、逐次鉴权、历史引用保护与 ProtectedRustFSStorage 拦截。
 7. [依赖核查与升级方案](myblog_依赖核查与升级方案_2026-11-04.md)：版本约束、升级顺序和依赖验证。
+8. [前端公共 Vendor 资产管理与升级指南](前端公共Vendor资产管理与升级指南.md)：`myblog/static/vendor/` 不入库的锁定还原方案、`sync_vendor_assets.py` 同步校验与未来版本升级规范。
 
 需要逐项查阅时，再看[第三方依赖清单](myblog_第三方依赖清单_2026-11-04.md)、[版本核查证据](myblog_依赖版本核查证据_2026-11-04.json)和[环境与代理准备记录](myblog_环境与代理准备记录_2026-11-03.md)。
 基础服务的配置与操作说明在 [infra/README.md](../infra/README.md)。
@@ -28,7 +29,15 @@
 - **指南体系**：支持主题绑定、教程积木、365 天未复核过时提示与发布强校验门禁。
 - **全站多页面评论与治理系统 (RFC-020)**：外键直连 `wagtailcore.Page`，两级扁平反嵌套，版本化审核与 CAS 防盲批，`is_publicly_visible` 布尔跃迁防翻倍计数；Page 彻底销毁级联清空（DO_NOTHING 版本指针彻底消除崩溃）；作者自删根占位条并保留回复；编辑待审 V2 期间前台保全展示 V1；Page 编辑器内嵌纯异步评论 Tab（B-03 隔离）；全站 24h 主体限制与跨页面批量治理；Wagtail Explorer 挂载快捷动作。
 - **全站通用订阅与归档**：RSS 2.0 与 Atom 1.0 全维度订阅，RFC 4287 合规，弱 ETag 304 快速协商，PostgreSQL SARGable 时间线年月归档。
-- **测试与质量**：隔离测试库全站 215 项自动化单元与集成测试通过；已通过 `gemini-4-argon` Wagtail 8.1 生命周期独立审核与 Headless Chrome 真实浏览器全流程验收（含复制/别名转换水合、评论 5 分钟编辑与 `controlled_guests` 访客流、`CustomDocument` / `CustomRendition` 网关鉴权、回收站冲突弹窗与 `RoutablePageMixin` 子路由拦截）；Django 系统检查 0 错误 0 警告。
+- **公共内容积木与高级排版渲染 (P1 最新)**：
+  - **Mermaid 流程图统一样式与受控内联 SVG**：升级引入无已知高危漏洞的官方离线包 `Mermaid 11.17.2`；独立块与 Markdown ```` ```mermaid ```` 围栏（含缩进/CRLF/中文节点）输出完全统一的 DOM 契约；前端按需懒加载（无图表零网络请求），渲染开启 `securityLevel: 'strict'` 与 SVG 白名单净化；工具栏提供放大/缩小/100%/自适应宽度/深浅主题切换/查看源码/复制源码/导出 SVG/全屏弹窗/折叠与错误回退；
+  - **LaTeX 数学公式前置保护与 KaTeX 按需渲染**：引入官方离线包 `KaTeX 0.19.1`；在 Markdown 扩展（tables/nl2br）前预先提取公式，彻底消除公式下划线被转为 `<em>`、换行被转为 `<br>` 以及表格单元格内公式绝对值管道符被拆列的问题；严格规避货币价格误匹配；支持块级与行内公式；
+  - **复杂表格（CustomTableBlock）加固**：单元格先独立净化再组表，杜绝单元格闭合提权；标量与富文本单元格均支持公式与受控媒体网关转换；Wagtail 8.1 后台校验数据损坏时准确抛出 `StructBlockValidationError` 并标红 `table_data` 字段；移动端 375px 横向自适应滚动防撑破；
+  - **全站代码复制统一**：规范 `code.py` 与 `structured.py` 的 URI 编码协议，统一由 `code-copy.js` 驱动并平滑回退，修复指南步骤卡代码复制乱码；优化 `guide_page.html` 侧栏 375px 移动端响应式断行。
+- **全站 SEO 与爬虫收录协议**：
+  - `/sitemap.xml`：集成 Wagtail 站点地图，严格排除回收站页面（`is_recycled=True`）与未发布草稿，仅收录公开发布的合法在线页面；
+  - `/robots.txt`：阻断爬虫抓取 `/admin/`、`/django-admin/`、`/media-gateway/`、`/avatar-gateway/`、`/account/` 与 `/api/` 等私密网关，自动定位并引导抓取 `/sitemap.xml`。
+- **测试与质量**：隔离测试库全站 **224 项自动化单元与集成测试全部通过**；Django 系统检查 0 错误 0 警告；`ManifestStaticFilesStorage` 静态产物收集 839 项全部通过；已通过 Headless Chrome 真实浏览器实测验收。
 - **前端与交互闭环**：
   - **全局响应式导航与页脚**：绑定 `site_settings`，纯 CSS 移动端汉堡菜单自适应；
   - **首页综合门户**：Hero 标语导引 + 文章流 + 专栏推荐 + 开源项目 + 热门标签云；

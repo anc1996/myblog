@@ -6,8 +6,8 @@
 提供文本提取与媒体资源引用提取。
 """
 
-import html
 import re
+import uuid
 from typing import Any
 from django.utils.safestring import mark_safe
 import markdown
@@ -21,6 +21,9 @@ from content_blocks.contracts import (
     MediaReference,
 )
 from content_blocks.sanitizer import sanitize_html
+from content_blocks.rendering.math import protect_math_in_markdown, restore_math_in_html
+from content_blocks.rendering.mermaid import render_mermaid_dom
+from content_blocks.rendering.media_refs import resolve_media_urls, extract_media_references
 
 
 class CustomMarkdownBlock(blocks.TextBlock):
@@ -39,18 +42,26 @@ class CustomMarkdownBlock(blocks.TextBlock):
             return BlockRenderResult(html="", is_safe=True)
 
         raw_md = str(value)
+        nonce = uuid.uuid4().hex[:12]
 
-        # 1. 预处理：将 ```mermaid ... ``` 保护性替换为特有标记，避免被普通代码围栏吞并
+        # 1. 预处理：将 ```mermaid ... ``` 保护性替换为独立安全令牌，避免被普通代码围栏吞并
         mermaid_blocks: list[str] = []
         def replace_mermaid(match):
             idx = len(mermaid_blocks)
             code = match.group(1).strip()
             mermaid_blocks.append(code)
-            return f"<!--MERMAID_PLACEHOLDER_{idx}-->"
+            return f"\n\nCBMERMAID_{nonce}_{idx}_X\n\n"
 
-        processed_md = re.sub(r"```mermaid\s*\n(.*?)\n```", replace_mermaid, raw_md, flags=re.DOTALL)
+        processed_md = re.sub(
+            r"```mermaid[ \t]*\r?\n([\s\S]*?)\r?\n[ \t]*```",
+            replace_mermaid,
+            raw_md,
+        )
 
-        # 2. 转换 Markdown 为 HTML
+        # 2. 保护数学公式：在 tables 与 nl2br 前提取公式，避免公式内的 _ 或 \\ 被 Markdown 损坏
+        processed_md, math_items = protect_math_in_markdown(processed_md, nonce)
+
+        # 3. 转换 Markdown 为 HTML
         rendered_html = markdown.markdown(
             processed_md,
             extensions=[
@@ -59,16 +70,31 @@ class CustomMarkdownBlock(blocks.TextBlock):
                 "nl2br",
                 "sane_lists",
             ],
+            extension_configs={
+                "tables": {"use_align_attribute": True},
+            },
         )
 
-        # 3. 还原 Mermaid 块为安全容器
-        for idx, code in enumerate(mermaid_blocks):
-            safe_code = html.escape(code)
-            container = f'<div class="mermaid-diagram" data-mermaid="{safe_code}">{safe_code}</div>'
-            rendered_html = rendered_html.replace(f"<!--MERMAID_PLACEHOLDER_{idx}-->", container)
+        # 4. 转换内部受控媒体网关链接 (asset://image/<uuid> 等)
+        rendered_html = resolve_media_urls(rendered_html)
 
-        # 4. 执行白名单安全净化
+        # 5. 分层安全净化：先对作者可控 HTML 执行白名单净化，彻底拦截作者伪造组件标记或 XSS
         cleaned_html = sanitize_html(rendered_html)
+
+        # 6. 安全回填 Mermaid 图表容器（源码经严格转义）
+        for idx, code in enumerate(mermaid_blocks):
+            token = f"CBMERMAID_{nonce}_{idx}_X"
+            container = render_mermaid_dom(code, title="", theme="default")
+            # 若被 Markdown 段落包裹成 <p>...</p>，整段替换为 <div> 容器避免非法嵌套
+            p_pattern = re.compile(r"<p>\s*" + re.escape(token) + r"\s*</p>")
+            if p_pattern.search(cleaned_html):
+                cleaned_html = p_pattern.sub(lambda _: container, cleaned_html)
+            else:
+                cleaned_html = cleaned_html.replace(token, container)
+
+        # 7. 安全回填 LaTeX 数学公式容器
+        cleaned_html = restore_math_in_html(cleaned_html, math_items)
+
         return BlockRenderResult(html=cleaned_html, is_safe=True)
 
     def render_basic(self, value: Any, context: Any = None):
@@ -90,12 +116,4 @@ class CustomMarkdownBlock(blocks.TextBlock):
     def extract_media_refs(self, value: Any, path: str = "") -> list[MediaReference]:
         if not value:
             return []
-        raw = str(value)
-        refs: list[MediaReference] = []
-        # 匹配 Markdown 图片引用中的资源标识：![alt](asset://image/<uuid>) 或 asset-id=<uuid>
-        for match in re.finditer(r'(?:asset://image/|asset-id="?)([0-9a-fA-F-]{36})', raw):
-            refs.append(MediaReference(asset_id=match.group(1), asset_type="image", block_path=path))
-        # 匹配文档引用：[doc](asset://document/<uuid>)
-        for match in re.finditer(r'asset://document/([0-9a-fA-F-]{36})', raw):
-            refs.append(MediaReference(asset_id=match.group(1), asset_type="document", block_path=path))
-        return refs
+        return extract_media_references(str(value), path=path)

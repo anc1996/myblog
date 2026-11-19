@@ -13,6 +13,7 @@ content_blocks.blocks.structured
 
 import html
 import re
+import urllib.parse
 from typing import Any
 from django.utils.safestring import mark_safe
 from wagtail import blocks
@@ -136,11 +137,12 @@ class CustomStepBlock(blocks.StructBlock):
         code_html = ""
         if code:
             highlighted = highlight_code(code, lang)
+            encoded_code = urllib.parse.quote(code)
             code_html = f"""
             <div class="step-code-container" data-language="{lang}">
                 <div class="code-header">
                     <span class="code-lang-label">{lang.upper()}</span>
-                    <button class="copy-code-btn" type="button" data-clipboard-text="{html.escape(code)}">复制</button>
+                    <button class="copy-code-btn" type="button" data-clipboard-text="{encoded_code}">复制</button>
                 </div>
                 <div class="code-body">{highlighted}</div>
             </div>

@@ -284,7 +284,8 @@
 .hl-mi, .hl-mf { color: #b5cea8; }
 
 /* 8. 复杂表格自适应容器 */
-.custom-table-container {
+.custom-table-container,
+.responsive-table-wrapper {
     width: 100%;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
@@ -293,14 +294,17 @@
     border-radius: 6px;
 }
 
-.custom-table-container table {
+.custom-table-container table,
+.responsive-table-wrapper table {
     width: 100%;
     border-collapse: collapse;
     min-width: 480px;
 }
 
 .custom-table-container th,
-.custom-table-container td {
+.custom-table-container td,
+.responsive-table-wrapper th,
+.responsive-table-wrapper td {
     padding: 10px 14px;
     border: 1px solid #e2e8f0;
 }

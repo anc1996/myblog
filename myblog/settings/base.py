@@ -55,6 +55,7 @@ INSTALLED_APPS = [
     "wagtail.contrib.forms",
     "wagtail.contrib.redirects",
     "wagtail.contrib.settings",
+    "wagtail.contrib.sitemaps",
     "wagtail.embeds",
     "wagtail.sites",
     "wagtail.users",
@@ -81,6 +82,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "django.contrib.sitemaps",
     # Wagtail 在 PostgreSQL 下的全文检索与 GIN 倒排索引必须依赖此应用
     "django.contrib.postgres",
     # S3 / RustFS 对象存储驱动

@@ -4,6 +4,7 @@
 
 - `myblog` 是独立的新 Wagtail 项目，旧项目只读参考，不修改旧仓库、旧数据库、旧配置或旧凭据。
 - 不提交密码、Token、Cookie、私钥、`.env` 或本地数据库文件。
+- `myblog/static/vendor/` 为忽略提交的第三方前端运行时目录（由 `myblog/static/vendor.lock.json` 与 `scripts/sync_vendor_assets.py` 锁定还原，维护流程见 `说明书/前端公共Vendor资产管理与升级指南.md`）。智能体日常开发与审查默认不主动读取或扫描 `myblog/static/vendor/`，聚焦 `content_blocks` 公共渲染封装；仅在升级公共前端库或特定前端对接方案时按需核对锁文件与指南，绝不将该目录提交至 GitHub。
 - 数据库迁移、真实服务连接、部署和生产操作，必须先获得用户明确授权。
 
 ## Windows 与 WSL2

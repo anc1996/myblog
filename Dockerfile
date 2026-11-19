@@ -67,8 +67,8 @@ COPY --chown=wagtail:wagtail . .
 # Use user "wagtail" to run the build commands below and the server itself.
 USER wagtail
 
-# Collect static files.
-RUN python manage.py collectstatic --noinput --clear
+# Restore pinned third-party frontend vendor bundles, verify, then collect static files.
+RUN python scripts/sync_vendor_assets.py sync && python scripts/sync_vendor_assets.py check && python manage.py collectstatic --noinput --clear
 
 # Schema migrations are an explicitly authorized release operation.
 CMD ["gunicorn", "myblog.wsgi:application"]

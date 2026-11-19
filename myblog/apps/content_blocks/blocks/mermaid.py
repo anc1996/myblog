@@ -5,7 +5,6 @@
 与 Markdown 围栏中的 mermaid 代码共享安全渲染机制。
 """
 
-import html
 from typing import Any
 from django.utils.safestring import mark_safe
 from wagtail import blocks
@@ -17,7 +16,7 @@ from content_blocks.contracts import (
     BlockTextExtraction,
     MediaReference,
 )
-from content_blocks.sanitizer import sanitize_html
+from content_blocks.rendering.mermaid import render_mermaid_dom, ALLOWED_THEMES
 
 
 THEME_CHOICES = [
@@ -57,18 +56,8 @@ class CustomMermaidBlock(blocks.StructBlock):
         code = value.get("diagram_code") or ""
         theme = value.get("theme") or "default"
 
-        safe_title = html.escape(title)
-        safe_code = html.escape(code)
-
-        html_output = f"""
-        <div class="mermaid-block-wrapper" data-theme="{theme}">
-            {f'<div class="mermaid-title">{safe_title}</div>' if title else ''}
-            <div class="mermaid-diagram" data-mermaid="{safe_code}" data-theme="{theme}">
-                {safe_code}
-            </div>
-        </div>
-        """
-        return BlockRenderResult(html=sanitize_html(html_output), is_safe=True)
+        html_output = render_mermaid_dom(code, title=title, theme=theme)
+        return BlockRenderResult(html=html_output, is_safe=True)
 
     def render_basic(self, value: Any, context: Any = None):
         """Wagtail 模板原生渲染集成入口"""

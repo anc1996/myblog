@@ -11,6 +11,7 @@ from wagtail.documents import urls as wagtaildocs_urls
 from identity.admin_account import CustomAccountView
 from search import views as search_views
 from discovery.timeline import timeline_view
+from discovery.seo import sitemap_view, robots_txt_view
 from django.views.generic.base import RedirectView
 
 urlpatterns = [
@@ -21,6 +22,8 @@ urlpatterns = [
         name="wagtailadmin_account",
     ),
     path("admin/", include(wagtailadmin_urls)),
+    path("sitemap.xml", sitemap_view, name="sitemap"),
+    path("robots.txt", robots_txt_view, name="robots_txt"),
     path("", include("identity.urls")),
     path("", include("media_library.urls")),
     path("documents/", include(wagtaildocs_urls)),

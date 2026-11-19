@@ -57,3 +57,18 @@
 .custom-table-block tbody tr:hover {
     background-color: #f3f4f6;
 }
+
+/* 单元格内容防撑破与数学公式滚动 */
+.custom-table-block td,
+.custom-table-block th,
+article table td,
+article table th {
+    word-break: break-word;
+    overflow-wrap: break-word;
+}
+
+.custom-table-block .cb-math,
+article table .cb-math {
+    max-width: 100%;
+    overflow-x: auto;
+}

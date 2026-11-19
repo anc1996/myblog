@@ -2,7 +2,7 @@
 {% load static wagtailcore_tags wagtailimages_tags %}
 
 {% block extra_css %}
-<link rel="stylesheet" type="text/css" href="{% static 'content_blocks/css/table.css' %}">
+{% include "content_blocks/includes/_block_assets_css.html" %}
 <link rel="stylesheet" type="text/css" href="{% static 'blog/css/article.css' %}">
 {% endblock %}
 
@@ -102,5 +102,6 @@
 {% endblock %}
 
 {% block extra_js %}
+{% include "content_blocks/includes/_block_assets_js.html" %}
 <script src="{% static 'blog/js/article.js' %}"></script>
 {% endblock %}

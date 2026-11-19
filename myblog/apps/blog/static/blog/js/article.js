@@ -41,37 +41,11 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     // =========================================================================
-    // 2. 代码块一键复制
+    // 2. 代码块一键复制 (委托公共模块 code-copy.js 执行)
     // =========================================================================
-    document.querySelectorAll(".copy-code-btn").forEach(function (btn) {
-        btn.addEventListener("click", function () {
-            const encodedCode = btn.getAttribute("data-clipboard-text");
-            if (!encodedCode) return;
-            const rawCode = decodeURIComponent(encodedCode);
-
-            navigator.clipboard.writeText(rawCode).then(function () {
-                const originalText = btn.textContent;
-                btn.textContent = "已复制 ✓";
-                btn.style.borderColor = "#4ade80";
-                btn.style.color = "#4ade80";
-                setTimeout(function () {
-                    btn.textContent = originalText;
-                    btn.style.borderColor = "";
-                    btn.style.color = "";
-                }, 2000);
-            }).catch(function () {
-                // 回退剪贴板策略
-                const textarea = document.createElement("textarea");
-                textarea.value = rawCode;
-                document.body.appendChild(textarea);
-                textarea.select();
-                document.execCommand("copy");
-                document.body.removeChild(textarea);
-                btn.textContent = "已复制 ✓";
-                setTimeout(() => { btn.textContent = "复制"; }, 2000);
-            });
-        });
-    });
+    if (window.initCodeCopy) {
+        window.initCodeCopy();
+    }
 
     // =========================================================================
     // 3. 独立图集 Lightbox 键盘灯箱

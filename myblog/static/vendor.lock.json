@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "target_root": "myblog/static/vendor",
+  "description": "Pinned third-party frontend vendor runtime assets restored by scripts/sync_vendor_assets.py. Do not commit myblog/static/vendor/ to Git.",
+  "packages": {
+    "mermaid": {
+      "version": "11.17.2",
+      "registry_url": "https://registry.npmjs.org/mermaid/-/mermaid-11.17.2.tgz",
+      "integrity_sha512": "V6K3C8EBdEsPFZXSKMJe6ppQOENxuHARr9GvHX4hh47lAbhMRD9qf4oEK7LoaRQxULMa80/qt5gHO73aCleBBg==",
+      "shasum_sha1": "e3caf3717582c0e44e5d04cff043e025caec7cba",
+      "license": "MIT",
+      "upstream": "https://github.com/mermaid-js/mermaid",
+      "security_note": "Patched release resolving GHSA-ghcm-xqfw-q4vr and GHSA-6x64-9x62-f2gx",
+      "extract": [
+        {"src": "package/dist/mermaid.min.js", "dest": "mermaid.min.js"},
+        {"src": "package/LICENSE", "dest": "LICENSE"}
+      ]
+    },
+    "katex": {
+      "version": "0.19.1",
+      "registry_url": "https://registry.npmjs.org/katex/-/katex-0.19.1.tgz",
+      "integrity_sha512": "jG8uKntjSEcm2EpQOh0XturpPuuC9r3Sq5HLHdsFdWZT27E672SF19QEi+of0/YeOy15lDgRhKvr5614uRrEfA==",
+      "shasum_sha1": "ba2685811cdbffc54dfb7d55bd440c6cc6bb8795",
+      "license": "MIT",
+      "upstream": "https://github.com/KaTeX/KaTeX",
+      "security_note": "Patched release resolving GHSA-238p-pmpm-9mq7",
+      "extract": [
+        {"src": "package/dist/katex.min.css", "dest": "katex.min.css"},
+        {"src": "package/dist/katex.min.js", "dest": "katex.min.js"},
+        {"src": "package/dist/contrib/auto-render.min.js", "dest": "auto-render.min.js"},
+        {"src": "package/dist/fonts/", "dest": "fonts/", "recursive": true},
+        {"src": "package/LICENSE", "dest": "LICENSE"}
+      ]
+    }
+  }
+}
