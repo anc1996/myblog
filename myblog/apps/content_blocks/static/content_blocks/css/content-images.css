@@ -1,0 +1,116 @@
+/* ==========================================================================
+   全站公共图片排版 (centered/full/left/right) 与无障碍灯箱 (content-images.css)
+   ========================================================================== */
+
+.media-image-wrapper {
+    margin: 1.5rem 0;
+    text-align: center;
+}
+
+.media-image-wrapper img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 6px;
+    border: 1px solid #e2e8f0;
+    cursor: zoom-in;
+}
+
+.media-image-wrapper.format-full img {
+    width: 100%;
+}
+
+.media-image-wrapper.format-left {
+    float: left;
+    max-width: 48%;
+    margin: 0.4rem 1.5rem 1rem 0;
+    text-align: left;
+}
+
+.media-image-wrapper.format-right {
+    float: right;
+    max-width: 48%;
+    margin: 0.4rem 0 1rem 1.5rem;
+    text-align: right;
+}
+
+.media-caption {
+    margin-top: 6px;
+    font-size: 13px;
+    color: #64748b;
+}
+
+.blog-body-section::after,
+.guide-main::after,
+.project-body-section::after {
+    content: "";
+    display: table;
+    clear: both;
+}
+
+@media (max-width: 768px) {
+    .media-image-wrapper.format-left,
+    .media-image-wrapper.format-right {
+        float: none;
+        max-width: 100%;
+        margin: 1.25rem 0;
+        text-align: center;
+    }
+}
+
+/* 正文插图与图集通用键盘无障碍灯箱 */
+.cb-lightbox-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.9);
+    backdrop-filter: blur(4px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    padding: 24px;
+    z-index: 99999;
+}
+
+.cb-lightbox-overlay.is-active {
+    display: flex;
+}
+
+.cb-lightbox-img {
+    max-width: 90vw;
+    max-height: 82vh;
+    object-fit: contain;
+    border-radius: 6px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+}
+
+.cb-lightbox-caption {
+    margin-top: 12px;
+    color: #e2e8f0;
+    font-size: 14px;
+    text-align: center;
+    max-width: 80vw;
+}
+
+.cb-lightbox-btn {
+    position: absolute;
+    background: rgba(30, 41, 59, 0.85);
+    color: #ffffff;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 9999px;
+    width: 42px;
+    height: 42px;
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.cb-lightbox-btn:hover {
+    background: #0284c7;
+}
+
+.cb-lightbox-close { top: 18px; right: 20px; }
+.cb-lightbox-prev { left: 18px; top: 50%; transform: translateY(-50%); }
+.cb-lightbox-next { right: 18px; top: 50%; transform: translateY(-50%); }

@@ -40,18 +40,21 @@ def render_mermaid_dom(source_code: str, title: str = "", theme: str = "default"
             <button type="button" class="cb-btn cb-btn-zoom-reset" title="重置 (100%)" aria-label="重置">1:1</button>
             <button type="button" class="cb-btn cb-btn-fit" title="自适应宽度" aria-label="自适应">⤢</button>
             <button type="button" class="cb-btn cb-btn-theme" title="切换深浅主题" aria-label="切换主题">🌓</button>
-            <button type="button" class="cb-btn cb-btn-source" title="查看源码" aria-label="查看源码">&lt;/&gt;</button>
+            <button type="button" class="cb-btn cb-btn-source" aria-pressed="false" title="分栏对照：左侧源码 / 右侧渲染" aria-label="分栏源码对照">⇄ 分栏源码</button>
             <button type="button" class="cb-btn cb-btn-copy" title="复制源码" aria-label="复制源码">📋</button>
             <button type="button" class="cb-btn cb-btn-export" title="导出 SVG" aria-label="导出 SVG">⬇ SVG</button>
             <button type="button" class="cb-btn cb-btn-fullscreen" title="全屏查看" aria-label="全屏">⛶</button>
             <button type="button" class="cb-btn cb-btn-collapse" title="折叠/展开" aria-label="折叠">▼</button>
         </div>
     </div>
-    <div class="cb-mermaid-viewport">
-        <div class="mermaid-diagram" data-mermaid="{safe_source}"></div>
-    </div>
-    <div class="cb-mermaid-source-wrapper" hidden>
-        <pre class="cb-mermaid-source"><code data-cb-mermaid-source>{safe_source}</code></pre>
+    <div class="cb-mermaid-split-body">
+        <div class="cb-mermaid-source-wrapper" hidden>
+            <div class="cb-mermaid-pane-label">Mermaid 源码</div>
+            <pre class="cb-mermaid-source"><code class="language-plaintext" data-cb-mermaid-source>{safe_source}</code></pre>
+        </div>
+        <div class="cb-mermaid-viewport">
+            <div class="mermaid-diagram" data-mermaid="{safe_source}"></div>
+        </div>
     </div>
     <div class="cb-mermaid-status" hidden></div>
 </div>

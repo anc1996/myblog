@@ -100,7 +100,7 @@ class CustomCodeBlock(blocks.StructBlock):
                     <span class="code-title">{safe_title or lang}</span>
                     <span class="code-badge">交互预览模式</span>
                 </div>
-                <div class="code-body"><pre class="code-content"><code>{highlighted_code}</code></pre></div>
+                <div class="code-body"><pre class="code-content"><code class="language-{html.escape(lang)}">{highlighted_code}</code></pre></div>
                 <div class="code-runner-panel">
                     <div class="runner-status">代码在线执行沙箱将在后续阶段开放，第一阶段仅提供交互界面与协议约定。</div>
                     <button type="button" class="runner-btn" disabled>运行代码（第一阶段未开放）</button>
@@ -115,7 +115,7 @@ class CustomCodeBlock(blocks.StructBlock):
                     <span class="code-title">{safe_title or lang}</span>
                     <button type="button" class="copy-code-btn" data-clipboard-text="{encoded_code}">复制</button>
                 </div>
-                <div class="code-body"><pre class="code-content"><code>{highlighted_code}</code></pre></div>
+                <div class="code-body"><pre class="code-content"><code class="language-{html.escape(lang)}">{highlighted_code}</code></pre></div>
             </div>
             """
 

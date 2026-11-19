@@ -1,0 +1,70 @@
+/* ==========================================================================
+   音视频播放容器与文档下载卡片响应式样式 (media-blocks.css)
+   ========================================================================== */
+
+.media-audio-player,
+.media-video-player,
+.media-document-card {
+    margin: 1.5rem 0;
+    padding: 14px 16px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+}
+
+.media-audio-player .audio-title,
+.media-video-player .video-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #0f172a;
+    margin-bottom: 10px;
+}
+
+.media-audio-player audio {
+    width: 100%;
+    display: block;
+}
+
+.media-video-player video {
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+    border-radius: 6px;
+    background: #0f172a;
+    display: block;
+}
+
+.media-document-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.media-document-card .doc-icon {
+    font-size: 24px;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.media-document-card .doc-info {
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.media-document-card .doc-download-link {
+    display: inline-block;
+    font-weight: 600;
+    color: #0284c7;
+    text-decoration: none;
+    word-break: break-word;
+}
+
+.media-document-card .doc-download-link:hover {
+    text-decoration: underline;
+}
+
+.media-document-card .doc-desc {
+    margin: 4px 0 0;
+    font-size: 13px;
+    color: #64748b;
+}

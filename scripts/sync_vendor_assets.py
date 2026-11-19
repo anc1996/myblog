@@ -165,7 +165,19 @@ def sync_one_package(
     with tempfile.TemporaryDirectory(prefix=f"vendor-{pkg_name}-") as tmp:
         tmp_path = Path(tmp)
         archive_name = f"{pkg_name}-{spec['version']}.tgz"
-        cached = (cache_dir / archive_name) if cache_dir else None
+        npm_pkg = spec.get("npm_package", pkg_name)
+        candidate_names = [
+            archive_name,
+            Path(spec["registry_url"]).name,
+            f"{npm_pkg.lstrip('@').replace('/', '-')}-{spec['version']}.tgz",
+        ]
+        cached = None
+        if cache_dir:
+            for cname in candidate_names:
+                p = cache_dir / cname
+                if p.is_file():
+                    cached = p
+                    break
         archive_path = tmp_path / archive_name
 
         if cached and cached.is_file():
@@ -264,7 +276,8 @@ def cmd_upgrade(
     if package not in packages:
         raise KeyError(f"vendor.lock.json 未登记包 '{package}'，当前支持: {list(packages.keys())}")
 
-    meta_url = f"{ALLOWED_REGISTRY_PREFIX}{package}/{version}"
+    npm_pkg = packages[package].get("npm_package", package)
+    meta_url = f"{ALLOWED_REGISTRY_PREFIX}{npm_pkg}/{version}"
     req = urllib.request.Request(meta_url, headers={"User-Agent": "myblog-vendor-sync/1.0"})
     with urllib.request.urlopen(req, timeout=30) as resp:
         meta = json.loads(resp.read().decode("utf-8"))

@@ -26,9 +26,9 @@ from content_blocks.contracts import (
     BlockTextExtraction,
     MediaReference,
 )
+from content_blocks.rendering.media_refs import extract_media_references
+from content_blocks.rendering.table_content import analyze_table_grid, render_table_cell_content
 from content_blocks.sanitizer import sanitize_html
-from content_blocks.rendering.math import render_inline_math, render_math_in_html
-from content_blocks.rendering.media_refs import resolve_media_urls, extract_media_references
 
 
 ALIGN_CHOICES = [
@@ -112,29 +112,8 @@ class CustomTableBlock(blocks.StructBlock):
             if not isinstance(rows, list):
                 return BlockValidationResult(is_valid=False, errors=["表格 rows 属性必须为数组列表"])
 
-            errors = []
-            for r_idx, row in enumerate(rows):
-                if not isinstance(row, list):
-                    errors.append(f"表格第 {r_idx + 1} 行数据必须为单元格列表")
-                    continue
-                for c_idx, cell in enumerate(row):
-                    if isinstance(cell, dict):
-                        rowspan = cell.get("rowspan")
-                        colspan = cell.get("colspan")
-                        if rowspan is not None:
-                            try:
-                                r_val = int(rowspan)
-                                if r_val < 1:
-                                    errors.append(f"第 {r_idx + 1} 行第 {c_idx + 1} 列单元格 rowspan 必须大于等于 1")
-                            except (ValueError, TypeError):
-                                errors.append(f"第 {r_idx + 1} 行第 {c_idx + 1} 列单元格 rowspan 必须为有效整数")
-                        if colspan is not None:
-                            try:
-                                c_val = int(colspan)
-                                if c_val < 1:
-                                    errors.append(f"第 {r_idx + 1} 行第 {c_idx + 1} 列单元格 colspan 必须大于等于 1")
-                            except (ValueError, TypeError):
-                                errors.append(f"第 {r_idx + 1} 行第 {c_idx + 1} 列单元格 colspan 必须为有效整数")
+            has_header_row = bool(value.get("has_header_row", True))
+            _, _, _, errors = analyze_table_grid(rows, has_header_row=has_header_row)
             if errors:
                 return BlockValidationResult(is_valid=False, errors=errors)
 
@@ -147,85 +126,142 @@ class CustomTableBlock(blocks.StructBlock):
         caption = value.get("caption") or ""
         has_header_row = value.get("has_header_row", True)
         has_header_col = value.get("has_header_col", False)
-        alignment = value.get("alignment") or "center"
+        alignment = value.get("alignment") if value.get("alignment") in ("left", "center", "right") else "center"
         payload = parse_table_payload(value.get("table_data"))
         rows = payload.get("rows") or []
 
-        if not rows:
+        if not rows or not isinstance(rows, list):
             return BlockRenderResult(html="", is_safe=True)
 
-        # 渲染 HTML 结构
-        table_parts: list[str] = []
-        table_parts.append(
-            f'<div class="responsive-table-wrapper">'
+        placed_rows, header_end_idx, use_thead, _ = analyze_table_grid(
+            rows, has_header_row=bool(has_header_row)
         )
+
+        # 渲染 HTML 表格结构（避免单元格跨 <thead>/<tbody> 截断错位）
+        table_parts: list[str] = []
+        table_parts.append('<div class="responsive-table-wrapper">')
         table_parts.append(f'<table class="custom-table-block table-align-{alignment}">')
 
         if caption:
             table_parts.append(f'<caption class="table-caption">{html.escape(caption)}</caption>')
 
-        # 处理表头与表体
-        body_rows = rows
-        if has_header_row and len(rows) > 0:
-            header_row = rows[0]
-            body_rows = rows[1:]
-            table_parts.append("<thead><tr>")
-            for cell in header_row:
-                table_parts.append(self._render_cell(cell, default_tag="th"))
-            table_parts.append("</tr></thead>")
-
-        if body_rows:
-            table_parts.append("<tbody>")
-            for row_idx, row in enumerate(body_rows):
+        if use_thead and header_end_idx >= 0:
+            table_parts.append("<thead>")
+            for r_idx in range(0, header_end_idx + 1):
                 table_parts.append("<tr>")
-                for col_idx, cell in enumerate(row):
-                    # 若开启首列表头，第一列使用 th
-                    tag = "th" if (has_header_col and col_idx == 0) else "td"
-                    table_parts.append(self._render_cell(cell, default_tag=tag))
+                for item in placed_rows[r_idx]:
+                    table_parts.append(self._render_placed_cell(item, default_tag="th"))
+                table_parts.append("</tr>")
+            table_parts.append("</thead>")
+            body_range = range(header_end_idx + 1, len(placed_rows))
+        else:
+            body_range = range(0, len(placed_rows))
+
+        if body_range:
+            table_parts.append("<tbody>")
+            for r_idx in body_range:
+                table_parts.append("<tr>")
+                for item in placed_rows[r_idx]:
+                    # 若无独立 thead 且为首行表头，或开启首列表头且处于逻辑第 0 列，使用 th
+                    is_row_header = (not use_thead) and has_header_row and (r_idx <= header_end_idx)
+                    is_col_header = has_header_col and (item["col_idx"] == 0)
+                    tag = "th" if (is_row_header or is_col_header) else "td"
+                    table_parts.append(self._render_placed_cell(item, default_tag=tag))
                 table_parts.append("</tr>")
             table_parts.append("</tbody>")
 
         table_parts.append("</table></div>")
-        raw_html = "".join(table_parts)
-        # 经 nh3 安全净化，保留合法 colspan/rowspan 与单元格标签，剥离恶意 XSS
-        cleaned_html = sanitize_html(raw_html)
-        return BlockRenderResult(html=cleaned_html, is_safe=True)
+        table_html = "".join(table_parts)
+
+        # 为源码对照面板构造安全的 JSON 展示副本，剔除单元格中的恶意脚本或危险 URL 协议
+        safe_rows_for_json = []
+        for row in rows:
+            if isinstance(row, list):
+                safe_row = []
+                for cell in row:
+                    if isinstance(cell, dict):
+                        c_copy = dict(cell)
+                        if "value" in c_copy:
+                            c_copy["value"] = sanitize_html(str(c_copy["value"]))
+                        safe_row.append(c_copy)
+                    else:
+                        safe_row.append(cell)
+                safe_rows_for_json.append(safe_row)
+            else:
+                safe_rows_for_json.append(row)
+        safe_payload = dict(payload, rows=safe_rows_for_json) if isinstance(payload, dict) else {"rows": safe_rows_for_json}
+
+        pretty_json = json.dumps(safe_payload, ensure_ascii=False, indent=2)
+        safe_json = html.escape(pretty_json)
+        safe_toolbar_title = html.escape(caption) if caption else "复杂结构化表格"
+
+        wrapped_html = f"""
+<div class="cb-table-block" data-cb-table>
+    <div class="cb-table-toolbar">
+        <span class="cb-table-toolbar-title">{safe_toolbar_title}</span>
+        <div class="cb-table-actions">
+            <button type="button" class="cb-btn cb-table-split-btn" aria-pressed="false" title="切换左侧 JSON 源码与右侧表格分栏对照">⇄ 分栏对照</button>
+            <button type="button" class="cb-btn cb-table-copy-btn" title="复制表格 JSON 源码">📋 复制 JSON</button>
+        </div>
+    </div>
+    <div class="cb-table-split-body">
+        <div class="cb-table-source-pane" hidden>
+            <pre class="cb-table-source-pre"><code class="language-json" data-cb-table-source>{safe_json}</code></pre>
+        </div>
+        <div class="cb-table-render-pane">
+            {table_html}
+        </div>
+    </div>
+</div>
+""".strip()
+        return BlockRenderResult(html=wrapped_html, is_safe=True)
 
     def render_basic(self, value: Any, context: Any = None):
         """Wagtail 模板原生渲染集成入口"""
         res = self.render_clean(value, context)
         return mark_safe(res.html)
 
-    def _render_cell(self, cell: Any, default_tag: str = "td") -> str:
-        """渲染单个单元格属性与内容"""
+    def _render_placed_cell(self, placed: dict[str, Any], default_tag: str = "td") -> str:
+        """渲染经逻辑网格定位的单元格"""
+        cell = placed["cell"]
+        rowspan = placed["rowspan"]
+        colspan = placed["colspan"]
+
         if isinstance(cell, dict):
             raw_val = str(cell.get("value", ""))
-            rowspan = max(1, int(cell.get("rowspan", 1)))
-            colspan = max(1, int(cell.get("colspan", 1)))
             align = cell.get("align", "")
             is_th = cell.get("header", default_tag == "th")
             tag = "th" if is_th else "td"
-
-            attrs: list[str] = []
-            if rowspan > 1:
-                attrs.append(f'rowspan="{rowspan}"')
-            if colspan > 1:
-                attrs.append(f'colspan="{colspan}"')
-            if align in ("left", "center", "right"):
-                attrs.append(f'align="{align}"')
-
-            attr_str = f" {' '.join(attrs)}" if attrs else ""
-            # 单元格先做受控媒体网关转换与 nh3 白名单净化，再解析单元格内数学公式
-            resolved_val = resolve_media_urls(raw_val)
-            safe_val = sanitize_html(resolved_val)
-            rendered_content = render_math_in_html(safe_val)
-            return f"<{tag}{attr_str}>{rendered_content}</{tag}>"
+            is_rich = True
         else:
-            # 普通标量值单元格：转义纯文本并支持内联 LaTeX 公式与媒体网关
-            raw_str = str(cell)
-            resolved_str = resolve_media_urls(raw_str)
-            rendered_content = render_inline_math(resolved_str)
-            return f"<{default_tag}>{rendered_content}</{default_tag}>"
+            raw_val = str(cell)
+            align = ""
+            tag = default_tag
+            is_rich = False
+
+        attrs: list[str] = []
+        if rowspan > 1:
+            attrs.append(f'rowspan="{rowspan}"')
+        if colspan > 1:
+            attrs.append(f'colspan="{colspan}"')
+        if align in ("left", "center", "right"):
+            attrs.append(f'align="{align}"')
+        if tag == "th" and (colspan > 1 or rowspan > 1):
+            scope = "colgroup" if colspan > 1 else "rowgroup"
+            attrs.append(f'scope="{scope}"')
+
+        attr_str = f" {' '.join(attrs)}" if attrs else ""
+        rendered_content = render_table_cell_content(raw_val, is_rich=is_rich)
+        return f"<{tag}{attr_str}>{rendered_content}</{tag}>"
+
+    def _render_cell(self, cell: Any, default_tag: str = "td") -> str:
+        """渲染单个单元格属性与内容"""
+        rowspan = max(1, int(cell.get("rowspan", 1))) if isinstance(cell, dict) else 1
+        colspan = max(1, int(cell.get("colspan", 1))) if isinstance(cell, dict) else 1
+        return self._render_placed_cell(
+            {"cell": cell, "rowspan": rowspan, "colspan": colspan, "row_idx": 0, "col_idx": 0},
+            default_tag=default_tag,
+        )
 
     def extract_text(self, value: Any) -> BlockTextExtraction:
         if not value:

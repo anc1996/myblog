@@ -162,19 +162,49 @@
         }
         if (btnSource) {
             btnSource.addEventListener("click", function () {
-                if (sourceWrapper) sourceWrapper.hidden = !sourceWrapper.hidden;
+                var isSplit = block.classList.toggle("is-split-view");
+                btnSource.setAttribute("aria-pressed", String(isSplit));
+                if (sourceWrapper) {
+                    sourceWrapper.hidden = !isSplit;
+                    if (isSplit) {
+                        block.classList.remove("is-collapsed");
+                        if (btnCollapse) {
+                            btnCollapse.textContent = "▼";
+                            btnCollapse.setAttribute("aria-expanded", "true");
+                        }
+                    }
+                }
             });
         }
         if (btnCopy) {
             btnCopy.addEventListener("click", function () {
+                var onCopied = function () {
+                    var oldText = btnCopy.textContent;
+                    btnCopy.textContent = "已复制 ✓";
+                    setTimeout(function () { btnCopy.textContent = oldText; }, 2000);
+                };
                 if (navigator.clipboard && window.isSecureContext) {
-                    navigator.clipboard.writeText(code).then(function () {
-                        var oldText = btnCopy.textContent;
-                        btnCopy.textContent = "已复制 ✓";
-                        setTimeout(function () { btnCopy.textContent = oldText; }, 2000);
+                    navigator.clipboard.writeText(code).then(onCopied).catch(function () {
+                        fallbackCopy(code, onCopied);
                     });
+                } else {
+                    fallbackCopy(code, onCopied);
                 }
             });
+        }
+
+        function fallbackCopy(text, cb) {
+            var ta = document.createElement("textarea");
+            ta.value = text;
+            ta.style.position = "fixed";
+            ta.style.left = "-9999px";
+            document.body.appendChild(ta);
+            ta.select();
+            try {
+                if (document.execCommand("copy") && cb) cb();
+            } finally {
+                ta.remove();
+            }
         }
         if (btnExport) {
             btnExport.addEventListener("click", function () {

@@ -144,7 +144,7 @@ class CustomStepBlock(blocks.StructBlock):
                     <span class="code-lang-label">{lang.upper()}</span>
                     <button class="copy-code-btn" type="button" data-clipboard-text="{encoded_code}">复制</button>
                 </div>
-                <div class="code-body">{highlighted}</div>
+                <div class="code-body"><pre class="code-content"><code class="language-{html.escape(lang)}">{highlighted}</code></pre></div>
             </div>
             """
 

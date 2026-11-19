@@ -73,16 +73,42 @@ def create_or_clean_dataset():
     perf_table_json = json.dumps({
         "rows": [
             [
-                {"value": "数据库引擎", "header": True, "align": "center"},
-                {"value": "事务隔离级别", "header": True, "align": "center"},
-                {"value": "并发连接数", "header": True, "align": "center"},
-                {"value": "P99 响应耗时", "header": True, "align": "center"},
-                {"value": "吞吐量 (QPS)", "header": True, "align": "center"},
+                {"value": "存储层级", "rowspan": 2, "header": True, "align": "center"},
+                {"value": "引擎与核心特性（跨列合并）", "colspan": 2, "header": True, "align": "center"},
+                {"value": "数学指标 / 延迟公式", "rowspan": 2, "header": True, "align": "center"},
+                {"value": "典型查询 / 代码高亮", "rowspan": 2, "header": True, "align": "center"},
             ],
-            ["PostgreSQL 18.6", "REPEATABLE READ", "100", "1.82 ms", "18,450"],
-            ["PostgreSQL 18.6", "READ COMMITTED", "100", "1.25 ms", "22,300"],
-            ["MongoDB 9.0.4", "Local Snapshot", "200", "0.65 ms", "45,120"],
-            ["Redis 8.10.3", "In-Memory Cache", "500", "0.12 ms", "128,000"],
+            [
+                {"value": "引擎版本", "header": True, "align": "center"},
+                {"value": "关键配置参数", "header": True, "align": "center"},
+            ],
+            [
+                {"value": "<strong>关系主库</strong><br>(跨行合并)", "rowspan": 2, "align": "center"},
+                "PostgreSQL 18.6",
+                "隔离级别 `REPEATABLE READ` + `GIN` 索引",
+                "$P_{99} \\le 1.82\\text{ms},\\ \\mu = 22{,}300$ QPS",
+                "```sql\nSELECT id, title FROM blog_blogpage\nWHERE is_recycled = false;\n```",
+            ],
+            [
+                "PostgreSQL 18.6 (只读快照)",
+                "行锁超时 `lock_timeout = 3s`",
+                "$\\sum_{i=1}^{n} \\frac{t_i}{n} < 2\\text{ms}$",
+                "`with transaction.atomic(): ...`",
+            ],
+            [
+                "文档外置库",
+                "MongoDB 9.0.4",
+                "不可变快照 `content_field_versions`",
+                "$O(1)$ 按 `version_id` 精确水合",
+                "```python\ndoc = col.find_one({'version_id': vid})\n```",
+            ],
+            [
+                "高速缓存与限流",
+                "Redis 8.10.3",
+                "Lua 原子令牌桶 `INCR + EXPIRE`",
+                "$T_{\\text{hit}} \\approx 0.12\\text{ms}$",
+                "`redis.evalsha(sha, 1, key)`",
+            ],
         ]
     })
 
@@ -215,6 +241,7 @@ def create_or_clean_dataset():
     index_page.add_child(instance=p08)
     p08.body = [
         ("markdown", "## 微服务分布式链路时序图\n展示客户端、API 网关、订单服务与支付中台的交互流程。"),
+        ("mermaid", {"title": "Markdown 与 Mermaid 演进关系（点击上方「⇄ 分栏源码」可左右对照）", "diagram_code": "flowchart LR\n  A[\"JS\"]\n  B[\"Mermaid\"]\n  C[\"Markdown 原生\"]\n  D[\"Markdown 定制\"]\n  A --制作了--> B --内嵌到了--> C --衍生了--> D", "theme": "default"}),
         ("mermaid", {"title": "支付流转时序图", "diagram_code": "sequenceDiagram\n  autonumber\n  actor User as 读者\n  participant Web as Wagtail 前台\n  participant PG as PostgreSQL 18\n  participant MG as MongoDB 9\n  User->>Web: 访问 /blog/post-1/\n  Web->>PG: 获取 live_revision_id\n  PG-->>Web: 返回指针 intro_v1 & body_v1\n  Web->>MG: 按指针提取正文快照\n  MG-->>Web: 返回纯净结构化积木数据\n  Web-->>User: 渲染完整详情页面", "theme": "default"}),
         ("mermaid", {"title": "页面生命周期状态机", "diagram_code": "stateDiagram-v2\n  [*] --> 草稿态\n  草稿态 --> 审批中: 提交审核\n  审批中 --> 已发布: 终审通过\n  审批中 --> 草稿态: 审批驳回\n  已发布 --> 已回收: 移入回收站\n  已回收 --> 草稿态: 错删精准还原\n  已回收 --> [*]: 物理受控销毁", "theme": "forest"}),
     ]

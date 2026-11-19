@@ -1,0 +1,63 @@
+/* ==========================================================================
+   结构化教程与提示卡片公共样式 (structured-blocks.css)
+   从 guide_page.html 抽离，统一服务 BlogPage、GuidePage 与 ProjectPage
+   ========================================================================== */
+
+.tutorial-lead-card {
+    background: #f0f9ff;
+    border: 1px solid #bae6fd;
+    border-left: 5px solid #0284c7;
+    padding: 20px;
+    border-radius: 8px;
+    margin: 24px 0;
+}
+
+.tutorial-lead-card .lead-title { margin-top: 0; color: #0369a1; font-size: 18px; }
+.tutorial-lead-card .lead-prerequisites { margin-bottom: 12px; font-size: 14px; color: #0f172a; }
+.tutorial-lead-card .lead-overview { color: #334155; }
+
+.tutorial-step-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 24px;
+    margin: 28px 0;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.tutorial-step-card .step-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.tutorial-step-card .step-badge {
+    background: #0284c7;
+    color: #ffffff;
+    width: 32px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    font-weight: bold;
+    font-size: 16px;
+    flex-shrink: 0;
+}
+.tutorial-step-card .step-heading { margin: 0; color: #0f172a; font-size: 20px; }
+.tutorial-step-card .step-body-content { color: #334155; line-height: 1.7; }
+.tutorial-step-card .step-image-container { margin-top: 16px; text-align: center; }
+.tutorial-step-card .step-img { max-width: 100%; height: auto; border-radius: 6px; border: 1px solid #cbd5e1; }
+.tutorial-step-card .step-caption { color: #64748b; font-size: 13px; margin-top: 6px; }
+
+.callout-card { padding: 16px 20px; border-radius: 6px; margin: 20px 0; line-height: 1.6; font-size: 14px; }
+.callout-tip { background: #f0fdf4; border-left: 5px solid #16a34a; color: #166534; }
+.callout-info { background: #eff6ff; border-left: 5px solid #3b82f6; color: #1e40af; }
+.callout-warning { background: #fffbeb; border-left: 5px solid #d97706; color: #92400e; }
+.callout-danger { background: #fef2f2; border-left: 5px solid #dc2626; color: #991b1b; }
+.callout-card .callout-title { margin: 0 0 8px 0; font-size: 15px; }
+
+.faq-card { background: #f8fafc; border: 1px solid #e2e8f0; padding: 16px 20px; border-radius: 6px; margin: 16px 0; }
+.faq-question { margin: 0 0 8px 0; color: #0f172a; display: flex; align-items: center; gap: 8px; font-size: 16px; }
+.faq-badge { background: #64748b; color: #ffffff; font-size: 12px; padding: 2px 6px; border-radius: 4px; font-weight: bold; }
+.faq-badge-a { background: #0284c7; color: #ffffff; font-size: 12px; padding: 2px 6px; border-radius: 4px; font-weight: bold; margin-right: 8px; }
+.faq-answer { color: #475569; font-size: 14px; line-height: 1.6; margin-top: 8px; }
+
+.reference-link-card { background: #ffffff; border: 1px dashed #cbd5e1; padding: 12px 18px; border-radius: 6px; margin: 12px 0; }
+.reference-link-card .ref-link { color: #0284c7; font-weight: 600; text-decoration: none; word-break: break-word; }
+.reference-link-card .ref-desc { color: #64748b; font-size: 13px; margin-left: 8px; }

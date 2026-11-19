@@ -31,6 +31,22 @@
         {"src": "package/dist/fonts/", "dest": "fonts/", "recursive": true},
         {"src": "package/LICENSE", "dest": "LICENSE"}
       ]
+    },
+    "highlightjs": {
+      "npm_package": "@highlightjs/cdn-assets",
+      "version": "11.12.0",
+      "registry_url": "https://registry.npmjs.org/@highlightjs/cdn-assets/-/cdn-assets-11.12.0.tgz",
+      "integrity_sha512": "KvOKXODaiFmId9xaq3xc5xCL66wVLUuOngDbO9B/kewbFTqdGbn2nJxNhN3H5R1cgDTVj6R8vH0zgiNDEGjpDw==",
+      "shasum_sha1": "19b1b064bdd3d02705a200e9fa6538d41a566a47",
+      "license": "BSD-3-Clause",
+      "upstream": "https://github.com/highlightjs/highlight.js",
+      "security_note": "Official prebuilt browser core, languages, and GitHub Dark stylesheet",
+      "extract": [
+        {"src": "package/highlight.min.js", "dest": "highlight.min.js"},
+        {"src": "package/styles/github-dark.min.css", "dest": "styles/github-dark.min.css"},
+        {"src": "package/languages/", "dest": "languages/", "recursive": true},
+        {"src": "package/LICENSE", "dest": "LICENSE"}
+      ]
     }
   }
 }

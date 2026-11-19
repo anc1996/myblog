@@ -221,7 +221,7 @@ img_path = "asset://image/{dummy_code_id}"
         md_with_bs = "```mermaid\ngraph TD\nA[\\text{公式}] --> B[\\sum]\n```"
         res = self.md_block.render_clean(md_with_bs)
         self.assertIn('class="cb-mermaid mermaid-block-wrapper"', res.html)
-        self.assertIn('<code data-cb-mermaid-source>', res.html)
+        self.assertIn('data-cb-mermaid-source', res.html)
         self.assertIn('\\text{公式}', res.html)
 
     def test_vendor_lock_and_sync_check(self):
@@ -238,4 +238,124 @@ img_path = "asset://image/{dummy_code_id}"
         lock = mod.load_lock(mod.DEFAULT_LOCK_FILE)
         self.assertIn("mermaid", lock["packages"])
         self.assertIn("katex", lock["packages"])
+        self.assertIn("highlightjs", lock["packages"])
         self.assertEqual(mod.cmd_check(mod.DEFAULT_LOCK_FILE), 0)
+
+    def test_unified_code_highlighting_contracts(self):
+        """验证 Markdown 代码围栏、CustomCodeBlock 与 CustomStepBlock 均输出一致的 language-* 契约"""
+        from content_blocks.blocks.code import CustomCodeBlock
+        from content_blocks.blocks.structured import CustomStepBlock
+
+        md_res = self.md_block.render_clean("```python\ndef hello():\n    return 42\n```")
+        self.assertIn('<pre><code class="language-python">', md_res.html)
+
+        code_res = CustomCodeBlock().render_clean({
+            "title": "demo.sql",
+            "language": "sql",
+            "code": "SELECT 1;",
+            "mode": "display",
+        })
+        self.assertIn('<code class="language-sql">', code_res.html)
+
+        step_res = CustomStepBlock().render_clean({
+            "step_number": 1,
+            "title": "运行迁移",
+            "content": "执行命令",
+            "code_snippet": "python manage.py check",
+            "code_language": "bash",
+        })
+        self.assertIn('<pre class="code-content"><code class="language-bash">', step_res.html)
+
+    def test_table_multi_row_header_rowspan_and_cell_code_math(self):
+        """验证复杂表格：多行表头不跨 thead/tbody、逻辑列 has_header_col、越界/重叠拦截与单元格代码/公式渲染"""
+        table_data = {
+            "rows": [
+                [
+                    {"value": "层级", "rowspan": 2, "header": True},
+                    {"value": "指标", "colspan": 2, "header": True},
+                ],
+                [
+                    {"value": "名称", "header": True},
+                    {"value": "公式与代码", "header": True},
+                ],
+                [
+                    {"value": "主库", "rowspan": 2},
+                    "P99 耗时",
+                    "延迟 $t \\le 2$ ms，执行 `SELECT 1`",
+                ],
+                [
+                    "SQL 示例",
+                    "```sql\nSELECT id FROM blog_blogpage;\n```",
+                ],
+            ]
+        }
+        res = self.table_block.render_clean({
+            "caption": "跨行跨列+代码公式测试表",
+            "has_header_row": True,
+            "has_header_col": True,
+            "alignment": "center",
+            "table_data": table_data,
+        })
+        # 1. 第0、1行都必须留在 <thead> 内，避免 rowspan=2 跨 rowgroup 被浏览器截断
+        thead_part = res.html.split("</thead>")[0]
+        self.assertIn("层级", thead_part)
+        self.assertIn("指标", thead_part)
+        self.assertIn("公式与代码", thead_part)
+        # 2. tbody 第2行被上方 rowspan=2 占掉第0列，因此"SQL 示例"处于逻辑第1列，不能错误变成 <th>
+        tbody_part = res.html.split("<tbody>")[1]
+        self.assertIn('<th rowspan="2" scope="rowgroup">主库</th>', tbody_part)
+        self.assertIn("<td>SQL 示例</td>", tbody_part)
+        # 3. 单元格内的 LaTeX 公式（含 data-cb-math 属性没被外层剥掉）、行内代码与代码块均正确渲染
+        self.assertIn('data-cb-math="inline"', res.html)
+        self.assertIn('data-tex="t \\le 2"', res.html)
+        self.assertIn('<code class="cb-inline-code">SELECT 1</code>', res.html)
+        self.assertIn('<code class="language-sql">SELECT id FROM blog_blogpage;</code>', res.html)
+        # 4. 包含左右分栏源码对照骨架
+        self.assertIn('data-cb-table', res.html)
+        self.assertIn('data-cb-table-source', res.html)
+
+        # 5. 校验重叠与越界跨度被准确拒绝
+        overlap_data = {
+            "rows": [
+                [{"value": "A", "rowspan": 2}, {"value": "B"}],
+                [{"value": "C", "colspan": 2}],
+            ]
+        }
+        val_res = self.table_block.validate_value({"table_data": json.dumps(overlap_data)})
+        self.assertFalse(val_res.is_valid)
+        self.assertTrue(any("逻辑列宽" in err or "超出表格总行数" in err or "重叠" in err for err in val_res.errors))
+
+        oob_data = {
+            "rows": [
+                [{"value": "A", "rowspan": 3}, {"value": "B"}],
+                [{"value": "C"}],
+            ]
+        }
+        val_oob = self.table_block.validate_value({"table_data": json.dumps(oob_data)})
+        self.assertFalse(val_oob.is_valid)
+        self.assertTrue(any("超出表格总行数" in err for err in val_oob.errors))
+
+    def test_public_block_assets_templates_include_all_modules(self):
+        """验证公共静态片段已挂载代码高亮、表格分栏、Embed、图片灯箱、媒体与结构化卡片资产"""
+        from django.template.loader import render_to_string
+
+        css_html = render_to_string("content_blocks/includes/_block_assets_css.html")
+        js_html = render_to_string("content_blocks/includes/_block_assets_js.html")
+
+        for needle in [
+            "highlightjs/styles/github-dark.min.css",
+            "content_blocks/css/code-highlighting.css",
+            "content_blocks/css/embed-block.css",
+            "content_blocks/css/content-images.css",
+            "content_blocks/css/media-blocks.css",
+            "content_blocks/css/structured-blocks.css",
+        ]:
+            self.assertIn(needle, css_html)
+
+        for needle in [
+            "content_blocks/js/code-highlighting.js",
+            "content_blocks/js/table-block.js",
+            "content_blocks/js/embed-render.js",
+            "content_blocks/js/content-images.js",
+        ]:
+            self.assertIn(needle, js_html)
