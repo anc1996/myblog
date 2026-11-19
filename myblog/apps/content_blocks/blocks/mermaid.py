@@ -43,6 +43,14 @@ class CustomMermaidBlock(blocks.StructBlock):
         icon = "resubmit"
         label = "Mermaid 流程图"
 
+    def __init__(self, local_blocks=None, **kwargs):
+        super().__init__(local_blocks=local_blocks, **kwargs)
+        from content_blocks.widgets import MermaidSplitWidget
+        if "diagram_code" in self.child_blocks:
+            self.child_blocks["diagram_code"].field_options["widget"] = MermaidSplitWidget(
+                attrs={"rows": 8}
+            )
+
     def validate_value(self, value: Any, context: Any = None) -> BlockValidationResult:
         if not value or not value.get("diagram_code"):
             return BlockValidationResult(is_valid=False, errors=["图表内容不能为空"])

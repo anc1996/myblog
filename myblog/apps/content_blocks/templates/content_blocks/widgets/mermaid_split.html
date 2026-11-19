@@ -1,0 +1,21 @@
+<div class="cb-admin-split-field" data-cb-admin-mermaid-field>
+    <div class="cb-admin-split-grid">
+        <div class="cb-admin-split-left">
+            <div class="cb-admin-pane-head">
+                <span>Mermaid 源码</span>
+                <span class="cb-admin-pane-hint">实时防抖渲染（securityLevel: strict）</span>
+            </div>
+            <textarea name="{{ widget.name }}"{% include "django/forms/widgets/attrs.html" %}>{{ widget.value|default_if_none:"" }}</textarea>
+        </div>
+        <div class="cb-admin-split-right">
+            <div class="cb-admin-pane-head">
+                <span>右侧实时预览</span>
+                <span class="cb-admin-theme-badge" data-cb-admin-mermaid-theme-label>主题: default</span>
+            </div>
+            <div class="cb-admin-mermaid-error" data-cb-admin-mermaid-error hidden></div>
+            <div class="cb-admin-mermaid-canvas" data-cb-admin-mermaid-canvas>
+                <span class="cb-admin-placeholder">在左侧输入 Mermaid 语法即可实时预览...</span>
+            </div>
+        </div>
+    </div>
+</div>

@@ -72,6 +72,18 @@ class S3BlocksTests(unittest.TestCase):
         self.assertIn('class="mermaid-diagram"', res_mermaid.html)
         self.assertIn('data-mermaid="graph TD;', res_mermaid.html)
 
+        # 2b. 验证带空格/缩进/CRLF 与中文节点标签的 fenced mermaid 围栏
+        md_mermaid_variants = (
+            "   ``` mermaid\r\n"
+            '  flowchart LR\r\n'
+            '    A["JS"] --制作了--> B["Markdown 定制"]\r\n'
+            "  ```"
+        )
+        res_variants = block.render_clean(md_mermaid_variants)
+        self.assertIn('class="cb-mermaid mermaid-block-wrapper"', res_variants.html)
+        self.assertIn("flowchart LR", res_variants.html)
+        self.assertIn("Markdown 定制", res_variants.html)
+
         # 3. 验证 Markdown 内嵌恶意 XSS 被拦截
         md_xss = """[点击测试](javascript:void(0))\n\n<script>alert(2)</script>"""
         res_xss = block.render_clean(md_xss)

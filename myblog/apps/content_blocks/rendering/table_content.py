@@ -15,17 +15,26 @@ import html
 import re
 import textwrap
 import uuid
+from html.parser import HTMLParser
 from typing import Any
 
+from content_blocks.rendering.images import (
+    apply_markdown_image_sizing_in_html,
+    build_safe_img_tag,
+)
 from content_blocks.rendering.math import protect_math_in_markdown, restore_math_in_html
 from content_blocks.rendering.media_refs import UUID_PATTERN, resolve_media_urls
 from content_blocks.sanitizer import sanitize_html
 
-_FENCE_CODE_RE = re.compile(r"```([a-zA-Z0-9_+#.-]*)[ \t]*\r?\n([\s\S]*?)\r?\n[ \t]*```")
+_FENCE_CODE_RE = re.compile(r"```([a-zA-Z0-9_+#.-]*)[ \t]*\r?\n([\s\S]*?)\r?\n[ \t]*```[ \t]*")
 _INLINE_CODE_RE = re.compile(r"`([^`\n]+)`")
 _SAFE_LANG_RE = re.compile(r"^[a-zA-Z0-9_+#.-]{1,32}$")
-_MD_IMAGE_ASSET_RE = re.compile(r"!\[([^\]]*)\]\(asset://image/(" + UUID_PATTERN + r")\)")
-_MD_DOC_ASSET_RE = re.compile(r"\[([^\]]+)\]\(asset://document/(" + UUID_PATTERN + r")\)")
+_MD_IMAGE_RE = re.compile(
+    r"!\[([^\]]*)\]\(((?:asset://image/|/media-gateway/image/|https?://)[^\s\)]+)\)"
+)
+_MD_DOC_RE = re.compile(
+    r"\[([^\]]+)\]\(((?:asset://document/|/media-gateway/document/)(" + UUID_PATTERN + r")/?)\)"
+)
 
 
 def analyze_table_grid(
@@ -190,35 +199,36 @@ def render_table_cell_content(raw_val: str, *, is_rich: bool) -> str:
     # 3. 提取 LaTeX 公式（此时代码块已占位保护，不会误抓代码里的 $）
     text, math_items = protect_math_in_markdown(text, nonce)
 
-    # 4. 转换受控媒体引用并执行分层净化
-    # 注意：标量单元格不解释作者输入的原始 HTML；富单元格先做 asset:// 转换再过 nh3
+    # 4. 转换受控媒体引用（Markdown 图片含尺寸语法 + 文档链接）并执行分层净化
+    # 注意：标量单元格与富单元格均支持 ![alt|尺寸](...) 与 [文档](asset://document/...)
     media_tokens: list[tuple[str, str]] = []
+
+    def stash_md_img(m: re.Match) -> str:
+        idx = len(media_tokens)
+        tok = f"CBMEDIA_{nonce}_{idx}_X"
+        tag = build_safe_img_tag(m.group(2), m.group(1) or "")
+        media_tokens.append((tok, tag))
+        return tok
+
+    def stash_md_doc(m: re.Match) -> str:
+        idx = len(media_tokens)
+        tok = f"CBMEDIA_{nonce}_{idx}_X"
+        lbl_safe = html.escape(m.group(1))
+        aid = m.group(3).lower()
+        media_tokens.append((tok, f'<a href="/media-gateway/document/{aid}/" download>{lbl_safe}</a>'))
+        return tok
+
+    text = _MD_IMAGE_RE.sub(stash_md_img, text)
+    text = _MD_DOC_RE.sub(stash_md_doc, text)
+
     if is_rich:
         resolved = resolve_media_urls(text)
-        cleaned = sanitize_html(resolved)
+        cleaned = apply_markdown_image_sizing_in_html(sanitize_html(resolved))
     else:
-        # 标量支持受控 ![alt](asset://image/<uuid>) / [text](asset://document/<uuid>) 或纯文本
-        def stash_md_img(m: re.Match) -> str:
-            idx = len(media_tokens)
-            tok = f"CBMEDIA_{nonce}_{idx}_X"
-            alt_safe = html.escape(m.group(1) or "")
-            aid = m.group(2).lower()
-            media_tokens.append((tok, f'<img src="/media-gateway/image/{aid}/" alt="{alt_safe}" loading="lazy" data-asset-id="{aid}" />'))
-            return tok
-
-        def stash_md_doc(m: re.Match) -> str:
-            idx = len(media_tokens)
-            tok = f"CBMEDIA_{nonce}_{idx}_X"
-            lbl_safe = html.escape(m.group(1))
-            aid = m.group(2).lower()
-            media_tokens.append((tok, f'<a href="/media-gateway/document/{aid}/" download>{lbl_safe}</a>'))
-            return tok
-
-        text = _MD_IMAGE_ASSET_RE.sub(stash_md_img, text)
-        text = _MD_DOC_ASSET_RE.sub(stash_md_doc, text)
         cleaned = html.escape(text)
-        for tok, rep in media_tokens:
-            cleaned = cleaned.replace(tok, rep)
+
+    for tok, rep in media_tokens:
+        cleaned = cleaned.replace(tok, rep)
 
     # 5. 回填 LaTeX 公式为合法行内/单元格展示 span（绝不插 <div> 破坏表格）
     if math_items:
@@ -248,3 +258,171 @@ def render_table_cell_content(raw_val: str, *, is_rich: bool) -> str:
         cleaned = cleaned.replace(item["token"], rep)
 
     return cleaned
+
+
+def _transform_cell_plain_chunk(raw_chunk: str) -> str:
+    """
+    在已完成 nh3 净化的 Markdown 表格单元格纯文本片段中解析：
+    围栏代码块 (```lang ... ```)、行内代码 (`...`)、Markdown 图片 (含尺寸) 与受控文档链接。
+    已处于 <pre>/<code>/.cb-math 内部的片段由上层跳过，不重复处理。
+    """
+    if not raw_chunk or (
+        "`" not in raw_chunk and "![" not in raw_chunk and "asset://" not in raw_chunk and "/media-gateway/" not in raw_chunk
+    ):
+        return html.escape(raw_chunk)
+
+    nonce = uuid.uuid4().hex[:10]
+    code_items: list[dict[str, str]] = []
+    media_tokens: list[tuple[str, str]] = []
+
+    def stash_fence(m: re.Match) -> str:
+        lang_raw = (m.group(1) or "").strip().lower()
+        lang = lang_raw if _SAFE_LANG_RE.match(lang_raw) else "plaintext"
+        code_body = textwrap.dedent(m.group(2).replace("\r\n", "\n")).strip("\n")
+        idx = len(code_items)
+        tok = f"CBMKCELL_{nonce}_{idx}_X"
+        code_items.append({"type": "fence", "lang": lang, "code": code_body, "token": tok})
+        return tok
+
+    def stash_inline(m: re.Match) -> str:
+        idx = len(code_items)
+        tok = f"CBMKCELL_{nonce}_{idx}_X"
+        code_items.append({"type": "inline", "lang": "", "code": m.group(1), "token": tok})
+        return tok
+
+    text = _FENCE_CODE_RE.sub(stash_fence, raw_chunk)
+    text = _INLINE_CODE_RE.sub(stash_inline, text)
+
+    def stash_img(m: re.Match) -> str:
+        idx = len(media_tokens)
+        tok = f"CBMKMEDIA_{nonce}_{idx}_X"
+        media_tokens.append((tok, build_safe_img_tag(m.group(2), m.group(1) or "")))
+        return tok
+
+    def stash_doc(m: re.Match) -> str:
+        idx = len(media_tokens)
+        tok = f"CBMKMEDIA_{nonce}_{idx}_X"
+        lbl = html.escape(m.group(1))
+        aid = m.group(3).lower()
+        media_tokens.append((tok, f'<a href="/media-gateway/document/{aid}/" download>{lbl}</a>'))
+        return tok
+
+    text = _MD_IMAGE_RE.sub(stash_img, text)
+    text = _MD_DOC_RE.sub(stash_doc, text)
+
+    out = html.escape(text)
+    for tok, rep in media_tokens:
+        out = out.replace(tok, rep)
+    for item in code_items:
+        safe_code = html.escape(item["code"])
+        if item["type"] == "fence":
+            safe_lang = html.escape(item["lang"])
+            rep = f'<div class="cb-cell-code"><pre><code class="language-{safe_lang}">{safe_code}</code></pre></div>'
+        else:
+            rep = f'<code class="cb-inline-code">{safe_code}</code>'
+        out = out.replace(item["token"], rep)
+    return out
+
+
+class _MarkdownTableEnhancer(HTMLParser):
+    """
+    增强 Markdown 输出中的 <table>：
+    1. 支持 HTML 复杂表格单元格 (<td>/<th>) 内写 ```lang 代码块、行内 `code` 与 ![图|尺寸](...)；
+    2. 外层统一包裹 .responsive-table-wrapper，确保宽表横向滚动自适应。
+    """
+
+    _SKIP_TAGS = {"pre", "code", "script", "style"}
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=False)
+        self._parts: list[str] = []
+        self._table_depth = 0
+        self._cell_depth = 0
+        self._skip_depth = 0
+        self._text_buf: list[str] = []
+        self._wrapper_depth = 0
+
+    def _flush_cell_buf(self) -> None:
+        if not self._text_buf:
+            return
+        chunk = "".join(self._text_buf)
+        self._text_buf.clear()
+        if self._cell_depth > 0 and self._skip_depth == 0:
+            self._parts.append(_transform_cell_plain_chunk(chunk))
+        else:
+            self._parts.append(html.escape(chunk))
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self._flush_cell_buf()
+        ltag = tag.lower()
+        attr_dict = {k.lower(): (v or "") for k, v in attrs}
+        if ltag == "div" and "responsive-table-wrapper" in attr_dict.get("class", "").split():
+            self._wrapper_depth += 1
+        if ltag == "table":
+            if self._table_depth == 0 and self._wrapper_depth == 0:
+                self._parts.append('<div class="responsive-table-wrapper">')
+            self._table_depth += 1
+        elif ltag in ("td", "th") and self._table_depth > 0:
+            self._cell_depth += 1
+        elif ltag in self._SKIP_TAGS and self._cell_depth > 0:
+            self._skip_depth += 1
+        self._parts.append(self.get_starttag_text())
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self._flush_cell_buf()
+        self._parts.append(self.get_starttag_text())
+
+    def handle_endtag(self, tag: str) -> None:
+        self._flush_cell_buf()
+        ltag = tag.lower()
+        self._parts.append(f"</{tag}>")
+        if ltag in self._SKIP_TAGS and self._skip_depth > 0:
+            self._skip_depth -= 1
+        elif ltag in ("td", "th") and self._cell_depth > 0:
+            self._cell_depth -= 1
+        elif ltag == "table" and self._table_depth > 0:
+            self._table_depth -= 1
+            if self._table_depth == 0 and self._wrapper_depth == 0:
+                self._parts.append("</div>")
+        elif ltag == "div" and self._wrapper_depth > 0:
+            self._wrapper_depth -= 1
+
+    def handle_data(self, data: str) -> None:
+        if self._cell_depth > 0 and self._skip_depth == 0:
+            self._text_buf.append(data)
+        else:
+            self._parts.append(data)
+
+    def handle_entityref(self, name: str) -> None:
+        if self._cell_depth > 0 and self._skip_depth == 0:
+            self._text_buf.append(html.unescape(f"&{name};"))
+        else:
+            self._parts.append(f"&{name};")
+
+    def handle_charref(self, name: str) -> None:
+        if self._cell_depth > 0 and self._skip_depth == 0:
+            self._text_buf.append(html.unescape(f"&#{name};"))
+        else:
+            self._parts.append(f"&#{name};")
+
+    def handle_comment(self, data: str) -> None:
+        self._flush_cell_buf()
+        self._parts.append(f"<!--{data}-->")
+
+    def handle_decl(self, decl: str) -> None:
+        self._flush_cell_buf()
+        self._parts.append(f"<!{decl}>")
+
+    def render(self) -> str:
+        self._flush_cell_buf()
+        return "".join(self._parts)
+
+
+def enhance_markdown_tables_html(html_str: str) -> str:
+    """为 Markdown 渲染结果中的表格增强单元格代码/图片渲染与自适应滚动外框"""
+    if not html_str or "<table" not in html_str.lower():
+        return html_str
+    parser = _MarkdownTableEnhancer()
+    parser.feed(html_str)
+    parser.close()
+    return parser.render()

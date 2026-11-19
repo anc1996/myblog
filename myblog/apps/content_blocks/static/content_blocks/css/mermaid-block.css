@@ -90,6 +90,10 @@
     transition: height 0.25s ease;
 }
 
+.cb-mermaid[data-theme="dark"] .cb-mermaid-viewport {
+    background: #1f2430;
+}
+
 .cb-mermaid-canvas,
 .mermaid-diagram {
     display: inline-block;
@@ -231,9 +235,23 @@
     max-height: 85vh;
     overflow: auto;
     background: #ffffff;
+    color: #0f172a;
     border-radius: 8px;
     padding: 30px;
     box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+}
+
+.cb-mermaid-modal-content[data-theme="dark"] {
+    background: #1f2430;
+    color: #e2e8f0;
+}
+
+.cb-mermaid-modal-content[data-theme="dark"] .cb-mermaid-modal-close {
+    color: #cbd5e1;
+}
+
+.cb-mermaid-modal-content[data-theme="dark"] .cb-mermaid-modal-close:hover {
+    color: #ffffff;
 }
 
 .cb-mermaid-modal-close {

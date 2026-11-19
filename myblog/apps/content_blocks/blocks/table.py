@@ -75,6 +75,14 @@ class CustomTableBlock(blocks.StructBlock):
         icon = "table"
         label = "复杂表格"
 
+    def __init__(self, local_blocks=None, **kwargs):
+        super().__init__(local_blocks=local_blocks, **kwargs)
+        from content_blocks.widgets import TableJsonSplitWidget
+        if "table_data" in self.child_blocks:
+            self.child_blocks["table_data"].field_options["widget"] = TableJsonSplitWidget(
+                attrs={"rows": 10}
+            )
+
     def clean(self, value: Any) -> Any:
         """
         Wagtail 8.1 结构化块校验契约：

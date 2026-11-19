@@ -186,4 +186,17 @@ article table .cb-math {
 
 .cb-cell-code .code-block-shell {
     margin: 0;
+    max-width: 100%;
+}
+
+.custom-table-block img,
+article table img {
+    max-width: 100%;
+    border-radius: 4px;
+    vertical-align: middle;
+}
+
+.custom-table-block img:not([height]),
+article table img:not([height]) {
+    height: auto;
 }

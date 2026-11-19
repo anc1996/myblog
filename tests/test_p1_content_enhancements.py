@@ -359,3 +359,89 @@ img_path = "asset://image/{dummy_code_id}"
             "content_blocks/js/content-images.js",
         ]:
             self.assertIn(needle, js_html)
+
+    def test_markdown_complex_html_table_math_code_and_resized_images(self):
+        """验证 Markdown 内嵌复杂 HTML 表格（合并单元格+公式+代码高亮+可控尺寸插图）与 XSS 防护"""
+        img_uuid = str(uuid4())
+        md_input = (
+            "<table>\n"
+            "  <thead>\n"
+            '    <tr><th rowspan="2">模块</th><th colspan="3">能力矩阵</th></tr>\n'
+            "    <tr><th>公式</th><th>代码</th><th>配图</th></tr>\n"
+            "  </thead>\n"
+            "  <tbody>\n"
+            "    <tr>\n"
+            '      <td rowspan="2">主引擎</td>\n'
+            "      <td>$E = mc^2$</td>\n"
+            "      <td>\n```sql\nSELECT id FROM pages WHERE id > 1;\n```\n</td>\n"
+            f"      <td>![架构图|240](asset://image/{img_uuid})</td>\n"
+            "    </tr>\n"
+            "    <tr>\n"
+            "      <td>$$\\sum_{i=1}^{n} x_i$$</td>\n"
+            "      <td>`git status`</td>\n"
+            f"      <td>![占比|50%,center](asset://image/{img_uuid})<script>alert(1)</script></td>\n"
+            "    </tr>\n"
+            "  </tbody>\n"
+            "</table>"
+        )
+        res = self.md_block.render_clean(md_input)
+        self.assertTrue(res.is_safe)
+        self.assertIn('class="responsive-table-wrapper"', res.html)
+        self.assertIn('rowspan="2"', res.html)
+        self.assertIn('colspan="3"', res.html)
+        self.assertIn('data-cb-math="inline"', res.html)
+        self.assertIn('data-cb-math="display"', res.html)
+        self.assertIn('<code class="language-sql">SELECT id FROM pages WHERE id &gt; 1;', res.html)
+        self.assertIn('<code class="cb-inline-code">git status</code>', res.html)
+        self.assertIn(f'src="/media-gateway/image/{img_uuid}/"', res.html)
+        self.assertIn('width="240"', res.html)
+        self.assertIn('alt="架构图"', res.html)
+        self.assertIn('style="width:50%;max-width:100%"', res.html)
+        self.assertIn('cb-img-align-center', res.html)
+        self.assertNotIn("<script>", res.html)
+
+    def test_markdown_pipe_table_display_math_and_image_sizing(self):
+        """验证 Markdown 管道表格内 $$...$$ 不拆表，以及图片尺寸指令与普通管道符共存"""
+        img_uuid = str(uuid4())
+        md_input = (
+            "| 项 | 内容 |\n"
+            "|---|---|\n"
+            f"| 缩略图 | ![拓扑图|320x200](asset://image/{img_uuid}) |\n"
+            "| 块公式 | $$a^2 + b^2 = c^2$$ |\n"
+            f"| 普通竖线 | ![CPU | 内存](asset://image/{img_uuid}) |\n"
+            "| 危险样式 | <img src=\"https://example.com/a.png\" style=\"width:50%;position:fixed;background:url(javascript:alert(1))\" /> |"
+        )
+        res = self.md_block.render_clean(md_input)
+        self.assertIn('class="responsive-table-wrapper"', res.html)
+        self.assertIn('width="320"', res.html)
+        self.assertIn('height="200"', res.html)
+        self.assertIn('alt="拓扑图"', res.html)
+        self.assertIn('data-cb-math="display"', res.html)
+        self.assertEqual(res.html.count("<tr>"), 5)
+        # 非尺寸指令的 "CPU | 内存" 保留完整 alt
+        self.assertIn('alt="CPU | 内存"', res.html)
+        # 危险 CSS 被剥离，仅留白名单 width
+        self.assertNotIn("position:fixed", res.html)
+        self.assertNotIn("javascript:", res.html)
+        self.assertIn('style="width:50%"', res.html)
+
+    def test_custom_table_block_dict_and_scalar_resized_images(self):
+        """验证 CustomTableBlock 字典单元格与标量单元格均支持受控图片插入及尺寸调整"""
+        img_uuid = str(uuid4())
+        val = {
+            "caption": "表格插图缩放验证",
+            "has_header_row": True,
+            "table_data": json.dumps({
+                "rows": [
+                    ["场景", "示意图"],
+                    [{"value": f"![主架构|280,center](asset://image/{img_uuid})", "rowspan": 1}, f"![对比|sm](asset://image/{img_uuid})"],
+                ]
+            }),
+        }
+        res = self.table_block.render_clean(val)
+        self.assertIn(f'src="/media-gateway/image/{img_uuid}/"', res.html)
+        self.assertIn('width="280"', res.html)
+        self.assertIn('cb-img-align-center', res.html)
+        self.assertIn('width="240"', res.html)
+        refs = self.table_block.extract_media_refs(val, path="body.0")
+        self.assertEqual(len(refs), 2)

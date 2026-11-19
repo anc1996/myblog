@@ -15,6 +15,34 @@
     cursor: zoom-in;
 }
 
+/* Markdown / 复杂表格内插图可控尺寸与对齐 */
+.cb-img-sized {
+    max-width: 100%;
+    border-radius: 6px;
+    border: 1px solid #e2e8f0;
+}
+
+.cb-img-sized:not([height]) {
+    height: auto;
+}
+
+.cb-img-align-center {
+    display: block;
+    margin: 0.75rem auto;
+}
+
+.cb-img-align-left {
+    float: left;
+    max-width: 55%;
+    margin: 0.35rem 1rem 0.75rem 0;
+}
+
+.cb-img-align-right {
+    float: right;
+    max-width: 55%;
+    margin: 0.35rem 0 0.75rem 1rem;
+}
+
 .media-image-wrapper.format-full img {
     width: 100%;
 }

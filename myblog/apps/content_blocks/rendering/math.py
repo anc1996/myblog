@@ -32,6 +32,17 @@ _INLINE_MATH_DOLLAR_RE = re.compile(
 )
 
 
+def _is_inline_table_or_text_context(src: str, start: int, end: int) -> bool:
+    """判断公式前后同一行是否存在表格管道符或其他非空字符，避免插 \\n\\n 拆断 Markdown 表格。"""
+    line_start = src.rfind("\n", 0, start) + 1
+    line_end = src.find("\n", end)
+    if line_end == -1:
+        line_end = len(src)
+    before = src[line_start:start].strip()
+    after = src[end:line_end].strip()
+    return bool(before or after)
+
+
 def protect_math_in_markdown(text: str, nonce: str) -> tuple[str, list[dict[str, Any]]]:
     """
     扫描 Markdown 文本，保护代码块并提取数学公式，返回替换后的文本与公式元数据列表。
@@ -48,16 +59,21 @@ def protect_math_in_markdown(text: str, nonce: str) -> tuple[str, list[dict[str,
         code_stash.append(m.group(0))
         return f"CBCODE_{nonce}_{idx}_X"
 
-    # 优先匹配代码围栏 (含 mermaid 围栏)，再匹配行内反引号
+    # 优先匹配代码围栏 (含 mermaid 围栏)、HTML <pre>/<code> 与行内反引号
     protected = re.sub(r"```[\s\S]*?```", stash_code, text)
+    protected = re.sub(r"<pre\b[^>]*>[\s\S]*?</pre>", stash_code, protected, flags=re.IGNORECASE)
+    protected = re.sub(r"<code\b[^>]*>[\s\S]*?</code>", stash_code, protected, flags=re.IGNORECASE)
     protected = re.sub(r"`[^`\n]+`", stash_code, protected)
 
     # 2. 提取块级公式：$$...$$
     def stash_block_dollar(m: re.Match) -> str:
         raw_tex = m.group(1).strip()
         idx = len(math_items)
-        math_items.append({"tex": raw_tex, "is_display": True, "token": f"CBMATH_{nonce}_{idx}_X"})
-        return f"\n\nCBMATH_{nonce}_{idx}_X\n\n"
+        token = f"CBMATH_{nonce}_{idx}_X"
+        math_items.append({"tex": raw_tex, "is_display": True, "token": token})
+        if _is_inline_table_or_text_context(protected, m.start(), m.end()):
+            return token
+        return f"\n\n{token}\n\n"
 
     protected = _BLOCK_MATH_DOLLAR_RE.sub(stash_block_dollar, protected)
 
@@ -65,8 +81,11 @@ def protect_math_in_markdown(text: str, nonce: str) -> tuple[str, list[dict[str,
     def stash_block_bracket(m: re.Match) -> str:
         raw_tex = m.group(1).strip()
         idx = len(math_items)
-        math_items.append({"tex": raw_tex, "is_display": True, "token": f"CBMATH_{nonce}_{idx}_X"})
-        return f"\n\nCBMATH_{nonce}_{idx}_X\n\n"
+        token = f"CBMATH_{nonce}_{idx}_X"
+        math_items.append({"tex": raw_tex, "is_display": True, "token": token})
+        if _is_inline_table_or_text_context(protected, m.start(), m.end()):
+            return token
+        return f"\n\n{token}\n\n"
 
     protected = _BLOCK_MATH_BRACKET_RE.sub(stash_block_bracket, protected)
 

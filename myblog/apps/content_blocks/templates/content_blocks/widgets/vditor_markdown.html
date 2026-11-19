@@ -1,0 +1,5 @@
+<div class="cb-vditor-field" data-cb-vditor-field>
+    <div class="cb-vditor-status" data-cb-vditor-status hidden></div>
+    <div class="cb-vditor-editor" data-cb-vditor-editor></div>
+    <textarea name="{{ widget.name }}"{% include "django/forms/widgets/attrs.html" %}>{{ widget.value|default_if_none:"" }}</textarea>
+</div>

@@ -8,70 +8,7 @@
 (function () {
     "use strict";
 
-    var mermaidLoadingPromise = null;
-    var diagramCounter = 0;
-
-    function loadMermaidScript() {
-        if (window.mermaid) return Promise.resolve(window.mermaid);
-        if (mermaidLoadingPromise) return mermaidLoadingPromise;
-
-        mermaidLoadingPromise = new Promise(function (resolve, reject) {
-            var script = document.createElement("script");
-            script.src = "/static/vendor/mermaid/mermaid.min.js";
-            script.async = true;
-            script.onload = function () {
-                if (window.mermaid) {
-                    window.mermaid.initialize({
-                        startOnLoad: false,
-                        securityLevel: "strict",
-                        theme: "default",
-                        htmlLabels: false,
-                        fontFamily: 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif'
-                    });
-                    resolve(window.mermaid);
-                } else {
-                    reject(new Error("Mermaid global not found on script load"));
-                }
-            };
-            script.onerror = function () {
-                reject(new Error("Mermaid script load failed"));
-            };
-            document.head.appendChild(script);
-        });
-
-        return mermaidLoadingPromise;
-    }
-
-    function sanitizeSvgString(rawSvg) {
-        var parser = new DOMParser();
-        var doc = parser.parseFromString(rawSvg, "image/svg+xml");
-        var svg = doc.querySelector("svg");
-        if (!svg) return null;
-
-        // 移除所有恶意 script、foreignObject 与危险内联事件
-        var dangerousElements = svg.querySelectorAll("script, foreignObject");
-        dangerousElements.forEach(function (el) { el.remove(); });
-
-        var allElements = svg.querySelectorAll("*");
-        allElements.forEach(function (el) {
-            var attrsToRemove = [];
-            for (var i = 0; i < el.attributes.length; i++) {
-                var attr = el.attributes[i];
-                if (attr.name.toLowerCase().startsWith("on")) {
-                    attrsToRemove.push(attr.name);
-                }
-                if ((attr.name === "href" || attr.name === "xlink:href") &&
-                    attr.value.toLowerCase().trim().startsWith("javascript:")) {
-                    attrsToRemove.push(attr.name);
-                }
-            }
-            attrsToRemove.forEach(function (name) { el.removeAttribute(name); });
-        });
-
-        return svg;
-    }
-
-    function setupMermaidBlock(block, mermaid) {
+    function setupMermaidBlock(block, renderer) {
         if (block.hasAttribute("data-cb-mermaid-rendered")) return;
         block.setAttribute("data-cb-mermaid-rendered", "true");
 
@@ -83,30 +20,25 @@
         var canvas = block.querySelector(".mermaid-diagram, .cb-mermaid-canvas");
         var statusEl = block.querySelector(".cb-mermaid-status");
         var sourceWrapper = block.querySelector(".cb-mermaid-source-wrapper");
-        var currentTheme = block.getAttribute("data-theme") || "default";
+        var initialTheme = renderer.normalizeTheme(block.getAttribute("data-theme") || "default");
+        var currentTheme = initialTheme;
         var currentScale = 1.0;
         var currentSvgText = "";
-
-        diagramCounter++;
-        var svgId = "cb_mermaid_svg_" + Date.now() + "_" + diagramCounter;
+        var renderSeq = 0;
 
         function renderDiagram(themeToUse) {
-            mermaid.initialize({
-                securityLevel: "strict",
-                theme: themeToUse,
-                htmlLabels: false
-            });
-
-            mermaid.render(svgId, code).then(function (result) {
-                var cleanSvgNode = sanitizeSvgString(result.svg);
-                if (!cleanSvgNode) {
-                    throw new Error("SVG 图表净化后格式无效");
-                }
-                currentSvgText = cleanSvgNode.outerHTML;
+            var seq = ++renderSeq;
+            var targetTheme = renderer.normalizeTheme(themeToUse);
+            renderer.render(code, targetTheme).then(function (res) {
+                if (seq !== renderSeq) return;
+                currentTheme = res.theme;
+                block.setAttribute("data-theme", res.theme);
+                currentSvgText = res.svgHtml;
                 canvas.innerHTML = "";
-                canvas.appendChild(cleanSvgNode);
+                canvas.appendChild(res.svgNode);
                 if (statusEl) statusEl.hidden = true;
             }).catch(function (err) {
+                if (seq !== renderSeq) return;
                 console.warn("Mermaid render error:", err);
                 if (statusEl) {
                     statusEl.hidden = false;
@@ -118,7 +50,7 @@
             });
         }
 
-        renderDiagram(currentTheme);
+        renderDiagram(initialTheme);
 
         // 工具栏交互绑定
         var btnZoomIn = block.querySelector(".cb-btn-zoom-in");
@@ -155,9 +87,8 @@
         }
         if (btnTheme) {
             btnTheme.addEventListener("click", function () {
-                currentTheme = currentTheme === "dark" ? "default" : "dark";
-                block.setAttribute("data-theme", currentTheme);
-                renderDiagram(currentTheme);
+                var nextTheme = currentTheme === "dark" ? (initialTheme === "dark" ? "default" : initialTheme) : "dark";
+                renderDiagram(nextTheme);
             });
         }
         if (btnSource) {
@@ -236,6 +167,8 @@
                     '<div class="cb-mermaid-modal-canvas"></div>' +
                     '</div>';
 
+                var modalContent = modal.querySelector(".cb-mermaid-modal-content");
+                modalContent.setAttribute("data-theme", currentTheme);
                 var modalCanvas = modal.querySelector(".cb-mermaid-modal-canvas");
                 modalCanvas.innerHTML = currentSvgText;
 
@@ -267,23 +200,22 @@
         var blocks = container.querySelectorAll("[data-cb-mermaid]");
         if (!blocks || blocks.length === 0) return;
 
-        loadMermaidScript().then(function (mermaid) {
-            blocks.forEach(function (block) {
-                setupMermaidBlock(block, mermaid);
-            });
-        }).catch(function (err) {
-            console.error("Failed to initialize Mermaid:", err);
+        var renderer = window.CBMermaidRenderer;
+        if (!renderer) {
             blocks.forEach(function (block) {
                 var statusEl = block.querySelector(".cb-mermaid-status");
                 var sourceWrapper = block.querySelector(".cb-mermaid-source-wrapper");
                 if (statusEl) {
                     statusEl.hidden = false;
-                    statusEl.textContent = "Mermaid 引擎加载失败，已显示源码";
+                    statusEl.textContent = "Mermaid 公共渲染引擎未就绪，已显示源码";
                 }
-                if (sourceWrapper) {
-                    sourceWrapper.hidden = false;
-                }
+                if (sourceWrapper) sourceWrapper.hidden = false;
             });
+            return;
+        }
+
+        blocks.forEach(function (block) {
+            setupMermaidBlock(block, renderer);
         });
     }
 

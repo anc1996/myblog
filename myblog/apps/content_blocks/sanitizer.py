@@ -4,7 +4,13 @@ HTML 安全净化器。
 基于 Rust 实现的高性能安全库 nh3，提供白名单标签、属性及 URL 协议过滤，彻底阻断 XSS 跨站脚本攻击。
 """
 
+import re
 import nh3
+
+_SAFE_IMG_STYLE_DECL_RE = re.compile(
+    r"^\s*((?:max-)?width)\s*:\s*(\d{1,4}(?:px|%)|auto)\s*$",
+    re.IGNORECASE,
+)
 
 # 允许的 HTML 标签白名单
 ALLOWED_TAGS = {
@@ -22,7 +28,7 @@ ALLOWED_TAGS = {
 # 允许的属性白名单
 ALLOWED_ATTRIBUTES = {
     "a": {"href", "title", "target"},
-    "img": {"src", "alt", "title", "width", "height", "loading", "data-asset-id"},
+    "img": {"src", "alt", "title", "width", "height", "loading", "data-asset-id", "class", "style"},
     "table": {"class", "align", "border"},
     "caption": {"class"},
     "thead": {"class"},
@@ -51,6 +57,17 @@ ALLOWED_ATTRIBUTES = {
 ALLOWED_URL_SCHEMES = {"http", "https", "mailto"}
 
 
+def _filter_attributes(tag: str, attr: str, value: str) -> str | None:
+    if tag == "img" and attr == "style":
+        safe_decls: list[str] = []
+        for part in (value or "").split(";"):
+            m = _SAFE_IMG_STYLE_DECL_RE.match(part)
+            if m:
+                safe_decls.append(f"{m.group(1).lower()}:{m.group(2).lower()}")
+        return ";".join(safe_decls) if safe_decls else None
+    return value
+
+
 def sanitize_html(raw_html: str) -> str:
     """对富文本或 Markdown 渲染后的 HTML 执行白名单安全净化"""
     if not raw_html:
@@ -59,6 +76,8 @@ def sanitize_html(raw_html: str) -> str:
         raw_html,
         tags=ALLOWED_TAGS,
         attributes=ALLOWED_ATTRIBUTES,
+        attribute_filter=_filter_attributes,
+        filter_style_properties={"width", "max-width"},
         url_schemes=ALLOWED_URL_SCHEMES,
         link_rel="noopener noreferrer",
     )

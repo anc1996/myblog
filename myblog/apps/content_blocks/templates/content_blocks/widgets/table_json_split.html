@@ -1,0 +1,26 @@
+<div class="cb-admin-split-field" data-cb-admin-table-field>
+    <div class="cb-admin-split-grid">
+        <div class="cb-admin-split-left">
+            <div class="cb-admin-pane-head">
+                <span>表格 JSON 源码</span>
+                <span class="cb-admin-pane-actions">
+                    <button type="button" class="button button-small button-secondary" data-cb-table-sample-btn>插入复杂示例</button>
+                    <button type="button" class="button button-small button-secondary" data-cb-table-format-btn>格式化 JSON</button>
+                </span>
+            </div>
+            <div class="cb-admin-syntax-tip">
+                单元格支持：<code>$公式$</code>、<code>`代码`</code>、<code>```sql 代码块```</code>、<code>![图注|240](asset://image/UUID)</code> 或 <code>|50%,center</code>
+            </div>
+            <textarea name="{{ widget.name }}"{% include "django/forms/widgets/attrs.html" %}>{{ widget.value|default_if_none:"" }}</textarea>
+        </div>
+        <div class="cb-admin-split-right">
+            <div class="cb-admin-pane-head">
+                <span>右侧实时渲染（支持跨行/跨列、公式与代码高亮）</span>
+            </div>
+            <div class="cb-admin-table-error" data-cb-admin-table-error hidden></div>
+            <div class="cb-admin-table-canvas" data-cb-admin-table-canvas>
+                <span class="cb-admin-placeholder">等待左侧 JSON 表格输入...</span>
+            </div>
+        </div>
+    </div>
+</div>
