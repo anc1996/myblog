@@ -2,21 +2,21 @@
 # New roles require a new session and a real smoke test before being called verified.
 [agents]
 max_threads = 3
-default_subagent_model = "gemini-3.8-flash"
+default_subagent_model = "gemini-4-hydrogen"
 default_subagent_reasoning_effort = "high"
 
 [agents.sol]
-description = "总体架构、跨存储契约、任务拆解与交付证据复核"
+description = "总体架构、跨存储契约、任务拆解与交付证据复核（gpt-6.2-sol）"
 config_file = "agents/sol.toml"
 
 [agents.gemini]
-description = "按批准合同实现边界清晰的常规功能、定向测试与文档"
+description = "按批准合同实现边界清晰的常规功能、定向测试与文档（gemini-4-hydrogen）"
 config_file = "agents/gemini.toml"
 
 [agents.terra]
-description = "只读独立审查发布、权限、回收、并发与补偿的反例"
+description = "只读独立审查发布、权限、回收、并发与补偿的反例（gpt-6.1-terra）"
 config_file = "agents/terra.toml"
 
 [agents.argon]
-description = "经指派攻坚 Wagtail 生命周期和复杂编辑器问题"
+description = "经指派攻坚 Wagtail 生命周期、多文件深度调试与复杂编辑器问题（gemini-4-neon）"
 config_file = "agents/argon.toml"
