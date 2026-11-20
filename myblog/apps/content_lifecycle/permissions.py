@@ -665,6 +665,28 @@ def ensure_author_role_infrastructure() -> dict[str, object]:
                         group=grp, collection=col, permission=p
                     )
 
+    # Audio / Video Snippet 模型权限：Authors 可上传与查看/选用自己名下及公开音视频（绝不授 change/delete 全库权限）
+    av_perms = {
+        p.codename: p
+        for p in Permission.objects.filter(
+            content_type__app_label="media_library",
+            content_type__model__in=["audio", "video"],
+        )
+    }
+    for codename in ("add_audio", "view_audio", "add_video", "view_video"):
+        if codename in av_perms:
+            authors_group.permissions.add(av_perms[codename])
+    authors_group.permissions.remove(
+        *[
+            av_perms[c]
+            for c in ("change_audio", "delete_audio", "change_video", "delete_video")
+            if c in av_perms
+        ]
+    )
+    for grp in Group.objects.filter(name__in=["Editors", "Moderators"]):
+        for p in av_perms.values():
+            grp.permissions.add(p)
+
     return {
         "authors_group": authors_group,
         "target_root_page": target_root,

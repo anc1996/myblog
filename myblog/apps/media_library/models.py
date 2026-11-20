@@ -1,9 +1,9 @@
 import uuid
+from django.conf import settings
 from django.db import models
 from django.urls import reverse
 from wagtail.images.models import AbstractImage, AbstractRendition, Image
 from wagtail.documents.models import AbstractDocument, Document
-from wagtail.snippets.models import register_snippet
 
 
 class VisibilityChoices(models.TextChoices):
@@ -116,7 +116,6 @@ class CustomDocument(AbstractDocument):
         return super().url
 
 
-@register_snippet
 class Audio(models.Model):
     """
     全站公共音频模型。
@@ -131,6 +130,15 @@ class Audio(models.Model):
     )
     title = models.CharField(max_length=255, verbose_name="音频标题")
     file = models.FileField(upload_to="audio/", verbose_name="音频文件")
+    uploaded_by_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        editable=False,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        verbose_name="上传人",
+    )
     visibility = models.CharField(
         max_length=16,
         choices=VisibilityChoices.choices,
@@ -160,7 +168,6 @@ class Audio(models.Model):
         return self.title
 
 
-@register_snippet
 class Video(models.Model):
     """
     全站公共视频模型。
@@ -182,6 +189,15 @@ class Video(models.Model):
         on_delete=models.SET_NULL,
         related_name="+",
         verbose_name="封面海报",
+    )
+    uploaded_by_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        editable=False,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        verbose_name="上传人",
     )
     visibility = models.CharField(
         max_length=16,

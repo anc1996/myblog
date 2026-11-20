@@ -313,28 +313,8 @@ class CustomBasePage(Page):
         from media_library.models import Audio, Video
         audio_ids = {aid for atype, aid in ref_pairs if atype == "audio"}
         video_ids = {aid for atype, aid in ref_pairs if atype == "video"}
-        for av_cls, av_ids in ((Audio, audio_ids), (Video, video_ids)):
-            if not av_ids:
-                continue
-            uuid_vals = []
-            pk_vals = []
-            for raw in av_ids:
-                try:
-                    uuid_vals.append(uuid.UUID(str(raw)))
-                except Exception:
-                    if str(raw).isdigit():
-                        pk_vals.append(int(str(raw)))
-            q = models.Q()
-            if uuid_vals:
-                q |= models.Q(public_id__in=uuid_vals)
-            if pk_vals:
-                q |= models.Q(pk__in=pk_vals)
-            if q:
-                for asset in av_cls.objects.filter(q).filter(visibility=VisibilityChoices.RESTRICTED):
-                    if not (user is not None and getattr(user, "is_superuser", False)):
-                        raise ValidationError(
-                            f"页面引用了受限音视频文件（{asset.title}），请联系管理员确认公开后再发布！"
-                        )
+        _check_restricted_assets(Audio, audio_ids)
+        _check_restricted_assets(Video, video_ids)
 
     def save_revision(self, *args, **kwargs):
         revision = super().save_revision(*args, **kwargs)

@@ -11,6 +11,7 @@
 
 from django.contrib.auth import get_user_model
 from django.db.models import Q
+from wagtail.permission_policies.base import ModelPermissionPolicy
 from wagtail.permission_policies.collections import CollectionOwnershipPermissionPolicy
 
 from media_library.models import VisibilityChoices
@@ -102,3 +103,83 @@ class AuthorIsolatedMediaPermissionPolicy(CollectionOwnershipPermissionPolicy):
             filter_expr |= self._users_with_perm_filter({"choose"}, collection=instance.collection)
 
         return get_user_model().objects.filter(filter_expr).distinct()
+
+
+class AuthorIsolatedSnippetPermissionPolicy(ModelPermissionPolicy):
+    """
+    针对 Audio / Video Snippet 的作者归属与可见性隔离策略：
+    1. 超级管理员或持有 change_<model> 的主编拥有全量权限；
+    2. 持有 add_<model> 的受限作者可上传、选用自己上传的或公开的音视频，
+       且仅能修改/删除自己名下资产（受引用仍由 pre_delete 阻断）。
+    """
+
+    owner_field_name = "uploaded_by_user"
+
+    def user_has_any_permission(self, user, actions):
+        if not (user and user.is_active and user.is_authenticated):
+            return False
+        if user.is_superuser:
+            return True
+        actions = set(actions)
+        if not actions:
+            return False
+        has_change = user.has_perm(f"{self.model._meta.app_label}.change_{self.model._meta.model_name}")
+        if has_change:
+            return True
+        has_add = user.has_perm(f"{self.model._meta.app_label}.add_{self.model._meta.model_name}")
+        has_view = user.has_perm(f"{self.model._meta.app_label}.view_{self.model._meta.model_name}")
+        if has_add:
+            return bool(actions & {"add", "choose", "view", "change", "delete"})
+        if has_view:
+            return bool(actions & {"choose", "view"})
+        return False
+
+    def user_has_any_permission_for_instance(self, user, actions, instance):
+        if not (user and user.is_active and user.is_authenticated):
+            return False
+        if user.is_superuser:
+            return True
+        actions = set(actions)
+        has_change = user.has_perm(f"{self.model._meta.app_label}.change_{self.model._meta.model_name}")
+        if has_change:
+            if "delete" in actions and not user.has_perm(f"{self.model._meta.app_label}.delete_{self.model._meta.model_name}"):
+                return bool(actions - {"delete"})
+            return True
+
+        has_add = user.has_perm(f"{self.model._meta.app_label}.add_{self.model._meta.model_name}")
+        has_view = user.has_perm(f"{self.model._meta.app_label}.view_{self.model._meta.model_name}")
+        is_owner = getattr(instance, f"{self.owner_field_name}_id", None) == user.pk
+        is_public = getattr(instance, "visibility", None) == VisibilityChoices.PUBLIC
+
+        if actions & {"choose", "view"}:
+            if (has_add or has_view) and (is_owner or is_public):
+                return True
+        if actions & {"change", "delete"}:
+            if has_add and is_owner:
+                return True
+        return False
+
+    def instances_user_has_any_permission_for(self, user, actions):
+        if not (user and user.is_active and user.is_authenticated):
+            return self.model._default_manager.none()
+        if user.is_superuser:
+            return self.model._default_manager.all()
+
+        actions = set(actions)
+        has_change = user.has_perm(f"{self.model._meta.app_label}.change_{self.model._meta.model_name}")
+        if has_change:
+            return self.model._default_manager.all()
+
+        has_add = user.has_perm(f"{self.model._meta.app_label}.add_{self.model._meta.model_name}")
+        has_view = user.has_perm(f"{self.model._meta.app_label}.view_{self.model._meta.model_name}")
+
+        if actions & {"change", "delete"}:
+            if has_add:
+                return self.model._default_manager.filter(**{self.owner_field_name: user})
+            return self.model._default_manager.none()
+        if actions & {"choose", "view"}:
+            if has_add or has_view:
+                return self.model._default_manager.filter(
+                    Q(**{self.owner_field_name: user}) | Q(visibility=VisibilityChoices.PUBLIC)
+                )
+        return self.model._default_manager.none()

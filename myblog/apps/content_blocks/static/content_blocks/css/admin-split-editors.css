@@ -199,6 +199,400 @@ textarea.cb-admin-split-textarea {
     color: #0f172a;
 }
 
+/* ==========================================================================
+   Mermaid 后台增强编辑器（双工具栏、可调分栏、Pan/Zoom、工作区展开与状态栏）
+   ========================================================================== */
+
+.cb-mmd-sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+}
+
+.cb-mmd-editor {
+    border: 1px solid var(--w-color-border-furniture, #cbd5e1);
+    border-radius: 8px;
+    background: var(--w-color-surface-page, #ffffff);
+    overflow: hidden;
+}
+
+.cb-mmd-topbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 10px;
+    background: var(--w-color-surface-header, #f8fafc);
+    border-bottom: 1px solid var(--w-color-border-furniture, #e2e8f0);
+}
+
+.cb-mmd-topbar-group {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 5px;
+}
+
+.cb-mmd-select,
+.cb-mmd-btn {
+    height: 28px;
+    padding: 0 8px;
+    border: 1px solid #cbd5e1;
+    border-radius: 5px;
+    background: #ffffff;
+    color: #1e293b;
+    font-size: 12px;
+    line-height: 26px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.cb-mmd-select {
+    max-width: 165px;
+}
+
+.cb-mmd-btn:hover:not(:disabled) {
+    background: #f1f5f9;
+    border-color: #94a3b8;
+}
+
+.cb-mmd-btn:focus-visible,
+.cb-mmd-select:focus-visible,
+.cb-mmd-splitter:focus-visible,
+.cb-mmd-canvas-viewport:focus-visible {
+    outline: 2px solid #0284c7;
+    outline-offset: 1px;
+}
+
+.cb-mmd-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.cb-mmd-btn[aria-pressed="true"],
+.cb-mmd-btn.is-active {
+    background: #e0f2fe;
+    border-color: #0284c7;
+    color: #0369a1;
+    font-weight: 600;
+}
+
+.cb-mmd-segmented {
+    display: inline-flex;
+    border-radius: 5px;
+    overflow: hidden;
+}
+
+.cb-mmd-segmented .cb-mmd-btn {
+    border-radius: 0;
+}
+
+.cb-mmd-segmented .cb-mmd-btn + .cb-mmd-btn {
+    border-left: 0;
+}
+
+.cb-mmd-split-grid {
+    display: grid;
+    grid-template-columns: minmax(220px, var(--cb-mmd-left-pct, 46%)) 6px minmax(260px, 1fr);
+    gap: 0;
+    min-height: 360px;
+}
+
+.cb-mmd-editor.is-preview-only .cb-mmd-left-pane,
+.cb-mmd-editor.is-preview-only .cb-mmd-splitter {
+    display: none;
+}
+
+.cb-mmd-editor.is-preview-only .cb-mmd-split-grid {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.cb-mmd-left-pane,
+.cb-mmd-right-pane {
+    border: 0;
+    border-radius: 0;
+}
+
+.cb-mmd-splitter {
+    background: #e2e8f0;
+    cursor: col-resize;
+    position: relative;
+    user-select: none;
+    touch-action: none;
+}
+
+.cb-mmd-splitter::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 2px;
+    width: 2px;
+    height: 28px;
+    transform: translateY(-50%);
+    background: #94a3b8;
+    border-radius: 2px;
+}
+
+.cb-mmd-splitter:hover,
+.cb-mmd-splitter.is-dragging {
+    background: #bae6fd;
+}
+
+.cb-mmd-editor-wrap {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 320px;
+    max-height: 540px;
+    overflow: hidden;
+    background: var(--w-color-surface-field, #ffffff);
+}
+
+.cb-mmd-gutter {
+    flex: 0 0 38px;
+    padding: 12px 6px 12px 4px;
+    background: #f8fafc;
+    border-right: 1px solid #e2e8f0;
+    color: #94a3b8;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 13px;
+    line-height: 1.55;
+    text-align: right;
+    user-select: none;
+    overflow: hidden;
+}
+
+.cb-mmd-gutter-line.is-error-line {
+    background: #ffe4e6;
+    color: #be123c;
+    font-weight: 700;
+    border-radius: 2px;
+    padding-right: 2px;
+}
+
+.cb-mmd-editor-wrap textarea.cb-admin-split-textarea {
+    flex: 1 1 auto;
+    min-height: 320px;
+    height: 100%;
+    resize: none;
+    overflow: auto;
+}
+
+.cb-mmd-canvas-viewport {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 320px;
+    max-height: 540px;
+    overflow: hidden;
+    padding: 0;
+    cursor: grab;
+    touch-action: none;
+}
+
+.cb-mmd-canvas-viewport.is-panning {
+    cursor: grabbing;
+}
+
+.cb-mmd-canvas-viewport.has-grid {
+    background-image: radial-gradient(rgba(148, 163, 184, 0.35) 1px, transparent 1px);
+    background-size: 16px 16px;
+}
+
+.cb-mmd-canvas-viewport[data-theme="dark"].has-grid {
+    background-image: radial-gradient(rgba(148, 163, 184, 0.22) 1px, transparent 1px);
+}
+
+.cb-mmd-canvas-stage {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform-origin: 0 0;
+    will-change: transform;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 100%;
+    min-height: 100%;
+    padding: 16px;
+    box-sizing: border-box;
+}
+
+.cb-mmd-canvas-stage.has-diagram {
+    display: block;
+    min-width: 0;
+    min-height: 0;
+    padding: 0;
+}
+
+.cb-mmd-canvas-stage svg {
+    display: block;
+    max-width: none;
+}
+
+.cb-mmd-pan-pad {
+    position: absolute;
+    right: 10px;
+    bottom: 10px;
+    display: inline-flex;
+    gap: 3px;
+    padding: 3px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.88);
+    border: 1px solid #cbd5e1;
+    backdrop-filter: blur(2px);
+    z-index: 2;
+}
+
+.cb-mmd-pan-btn {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    background: #ffffff;
+    color: #334155;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.cb-mmd-pan-btn:hover {
+    background: #e0f2fe;
+    border-color: #0284c7;
+}
+
+.cb-mmd-statusbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 12px;
+    border-top: 1px solid var(--w-color-border-furniture, #e2e8f0);
+    background: var(--w-color-surface-header, #f8fafc);
+    font-size: 12px;
+    color: #475569;
+}
+
+.cb-mmd-status-left,
+.cb-mmd-status-right {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.cb-mmd-zoom-label {
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: #e2e8f0;
+    color: #334155;
+    font-variant-numeric: tabular-nums;
+}
+
+.cb-mmd-status-pill {
+    padding: 2px 8px;
+    border-radius: 9999px;
+    background: #e2e8f0;
+    color: #334155;
+    font-weight: 500;
+}
+
+.cb-mmd-status-pill[data-state="ok"] {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.cb-mmd-status-pill[data-state="pending"],
+.cb-mmd-status-pill[data-state="rendering"] {
+    background: #fef9c3;
+    color: #854d0e;
+}
+
+.cb-mmd-status-pill[data-state="error"] {
+    background: #ffe4e6;
+    color: #be123c;
+}
+
+.cb-mmd-jump-btn {
+    height: 22px;
+    padding: 0 8px;
+    border: 1px solid #fda4af;
+    border-radius: 4px;
+    background: #fff1f2;
+    color: #be123c;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.cb-mmd-jump-btn:hover {
+    background: #ffe4e6;
+}
+
+/* 工作区展开模式：避开 Wagtail 左侧栏与顶部 .w-slim-header */
+body.cb-mmd-expanded-active {
+    overflow: hidden !important;
+}
+
+.cb-mmd-editor.is-expanded {
+    position: fixed;
+    top: var(--cb-mmd-exp-top, 0px);
+    left: var(--cb-mmd-exp-left, 0px);
+    width: var(--cb-mmd-exp-width, 100vw);
+    height: var(--cb-mmd-exp-height, 100vh);
+    z-index: 98;
+    display: flex;
+    flex-direction: column;
+    border-radius: 0;
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.22);
+}
+
+.cb-mmd-editor.is-expanded .cb-mmd-split-grid {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: 100%;
+}
+
+.cb-mmd-editor.is-expanded .cb-mmd-editor-wrap,
+.cb-mmd-editor.is-expanded .cb-mmd-canvas-viewport {
+    max-height: none;
+    height: 100%;
+}
+
+@media (max-width: 960px) {
+    .cb-mmd-split-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .cb-mmd-splitter {
+        display: none;
+    }
+
+    .cb-mmd-editor-wrap {
+        min-height: 240px;
+        max-height: 360px;
+    }
+
+    .cb-mmd-canvas-viewport {
+        min-height: 280px;
+        max-height: 420px;
+    }
+}
+
+@media (forced-colors: active) {
+    .cb-mmd-canvas-viewport.has-grid {
+        background-image: none;
+    }
+
+    .cb-mmd-btn[aria-pressed="true"],
+    .cb-mmd-btn.is-active {
+        outline: 2px solid Highlight;
+    }
+}
+
 /* Vditor 预览区宽表格滚动与 Mermaid 图表容器 */
 .cb-vditor-table-scroll {
     width: 100%;

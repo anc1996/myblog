@@ -1,11 +1,17 @@
 """
 media_library.wagtail_hooks
-拦截 Wagtail 原生文档下载路由 (/documents/<id>/<filename>)，统一转交受控媒体网关实时鉴权交付。
+1. 注册受控 Audio / Video SnippetViewSet（支持页面内直接上传与作者权限隔离）；
+2. 拦截 Wagtail 原生文档下载路由 (/documents/<id>/<filename>)，统一转交受控媒体网关实时鉴权交付。
 """
 
 from wagtail import hooks
+from wagtail.snippets.models import register_snippet
 
 from media_library.delivery import serve_media_asset
+from media_library.snippets import AudioSnippetViewSet, VideoSnippetViewSet
+
+register_snippet(AudioSnippetViewSet)
+register_snippet(VideoSnippetViewSet)
 
 
 @hooks.register("before_serve_document")

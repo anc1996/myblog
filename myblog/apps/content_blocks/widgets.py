@@ -11,7 +11,7 @@ from django.urls import reverse
 from wagtail.admin.staticfiles import versioned_static
 
 
-CB_ADMIN_ASSET_VERSION = "20261120.2"
+CB_ADMIN_ASSET_VERSION = "20261120.4"
 
 
 def cb_admin_static(path: str) -> str:

@@ -1,21 +1,107 @@
-<div class="cb-admin-split-field" data-cb-admin-mermaid-field>
-    <div class="cb-admin-split-grid">
-        <div class="cb-admin-split-left">
+<div class="cb-admin-split-field cb-mmd-editor" data-cb-admin-mermaid-field>
+    <div class="cb-mmd-topbar">
+        <div class="cb-mmd-topbar-group">
+            <label class="cb-mmd-sr-only" for="__ID__-tpl">图表模板</label>
+            <select class="cb-mmd-select" id="__ID__-tpl" data-cb-mmd-template-select aria-label="插入图表模板">
+                <option value="">＋ 图表模板…</option>
+                <option value="flowchart">流程图 (flowchart)</option>
+                <option value="sequenceDiagram">时序图 (sequenceDiagram)</option>
+                <option value="stateDiagram-v2">状态图 (stateDiagram-v2)</option>
+                <option value="erDiagram">ER 关系图 (erDiagram)</option>
+                <option value="classDiagram">类图 (classDiagram)</option>
+                <option value="gantt">甘特图 (gantt)</option>
+                <option value="mindmap">思维导图 (mindmap)</option>
+            </select>
+
+            <label class="cb-mmd-sr-only" for="__ID__-snip">插入片段</label>
+            <select class="cb-mmd-select" id="__ID__-snip" data-cb-mmd-snippet-select aria-label="插入常用片段">
+                <option value="">＋ 插入片段…</option>
+                <option value="node_round">圆角节点 A("名称")</option>
+                <option value="node_diamond">判断菱形 B{"条件?"}</option>
+                <option value="node_db">数据库圆柱 DB[("主库")]</option>
+                <option value="edge_label">带文字连线 A --说明--&gt; B</option>
+                <option value="subgraph">子图分组 subgraph</option>
+                <option value="seq_msg">时序消息 A-&gt;&gt;B: 请求</option>
+                <option value="seq_alt">时序分支 alt/else</option>
+                <option value="state_trans">状态流转 S1 --&gt; S2</option>
+            </select>
+
+            <button type="button" class="cb-mmd-btn" data-cb-mmd-indent title="选中行增加缩进 (2 空格)" aria-label="增加缩进">⇥ 缩进</button>
+            <button type="button" class="cb-mmd-btn" data-cb-mmd-outdent title="选中行减少缩进" aria-label="减少缩进">⇤ 反缩进</button>
+            <button type="button" class="cb-mmd-btn" data-cb-mmd-tab-toggle aria-pressed="false" title="开启后在编辑区按 Tab 插入缩进，按 Esc 恢复普通 Tab 焦点切换" aria-label="切换 Tab 缩进模式">Tab 缩进</button>
+            <button type="button" class="cb-mmd-btn" data-cb-mmd-reset-sample title="恢复默认流程图示例（可用 Ctrl+Z 撤销）" aria-label="恢复示例">示例</button>
+            <button type="button" class="cb-mmd-btn" data-cb-mmd-clear title="清空源码（可用 Ctrl+Z 撤销）" aria-label="清空源码">清空</button>
+            <button type="button" class="cb-mmd-btn" data-cb-mmd-copy title="复制当前 Mermaid 源码" aria-label="复制当前源码">复制</button>
+        </div>
+
+        <div class="cb-mmd-topbar-group">
+            <div class="cb-mmd-segmented" role="group" aria-label="视图切换">
+                <button type="button" class="cb-mmd-btn is-active" data-cb-mmd-view-split aria-pressed="true" aria-label="分栏视图">分栏</button>
+                <button type="button" class="cb-mmd-btn" data-cb-mmd-view-preview aria-pressed="false" aria-label="仅预览视图">仅预览</button>
+            </div>
+
+            <select class="cb-mmd-select cb-mmd-expanded-theme" data-cb-mmd-expanded-theme aria-label="切换图表主题" hidden>
+                <option value="default">默认浅色</option>
+                <option value="dark">深色模式</option>
+                <option value="forest">自然绿色</option>
+                <option value="neutral">简约黑白</option>
+            </select>
+
+            <button type="button" class="cb-mmd-btn" data-cb-mmd-zoom-out title="缩小画布" aria-label="缩小画布">－</button>
+            <button type="button" class="cb-mmd-btn" data-cb-mmd-zoom-reset title="重置 100% 居中" aria-label="重置 100% 缩放">100%</button>
+            <button type="button" class="cb-mmd-btn" data-cb-mmd-zoom-in title="放大画布" aria-label="放大画布">＋</button>
+            <button type="button" class="cb-mmd-btn" data-cb-mmd-zoom-fit title="自适应画布尺寸" aria-label="适应画布">适应</button>
+            <button type="button" class="cb-mmd-btn" data-cb-mmd-wheel-toggle aria-pressed="false" title="开启后在画布内用鼠标滚轮缩放，关闭则保持页面正常滚动" aria-label="切换滚轮缩放">滚轮</button>
+            <button type="button" class="cb-mmd-btn" data-cb-mmd-grid-toggle aria-pressed="true" title="显示/隐藏点阵背景网格" aria-label="切换网格背景">网格</button>
+
+            <button type="button" class="cb-mmd-btn" data-cb-mmd-export-svg disabled title="下载已净化的 SVG 矢量图" aria-label="下载 SVG">⬇ SVG</button>
+            <button type="button" class="cb-mmd-btn" data-cb-mmd-export-png disabled title="本地离线导出 2× 高清 PNG" aria-label="下载 PNG">⬇ PNG</button>
+            <button type="button" class="cb-mmd-btn" data-cb-mmd-expand aria-pressed="false" title="展开到 Wagtail 主工作区（Esc 退出）" aria-label="展开工作区">⛶ 展开</button>
+        </div>
+    </div>
+
+    <div class="cb-admin-split-grid cb-mmd-split-grid" data-cb-mmd-grid>
+        <div class="cb-admin-split-left cb-mmd-left-pane">
             <div class="cb-admin-pane-head">
                 <span>Mermaid 源码</span>
-                <span class="cb-admin-pane-hint">实时防抖渲染（securityLevel: strict）</span>
+                <span class="cb-admin-pane-hint">securityLevel: strict</span>
             </div>
-            <textarea name="{{ widget.name }}"{% include "django/forms/widgets/attrs.html" %}>{{ widget.value|default_if_none:"" }}</textarea>
+            <div class="cb-mmd-editor-wrap">
+                <div class="cb-mmd-gutter" data-cb-mmd-gutter aria-hidden="true">1</div>
+                <textarea name="{{ widget.name }}"{% include "django/forms/widgets/attrs.html" %}>{{ widget.value|default_if_none:"" }}</textarea>
+            </div>
         </div>
-        <div class="cb-admin-split-right">
+
+        <div class="cb-mmd-splitter" data-cb-mmd-splitter role="separator" tabindex="0" aria-orientation="vertical" aria-label="调整源码与预览分栏比例" aria-valuemin="25" aria-valuemax="75" aria-valuenow="46"></div>
+
+        <div class="cb-admin-split-right cb-mmd-right-pane">
             <div class="cb-admin-pane-head">
                 <span>右侧实时预览</span>
                 <span class="cb-admin-theme-badge" data-cb-admin-mermaid-theme-label>主题: default</span>
             </div>
             <div class="cb-admin-mermaid-error" data-cb-admin-mermaid-error hidden></div>
-            <div class="cb-admin-mermaid-canvas" data-cb-admin-mermaid-canvas>
-                <span class="cb-admin-placeholder">在左侧输入 Mermaid 语法即可实时预览...</span>
+            <div class="cb-admin-mermaid-canvas cb-mmd-canvas-viewport has-grid" data-cb-admin-mermaid-canvas tabindex="0" aria-label="Mermaid 预览画布，可拖拽或使用方向键平移">
+                <div class="cb-mmd-canvas-stage" data-cb-mmd-stage>
+                    <span class="cb-admin-placeholder">在左侧输入 Mermaid 语法即可实时预览...</span>
+                </div>
+                <div class="cb-mmd-pan-pad" aria-label="画布平移控制">
+                    <button type="button" class="cb-mmd-pan-btn" data-cb-mmd-pan="left" aria-label="画布左移" title="画布左移">←</button>
+                    <button type="button" class="cb-mmd-pan-btn" data-cb-mmd-pan="up" aria-label="画布上移" title="画布上移">↑</button>
+                    <button type="button" class="cb-mmd-pan-btn" data-cb-mmd-pan="down" aria-label="画布下移" title="画布下移">↓</button>
+                    <button type="button" class="cb-mmd-pan-btn" data-cb-mmd-pan="right" aria-label="画布右移" title="画布右移">→</button>
+                </div>
             </div>
+        </div>
+    </div>
+
+    <div class="cb-mmd-statusbar" role="status" aria-live="polite">
+        <div class="cb-mmd-status-left">
+            <span data-cb-mmd-stats>1 行 · 0 / 50,000 字符</span>
+            <span class="cb-mmd-zoom-label" data-cb-mmd-zoom-label>100%</span>
+        </div>
+        <div class="cb-mmd-status-right">
+            <button type="button" class="cb-mmd-jump-btn" data-cb-mmd-jump-line hidden>定位到第 1 行</button>
+            <span class="cb-mmd-status-pill" data-cb-mmd-status-pill>就绪</span>
         </div>
     </div>
 </div>

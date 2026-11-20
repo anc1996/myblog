@@ -35,7 +35,8 @@
   - **Mermaid 流程图统一样式、受控内联 SVG 与左右分栏对照**：升级引入无已知高危漏洞的官方离线包 `Mermaid 11.17.2`；独立块与 Markdown ```` ```mermaid ```` 围栏（含缩进/CRLF/中文节点）输出完全统一的 DOM 契约；前端按需懒加载，渲染开启 `securityLevel: 'strict'` 与 SVG 白名单净化；工具栏支持「⇄ 分栏源码」切换为**左侧源码 + 右侧 SVG 实时对照**（移动端自动上下堆叠），并提供放大/缩小/100%/自适应宽度/深浅主题切换/复制源码/导出 SVG/全屏弹窗/折叠与错误回退；
   - **LaTeX 数学公式前置保护与 KaTeX 按需渲染**：引入官方离线包 `KaTeX 0.19.1`；在 Markdown 扩展（tables/nl2br）前预先提取公式，彻底消除公式下划线被转为 `<em>`、换行被转为 `<br>` 以及表格单元格内公式绝对值管道符被拆列的问题；严格规避货币价格误匹配；支持块级与行内公式；
   - **复杂表格（CustomTableBlock）逻辑网格、全能单元格与左右分栏**：新增逻辑占位网格校验（精确拦截越界、重叠与非正跨度）及 `<thead>`/`<tbody>` 表头递推，彻底解决 `rowspan` 跨行组被浏览器截断错位的问题；单元格支持 LaTeX 公式、行内反引号 `` `code` ``、围栏代码块 Highlight.js 高亮与 `asset://` 受控媒体；前端支持「⇄ 分栏对照」切换**左侧 JSON 源码高亮 + 右侧表格渲染**；
-  - **全站媒体、嵌入与卡片公共前端收敛**：补齐 `CustomEmbedBlock` 白名单沙盒 `<iframe>`（B站/YouTube/Vimeo/CodePen）与安全外链降级；统一 `CustomImageBlock` 对齐排版与全站正文/图集公共无障碍灯箱；补充 `Audio`/`Video`/`Document` 响应式卡片样式；将 `Lead`/`Step`/`Tip`/`Faq`/`Reference` 卡片样式抽离至 `content_blocks/css/structured-blocks.css` 统一服务全站页面；
+  - **外部媒体**：独立嵌入块和富文本共用 `content_blocks.embeds` 平台规则。Vimeo 保留非公开列出视频的 `h` 参数，点击加载后等播放器就绪再展示；加载失败时可走源链接。腾讯视频需要有效视频链接，旧演示的占位 ID 不启动播放器。网易云和 Spotify 使用站内播放器；Spotify 可粘贴 `open.spotify.com` 的内容链接，不需要粘贴 iframe 代码，播放受 Spotify 授权与可用性限制，始终保留源链接。酷狗和咪咕使用外链卡片，酷我用普通链接。QQ 音乐不再支持嵌入；既有内容不改写，旧卡片不展示，可在编辑时移除旧块或改用普通链接。平台徽标与标题不重复显示同一个前缀。
+  - **站内媒体与卡片**：图片排版与灯箱、音视频和文档卡片、教程和提示卡片使用公共样式；
   - **全站代码复制统一**：规范 `code.py` 与 `structured.py` 的 URI 编码协议，统一由 `code-copy.js` 驱动并平滑回退，修复指南步骤卡代码复制乱码；优化 `guide_page.html` 侧栏 375px 移动端响应式断行。
 - **全站 SEO 与爬虫收录协议**：
   - `/sitemap.xml`：集成 Wagtail 站点地图，严格排除回收站页面（`is_recycled=True`）与未发布草稿，仅收录公开发布的合法在线页面；

@@ -90,15 +90,17 @@ def promote_owner_restricted_media_on_publish(sender, instance, revision=None, *
 
     if audio_ids or video_ids:
         from django.contrib.auth import get_user_model
-        if get_user_model().objects.filter(pk=owner_id, is_superuser=True).exists():
-            if audio_ids:
-                Audio.objects.filter(public_id__in=audio_ids, visibility=VisibilityChoices.RESTRICTED).update(
-                    visibility=VisibilityChoices.PUBLIC
-                )
-            if video_ids:
-                Video.objects.filter(public_id__in=video_ids, visibility=VisibilityChoices.RESTRICTED).update(
-                    visibility=VisibilityChoices.PUBLIC
-                )
+        is_super = get_user_model().objects.filter(pk=owner_id, is_superuser=True).exists()
+        if audio_ids:
+            qs = Audio.objects.filter(public_id__in=audio_ids, visibility=VisibilityChoices.RESTRICTED)
+            if not is_super:
+                qs = qs.filter(uploaded_by_user_id=owner_id)
+            qs.update(visibility=VisibilityChoices.PUBLIC)
+        if video_ids:
+            qs = Video.objects.filter(public_id__in=video_ids, visibility=VisibilityChoices.RESTRICTED)
+            if not is_super:
+                qs = qs.filter(uploaded_by_user_id=owner_id)
+            qs.update(visibility=VisibilityChoices.PUBLIC)
 
 
 def register_media_signals():

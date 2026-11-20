@@ -1,0 +1,55 @@
+{% load wagtailadmin_tags i18n %}
+{% trans "插入内嵌元素" as ins_emb_str %}
+{% include "wagtailadmin/shared/header.html" with title=ins_emb_str %}
+
+<div class="tab-content">
+    <section id="form" class="active nice-padding">
+        <form class="embed-form" action="{% url 'wagtailembeds:chooser_upload' %}" method="POST" novalidate>
+            {% csrf_token %}
+            <ul class="fields">
+                {% for field in form %}
+                    <li>{% formattedfield field %}</li>
+                {% endfor %}
+                <li>
+                    <button
+                        type="submit"
+                        class="button button-longrunning"
+                        data-controller="w-progress"
+                        data-action="w-progress#activate"
+                    >
+                        {% icon name="spinner" %}
+                        <em data-w-progress-target="label">插入</em>
+                    </button>
+                </li>
+            </ul>
+        </form>
+
+        {% if providers %}
+            <details style="margin-top: 18px; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px 14px; background: #f8fafc;">
+                <summary style="cursor: pointer; font-weight: 600; font-size: 13px; color: #334155;">
+                    查看当前支持的 {{ providers|length }} 个平台与示例链接格式
+                </summary>
+                <table class="listing" style="margin-top: 10px; font-size: 12px;">
+                    <thead>
+                        <tr>
+                            <th>平台</th>
+                            <th>类型</th>
+                            <th>呈现方式</th>
+                            <th>示例链接</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for p in providers %}
+                            <tr>
+                                <td><strong>{{ p.name }}</strong></td>
+                                <td>{{ p.kind }}</td>
+                                <td>{{ p.mode }}</td>
+                                <td><code>{{ p.example_url }}</code></td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </details>
+        {% endif %}
+    </section>
+</div>

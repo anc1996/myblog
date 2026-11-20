@@ -28,9 +28,25 @@ class S3BlocksTests(unittest.TestCase):
         django.setup()
 
     def test_rich_text_block_sanitization_and_extraction(self):
+        import warnings
         from content_blocks.blocks.rich_text import CustomRichTextBlock
+        from wagtail.admin.rich_text.editors.draftail import DraftailRichTextArea
+        from wagtail.rich_text import RichText
 
         block = CustomRichTextBlock()
+        # 0. 验证完整工具栏特性与 underline 已注册，挂载 Draftail 不产生未知特性告警
+        for feat in (
+            "bold", "italic", "code", "superscript", "subscript", "strikethrough",
+            "underline", "h1", "h2", "h3", "h4", "h5", "h6",
+            "ol", "ul", "blockquote", "hr", "link", "document-link", "image", "embed",
+        ):
+            self.assertIn(feat, block.features)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            DraftailRichTextArea(features=block.features)
+        unknown_warns = [w for w in caught if "unknown feature" in str(w.message).lower()]
+        self.assertEqual(unknown_warns, [])
+
         # 1. 验证恶意脚本被 nh3 净化剥离
         malicious_input = '<p>正常段落</p><script>alert("XSS")</script><a href="javascript:alert(1)">恶意链接</a>'
         res = block.render_clean(malicious_input)
@@ -38,6 +54,25 @@ class S3BlocksTests(unittest.TestCase):
         self.assertNotIn("<script>", res.html)
         self.assertNotIn("javascript:", res.html)
         self.assertIn("<p>正常段落</p>", res.html)
+
+        # 1b. 验证下划线/删除线/上下标/引用/分隔线/行内代码与白名单 Embed / 防 SSRF
+        rich_val = RichText(
+            '<p><b>粗体</b><i>斜体</i><code>inline()</code><sup>1</sup><sub>2</sub>'
+            '<s>删除</s><u>下划线</u></p>'
+            '<blockquote>引用说明</blockquote><hr/>'
+            '<embed embedtype="media" url="https://www.bilibili.com/video/BV1xx411c7mD"/>'
+            '<embed embedtype="media" url="http://127.0.0.1:8000/internal"/>'
+        )
+        res_rich = block.render_clean(rich_val)
+        self.assertIn('class="rich-text"', res_rich.html)
+        self.assertIn("<u>下划线</u>", res_rich.html)
+        self.assertIn("<s>删除</s>", res_rich.html)
+        self.assertIn("<sup>1</sup>", res_rich.html)
+        self.assertIn("<sub>2</sub>", res_rich.html)
+        self.assertIn("<blockquote>引用说明</blockquote>", res_rich.html)
+        self.assertIn("<hr>", res_rich.html)
+        self.assertIn('data-embed-url="https://www.bilibili.com/video/BV1xx411c7mD"', res_rich.html)
+        self.assertNotIn("127.0.0.1", res_rich.html)
 
         # 2. 验证纯文本提取（剔除 HTML 标签）
         extracted = block.extract_text("<p>第一段</p><p>第二段文字</p>")
@@ -54,6 +89,12 @@ class S3BlocksTests(unittest.TestCase):
         self.assertEqual(refs[0].asset_type, "image")
         self.assertEqual(refs[1].asset_id, doc_uuid)
         self.assertEqual(refs[1].asset_type, "document")
+
+        # 3b. 验证 RichText 对象传参也能从 .source 捕获 <embed embedtype="image">
+        rt_media = RichText(f'<p><embed alt="图" embedtype="image" format="fullwidth" id="{img_uuid}"/></p>')
+        rt_refs = block.extract_media_refs(rt_media, path="intro")
+        self.assertEqual(len(rt_refs), 1)
+        self.assertEqual(rt_refs[0].asset_id, img_uuid)
 
     def test_markdown_block_rendering_and_mermaid_fences(self):
         from content_blocks.blocks.markdown import CustomMarkdownBlock
@@ -221,6 +262,11 @@ class S3BlocksTests(unittest.TestCase):
             "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
             "https://vimeo.com/76979871",
             "https://codepen.io/pen/12345",
+            "https://v.qq.com/x/page/abc123456.html",
+            "https://v.youku.com/v_show/id_XMTIzNDU2.html",
+            "https://music.163.com/#/song?id=186016",
+            "https://www.kugou.com/mixsong/abc123.html",
+            "https://music.migu.cn/v3/music/song/60054701933",
         ]
         for u in safe_urls:
             is_safe, reason = is_safe_embed_url(u)
@@ -236,12 +282,33 @@ class S3BlocksTests(unittest.TestCase):
             "javascript:alert(1)",
             "ftp://ftp.example.com/file",
             "https://evil-hacker-site.com/malicious-iframe",
+            "https://y.qq.com/n/ryqq/songDetail/001Qu4I30eVFYb",
         ]
         for u in dangerous_urls:
             is_safe, _ = is_safe_embed_url(u)
             self.assertFalse(is_safe, f"{u} must be blocked!")
             with self.assertRaises(ValidationError):
                 block.clean(u)
+
+        # 3. 验证结构化 title + embed_url 渲染与酷狗/咪咕优雅卡片降级、历史纯字符串兼容
+        res_bili = block.render_clean({
+            "title": "B站架构演进课",
+            "embed_url": "https://www.bilibili.com/video/BV1xx411c7mD",
+        })
+        self.assertIn('data-embed-title="B站架构演进课"', res_bili.html)
+        self.assertIn('data-embed-provider="bilibili"', res_bili.html)
+        self.assertIn('data-embed-src="https://player.bilibili.com/player.html?bvid=BV1xx411c7mD', res_bili.html)
+
+        res_kugou = block.render_clean({
+            "title": "酷狗测试曲目",
+            "embed_url": "https://www.kugou.com/mixsong/abc123.html",
+        })
+        self.assertIn('data-embed-provider="kugou"', res_kugou.html)
+        self.assertNotIn("data-embed-src=", res_kugou.html)
+
+        legacy_val = block.to_python("https://www.bilibili.com/video/BV1xx411c7mD")
+        self.assertEqual(legacy_val["title"], "历史媒体档案")
+        self.assertEqual(legacy_val["embed_url"], "https://www.bilibili.com/video/BV1xx411c7mD")
 
     def test_get_common_stream_blocks(self):
         from content_blocks.blocks import get_common_stream_blocks

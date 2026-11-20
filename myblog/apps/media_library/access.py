@@ -62,7 +62,7 @@ def check_media_access(asset: Any, request: Any = None) -> bool:
             return False
         if getattr(user, "is_superuser", False):
             return True
-        if isinstance(asset, (CustomImage, CustomDocument)):
+        if isinstance(asset, (CustomImage, CustomDocument, Audio, Video)):
             policy = policy_registry.get_by_type(type(asset))
             return bool(policy.user_has_permission_for_instance(user, "change", asset))
         return bool(user.has_perm(f"{asset._meta.app_label}.change_{asset._meta.model_name}"))

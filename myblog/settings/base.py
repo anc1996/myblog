@@ -332,6 +332,49 @@ WAGTAILDOCS_EXTENSIONS = ['csv', 'docx', 'key', 'odt', 'pdf', 'pptx', 'rtf', 'tx
 # 单个文档最大上传大小限制（10MB）
 WAGTAILDOCS_MAX_UPLOAD_SIZE = 10 * 1024 * 1024
 
+# 音视频受控上传安全限制（扩展名白名单与单文件体积上限）
+MEDIA_AUDIO_ALLOWED_EXTENSIONS = (".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac")
+MEDIA_VIDEO_ALLOWED_EXTENSIONS = (".mp4", ".webm", ".mov", ".m4v")
+MEDIA_AUDIO_MAX_UPLOAD_SIZE = 50 * 1024 * 1024
+MEDIA_VIDEO_MAX_UPLOAD_SIZE = 300 * 1024 * 1024
+
+# 统一内嵌媒体解析器：优先使用全站 EmbedProviderRegistry，兼容原兜底解析
+WAGTAILEMBEDS_FINDERS = [
+    {"class": "content_blocks.embeds.finder.RegistryEmbedFinder"},
+]
+
+# 全站 Draftail 富文本默认工具栏（覆盖 CustomRichTextBlock 与教程结构块内嵌 RichTextBlock）
+WAGTAILADMIN_RICH_TEXT_EDITORS = {
+    "default": {
+        "WIDGET": "wagtail.admin.rich_text.editors.draftail.DraftailRichTextArea",
+        "OPTIONS": {
+            "features": [
+                "bold",
+                "italic",
+                "code",
+                "superscript",
+                "subscript",
+                "strikethrough",
+                "underline",
+                "h1",
+                "h2",
+                "h3",
+                "h4",
+                "h5",
+                "h6",
+                "ol",
+                "ul",
+                "blockquote",
+                "hr",
+                "link",
+                "document-link",
+                "image",
+                "embed",
+            ]
+        },
+    }
+}
+
 # 前台会员中心登录入口
 LOGIN_URL = "/account/login/"
 

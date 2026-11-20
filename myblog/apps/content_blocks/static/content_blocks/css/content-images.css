@@ -43,6 +43,48 @@
     margin: 0.35rem 0 0.75rem 1rem;
 }
 
+/* Wagtail RichTextBlock 内插图排版 (full-width / left / right) */
+.rich-text img,
+.richtext-image {
+    max-width: 100%;
+    height: auto;
+    border-radius: 6px;
+    border: 1px solid #e2e8f0;
+}
+
+.richtext-image.full-width {
+    display: block;
+    width: 100%;
+    margin: 1rem auto;
+}
+
+.richtext-image.left {
+    float: left;
+    max-width: 48%;
+    margin: 0.4rem 1.5rem 1rem 0;
+}
+
+.richtext-image.right {
+    float: right;
+    max-width: 48%;
+    margin: 0.4rem 0 1rem 1.5rem;
+}
+
+.rich-text::after {
+    content: "";
+    display: table;
+    clear: both;
+}
+
+@media (max-width: 768px) {
+    .richtext-image.left,
+    .richtext-image.right {
+        float: none;
+        max-width: 100%;
+        margin: 1rem 0;
+    }
+}
+
 .media-image-wrapper.format-full img {
     width: 100%;
 }

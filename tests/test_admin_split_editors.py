@@ -51,6 +51,20 @@ class AdminSplitEditorsTests(TestCase):
         m_html = m_widget.render("diagram_code", "graph TD; A-->B;")
         self.assertIn("data-cb-admin-mermaid-field", m_html)
         self.assertIn("data-cb-admin-mermaid-theme-label", m_html)
+        for needle in (
+            "data-cb-mmd-template-select",
+            "data-cb-mmd-snippet-select",
+            "data-cb-mmd-splitter",
+            "data-cb-mmd-zoom-in",
+            "data-cb-mmd-zoom-fit",
+            "data-cb-mmd-view-preview",
+            "data-cb-mmd-export-svg",
+            "data-cb-mmd-export-png",
+            "data-cb-mmd-expand",
+            "data-cb-mmd-jump-line",
+            "data-cb-mmd-status-pill",
+        ):
+            self.assertIn(needle, m_html)
 
         table_block = CustomTableBlock()
         t_widget = table_block.child_blocks["table_data"].field.widget

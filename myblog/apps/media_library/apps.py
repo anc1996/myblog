@@ -24,8 +24,11 @@ class MediaLibraryConfig(AppConfig):
 
         # 3. 注册受控作者媒体隔离权限策略（覆盖 wagtail.images / wagtail.documents 默认策略）
         from wagtail.permissions import register_permission_policy
-        from .models import CustomDocument, CustomImage
-        from .permissions import AuthorIsolatedMediaPermissionPolicy
+        from .models import Audio, CustomDocument, CustomImage, Video
+        from .permissions import (
+            AuthorIsolatedMediaPermissionPolicy,
+            AuthorIsolatedSnippetPermissionPolicy,
+        )
 
         register_permission_policy(
             CustomImage,
@@ -43,3 +46,5 @@ class MediaLibraryConfig(AppConfig):
                 owner_field_name="uploaded_by_user",
             ),
         )
+        register_permission_policy(Audio, AuthorIsolatedSnippetPermissionPolicy(Audio))
+        register_permission_policy(Video, AuthorIsolatedSnippetPermissionPolicy(Video))

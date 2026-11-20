@@ -61,3 +61,50 @@
 .reference-link-card { background: #ffffff; border: 1px dashed #cbd5e1; padding: 12px 18px; border-radius: 6px; margin: 12px 0; }
 .reference-link-card .ref-link { color: #0284c7; font-weight: 600; text-decoration: none; word-break: break-word; }
 .reference-link-card .ref-desc { color: #64748b; font-size: 13px; margin-left: 8px; }
+
+/* 富文本段落 (CustomRichTextBlock) 排版增强 */
+.rich-text blockquote {
+    margin: 1.2rem 0;
+    padding: 0.75rem 1rem;
+    border-left: 4px solid #0284c7;
+    background: #f8fafc;
+    color: #334155;
+    border-radius: 0 6px 6px 0;
+}
+
+.rich-text blockquote p:last-child {
+    margin-bottom: 0;
+}
+
+.rich-text hr {
+    border: 0;
+    border-top: 1px solid #e2e8f0;
+    margin: 1.6rem 0;
+}
+
+.rich-text code:not(pre > code) {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.88em;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: #f1f5f9;
+    color: #b91c1c;
+    border: 1px solid #e2e8f0;
+}
+
+.rich-text u {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.rich-text s,
+.rich-text del {
+    text-decoration: line-through;
+    color: #64748b;
+}
+
+.rich-text sup,
+.rich-text sub {
+    font-size: 0.75em;
+    line-height: 0;
+}

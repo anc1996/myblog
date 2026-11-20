@@ -12,6 +12,10 @@ from identity.admin_account import CustomAccountView
 from search import views as search_views
 from discovery.timeline import timeline_view
 from discovery.seo import sitemap_view, robots_txt_view
+from content_blocks.embeds.views import (
+    controlled_embed_chooser,
+    controlled_embed_chooser_upload,
+)
 from django.views.generic.base import RedirectView
 
 urlpatterns = [
@@ -21,6 +25,8 @@ urlpatterns = [
         never_cache(require_admin_access(CustomAccountView.as_view())),
         name="wagtailadmin_account",
     ),
+    path("admin/embeds/chooser/", controlled_embed_chooser),
+    path("admin/embeds/chooser/upload/", controlled_embed_chooser_upload),
     path("admin/", include(wagtailadmin_urls)),
     path("sitemap.xml", sitemap_view, name="sitemap"),
     path("robots.txt", robots_txt_view, name="robots_txt"),

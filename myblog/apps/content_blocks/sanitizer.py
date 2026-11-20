@@ -7,6 +7,8 @@ HTML 安全净化器。
 import re
 import nh3
 
+from content_blocks.embeds.providers import is_canonical_player_url, is_safe_embed_url
+
 _SAFE_IMG_STYLE_DECL_RE = re.compile(
     r"^\s*((?:max-)?width)\s*:\s*(\d{1,4}(?:px|%)|auto)\s*$",
     re.IGNORECASE,
@@ -40,7 +42,22 @@ ALLOWED_ATTRIBUTES = {
     "pre": {"class"},
     "h3": {"id", "class"},
     "h4": {"id", "class"},
-    "div": {"id", "class", "data-language", "data-mermaid", "data-mode", "data-theme", "data-asset-id", "data-embed-url", "data-step"},
+    "div": {
+        "id",
+        "class",
+        "data-language",
+        "data-mermaid",
+        "data-mode",
+        "data-theme",
+        "data-asset-id",
+        "data-embed-url",
+        "data-embed-src",
+        "data-embed-provider",
+        "data-embed-provider-name",
+        "data-embed-kind",
+        "data-embed-title",
+        "data-step",
+    },
     "span": {"class"},
     "summary": {"class"},
     "details": {"open"},
@@ -65,6 +82,10 @@ def _filter_attributes(tag: str, attr: str, value: str) -> str | None:
             if m:
                 safe_decls.append(f"{m.group(1).lower()}:{m.group(2).lower()}")
         return ";".join(safe_decls) if safe_decls else None
+    if tag == "div" and attr == "data-embed-src" and not is_canonical_player_url(value):
+        return None
+    if tag == "div" and attr == "data-embed-url" and not is_safe_embed_url(value)[0]:
+        return None
     return value
 
 
