@@ -678,3 +678,91 @@ body.cb-mmd-expanded-active {
         grid-template-columns: 1fr;
     }
 }
+
+/* --------------------------------------------------------------------------
+   音视频左右分栏预览编辑器 (admin-media-split)
+   -------------------------------------------------------------------------- */
+
+.cb-media-split-grid {
+    grid-template-columns: minmax(280px, 1fr) minmax(300px, 1.15fr);
+}
+
+@media (max-width: 960px) {
+    .cb-media-split-grid {
+        grid-template-columns: 1fr;
+    }
+    .cb-media-split-left {
+        border-right: none;
+        border-bottom: 1px solid #d1d5db;
+    }
+}
+
+.cb-media-settings-pane {
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.cb-media-field-group .w-field__label {
+    display: block;
+    margin-bottom: 6px;
+    font-weight: 600;
+}
+
+.cb-media-json-pane {
+    padding: 10px 12px;
+}
+
+.cb-media-json-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.cb-media-json-pre {
+    margin: 0;
+    padding: 10px 12px;
+    border-radius: 6px;
+    border: 1px solid #cbd5e1;
+    background: #0f172a;
+    color: #e2e8f0;
+    font-size: 12px;
+    line-height: 1.5;
+    overflow-x: auto;
+}
+
+.cb-media-split-right {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.cb-media-preview-message {
+    margin: 12px;
+    padding: 12px 14px;
+    border-radius: 6px;
+    border: 1px dashed #cbd5e1;
+    background: #f8fafc;
+    color: #475569;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.cb-media-preview-message.is-error {
+    border-style: solid;
+    border-color: #fecaca;
+    background: #fef2f2;
+    color: #b91c1c;
+}
+
+.cb-media-preview-host {
+    padding: 0 12px 12px;
+}
+
+.cb-media-preview-host .media-audio-player,
+.cb-media-preview-host .media-video-player {
+    margin: 0;
+}

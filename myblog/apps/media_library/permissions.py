@@ -115,6 +115,12 @@ class AuthorIsolatedSnippetPermissionPolicy(ModelPermissionPolicy):
 
     owner_field_name = "uploaded_by_user"
 
+    def user_has_permission(self, user, action):
+        return self.user_has_any_permission(user, [action])
+
+    def user_has_permission_for_instance(self, user, action, instance):
+        return self.user_has_any_permission_for_instance(user, [action], instance)
+
     def user_has_any_permission(self, user, actions):
         if not (user and user.is_active and user.is_authenticated):
             return False

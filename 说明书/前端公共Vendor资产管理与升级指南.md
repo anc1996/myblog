@@ -85,6 +85,8 @@ MYBLOG_ENV_FILE=.env.test /root/anaconda3/envs/wagtailblog-test/bin/python -B ma
 
 确认无误后执行 `git status`，确认 `myblog/static/vendor/` 没有出现在待提交列表里；只提交 `myblog/static/vendor.lock.json` 和对应修改的胶水代码即可。
 
+**音视频相关注意事项：** Video.js 的音频、视频入口会通过相对路径加载同版本模块，不能只保留两个入口。Vditor 的字体路径和无效调试映射由同步脚本在提取后处理；安装规则变更后，即使依赖版本未变，`sync` 也会重建受影响的包。升级这两项时，除 `check` 外，还要在临时输出目录实际执行 `collectstatic`，再打开页面验证模块、字体和播放器。
+
 ---
 
 ## 五、 以后怎么新增一个公共前端库

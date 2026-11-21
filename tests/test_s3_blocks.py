@@ -200,7 +200,7 @@ class S3BlocksTests(unittest.TestCase):
 
         # 1. 模拟 CustomImage 实例
         img_uuid = uuid4()
-        dummy_image = CustomImage(id=10, public_id=img_uuid, title="风景照")
+        dummy_image = CustomImage(id=10, collection_id=1, public_id=img_uuid, title="风景照")
         img_block = CustomImageBlock()
         img_val = {"image": dummy_image, "caption": "日出东方", "alt_text": "日出风景", "display_format": "full"}
         img_res = img_block.render_clean(img_val)
@@ -214,7 +214,7 @@ class S3BlocksTests(unittest.TestCase):
 
         # 2. 模拟 CustomDocument 实例
         doc_uuid = uuid4()
-        dummy_doc = CustomDocument(id=11, public_id=doc_uuid, title="Django手册.pdf")
+        dummy_doc = CustomDocument(id=11, collection_id=1, public_id=doc_uuid, title="Django手册.pdf")
         doc_block = CustomDocumentBlock()
         doc_val = {"document": dummy_doc, "title_override": "点击下载手册", "description": "学习资料"}
         doc_res = doc_block.render_clean(doc_val)
@@ -249,6 +249,57 @@ class S3BlocksTests(unittest.TestCase):
         self.assertEqual(len(video_refs), 2)
         self.assertEqual(video_refs[0].asset_type, "video")
         self.assertEqual(video_refs[1].asset_type, "image")
+
+    def test_av2_media_blocks_player_contract_and_sanitizer(self):
+        from django.template.loader import render_to_string
+        from content_blocks.blocks.media import CustomAudioBlock, CustomVideoBlock
+        from content_blocks.sanitizer import sanitize_html
+        from media_library.models import Audio, CustomImage, Video
+
+        audio_uuid = uuid4()
+        video_uuid = uuid4()
+        img_uuid = uuid4()
+        dummy_audio = Audio(id=21, public_id=audio_uuid, title='Podcast <script>alert(1)</script>')
+        dummy_poster = CustomImage(id=22, collection_id=1, public_id=img_uuid, title="封面")
+        dummy_video = Video(id=23, public_id=video_uuid, title="演示视频", poster=dummy_poster)
+
+        audio_res = CustomAudioBlock().render_clean(
+            {"audio": dummy_audio, "title_override": 'EP1 "Pilot" <b>bold</b>'}
+        )
+        self.assertTrue(audio_res.is_safe)
+        self.assertIn('data-cb-media-kind="audio"', audio_res.html)
+        self.assertIn(f'data-asset-id="{audio_uuid}"', audio_res.html)
+        self.assertIn(f'src="/media-gateway/audio/{audio_uuid}/"', audio_res.html)
+        self.assertIn("<audio controls", audio_res.html)
+        self.assertIn('EP1 "Pilot" &lt;b&gt;bold&lt;/b&gt;', audio_res.html)
+        self.assertNotIn("<script", audio_res.html)
+
+        video_res = CustomVideoBlock().render_clean({"video": dummy_video, "title_override": ""})
+        self.assertTrue(video_res.is_safe)
+        self.assertIn('data-cb-media-kind="video"', video_res.html)
+        self.assertIn(f'data-asset-id="{video_uuid}"', video_res.html)
+        self.assertIn(f'src="/media-gateway/video/{video_uuid}/"', video_res.html)
+        self.assertIn(f'poster="/media-gateway/image/{img_uuid}/"', video_res.html)
+        self.assertIn("playsinline", video_res.html)
+        self.assertIn("<video controls", video_res.html)
+
+        no_poster_video = Video(id=24, public_id=video_uuid, title="无封面视频")
+        no_poster_res = CustomVideoBlock().render_clean({"video": no_poster_video})
+        self.assertNotIn("poster=", no_poster_res.html)
+
+        cleaned = sanitize_html(
+            '<div data-cb-media-kind="evil"><video-player onclick="x()"></video-player></div>'
+        )
+        self.assertNotIn("data-cb-media-kind", cleaned)
+        self.assertNotIn("video-player", cleaned)
+        self.assertNotIn("onclick", cleaned)
+
+        assets_js = render_to_string("content_blocks/includes/_block_assets_js.html")
+        self.assertIn("content_blocks/js/media-player.js", assets_js)
+        self.assertIn("data-videojs-audio-url=", assets_js)
+        self.assertIn("data-videojs-video-url=", assets_js)
+        self.assertIn("data-videojs-locale-url=", assets_js)
+        self.assertIn("data-videojs-global-css-url=", assets_js)
 
     def test_embed_block_allowlist_and_ssrf_blocking(self):
         from content_blocks.blocks.embed import CustomEmbedBlock, is_safe_embed_url

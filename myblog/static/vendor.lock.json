@@ -56,8 +56,34 @@
       "license": "MIT",
       "upstream": "https://github.com/Vanessa219/vditor",
       "security_note": "Offline split/IR/WYSIWYG Markdown editor runtime for Wagtail admin",
+      "strip_missing_sourcemaps": true,
+      "fix_vditor_markmap_katex_fonts": true,
       "extract": [
         {"src": "package/dist/", "dest": "dist/", "recursive": true},
+        {"src": "package/LICENSE", "dest": "LICENSE"}
+      ]
+    },
+    "videojs": {
+      "npm_package": "@videojs/cdn",
+      "version": "10.5.0",
+      "registry_url": "https://registry.npmjs.org/@videojs/cdn/-/cdn-10.5.0.tgz",
+      "integrity_sha512": "7Zdn4k/7cpjpmzU3DTYpZKsk8oUIo2y2tox181o8iYodIXnFOBTtxJA07APbFyaRfTSpP0z4RZQRM7P9K+YL6A==",
+      "shasum_sha1": "384f7eb7814bca7f2225f4c2d0315852301e5ef7",
+      "license": "Apache-2.0",
+      "upstream": "https://github.com/videojs/video.js",
+      "security_note": "Official browser-ready Video.js 10 HTML custom elements bundle (no build step)",
+      "strip_missing_sourcemaps": true,
+      "extract": [
+        {
+          "src": "package/",
+          "dest": ".",
+          "recursive": true,
+          "exclude_suffixes": [".map", ".d.ts", ".ts", ".dev.js", ".dev.css"]
+        },
+        {"src": "package/video.js", "dest": "video.js"},
+        {"src": "package/audio.js", "dest": "audio.js"},
+        {"src": "package/global.css", "dest": "global.css"},
+        {"src": "package/locales/zh-CN.js", "dest": "locales/zh-CN.js"},
         {"src": "package/LICENSE", "dest": "LICENSE"}
       ]
     }

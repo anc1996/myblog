@@ -12,6 +12,8 @@
 
 import html
 from typing import Any
+from uuid import UUID
+from django.urls import reverse
 from django.utils.safestring import mark_safe
 from wagtail import blocks
 from wagtail.images.blocks import ImageChooserBlock
@@ -54,6 +56,15 @@ def _resolve_asset_id(instance_or_id: Any, expected_model: Any = None) -> str:
         except Exception:
             pass
     return val_str
+
+
+def _build_gateway_url(asset_type: str, asset_id: str) -> str:
+    """通过 Django URL 反解受控媒体网关地址；非法 UUID 一律 fail-closed 返回空串。"""
+    try:
+        uid = UUID(str(asset_id))
+        return reverse("media_gateway_asset", kwargs={"asset_type": asset_type, "asset_id": uid})
+    except Exception:
+        return ""
 
 
 class CustomImageBlock(blocks.StructBlock):
@@ -189,6 +200,13 @@ class CustomAudioBlock(blocks.StructBlock):
     class Meta:
         icon = "media"
         label = "音频"
+        form_template = "content_blocks/widgets/media_split.html"
+
+    def get_form_context(self, value, prefix="", errors=None):
+        context = super().get_form_context(value, prefix=prefix, errors=errors)
+        context["media_kind"] = "audio"
+        context["chooser_field"] = "audio"
+        return context
 
     def validate_value(self, value: Any, context: Any = None) -> BlockValidationResult:
         if not value or not value.get("audio"):
@@ -201,15 +219,22 @@ class CustomAudioBlock(blocks.StructBlock):
 
         audio_inst = value.get("audio")
         title = value.get("title_override") or (getattr(audio_inst, "title", "音频播放") if audio_inst else "音频播放")
-        asset_id = _resolve_asset_id(audio_inst)
+        asset_id = _resolve_asset_id(audio_inst, expected_model=Audio)
+        gateway_url = _build_gateway_url("audio", asset_id)
+        if not gateway_url:
+            return BlockRenderResult(html="", is_safe=True)
 
         safe_title = html.escape(title)
+        safe_asset_id = html.escape(asset_id, quote=True)
+        safe_src = html.escape(gateway_url, quote=True)
         html_output = f"""
-        <div class="media-audio-player" data-asset-id="{asset_id}">
+        <div class="media-audio-player" data-cb-media-kind="audio" data-asset-id="{safe_asset_id}">
             <div class="audio-title">{safe_title}</div>
-            <audio controls preload="metadata" src="/media-gateway/audio/{asset_id}/">
-                您的浏览器不支持音频播放。
-            </audio>
+            <div class="cb-media-stage">
+                <audio controls preload="metadata" src="{safe_src}">
+                    您的浏览器不支持音频播放。
+                </audio>
+            </div>
         </div>
         """
         return BlockRenderResult(html=sanitize_html(html_output), is_safe=True)
@@ -228,7 +253,7 @@ class CustomAudioBlock(blocks.StructBlock):
     def extract_media_refs(self, value: Any, path: str = "") -> list[MediaReference]:
         if not value or not value.get("audio"):
             return []
-        asset_id = _resolve_asset_id(value.get("audio"))
+        asset_id = _resolve_asset_id(value.get("audio"), expected_model=Audio)
         if not asset_id:
             return []
         return [MediaReference(asset_id=asset_id, asset_type="audio", block_path=path)]
@@ -244,6 +269,13 @@ class CustomVideoBlock(blocks.StructBlock):
     class Meta:
         icon = "media"
         label = "视频"
+        form_template = "content_blocks/widgets/media_split.html"
+
+    def get_form_context(self, value, prefix="", errors=None):
+        context = super().get_form_context(value, prefix=prefix, errors=errors)
+        context["media_kind"] = "video"
+        context["chooser_field"] = "video"
+        return context
 
     def validate_value(self, value: Any, context: Any = None) -> BlockValidationResult:
         if not value or not value.get("video"):
@@ -256,20 +288,29 @@ class CustomVideoBlock(blocks.StructBlock):
 
         video_inst = value.get("video")
         title = value.get("title_override") or (getattr(video_inst, "title", "视频播放") if video_inst else "视频播放")
-        asset_id = _resolve_asset_id(video_inst)
+        asset_id = _resolve_asset_id(video_inst, expected_model=Video)
+        gateway_url = _build_gateway_url("video", asset_id)
+        if not gateway_url:
+            return BlockRenderResult(html="", is_safe=True)
 
         safe_title = html.escape(title)
+        safe_asset_id = html.escape(asset_id, quote=True)
+        safe_src = html.escape(gateway_url, quote=True)
         poster_url = ""
         if hasattr(video_inst, "poster") and video_inst.poster:
             poster_id = _resolve_asset_id(video_inst.poster)
-            poster_url = f'poster="/media-gateway/image/{poster_id}/"'
+            resolved_poster = _build_gateway_url("image", poster_id)
+            if resolved_poster:
+                poster_url = f'poster="{html.escape(resolved_poster, quote=True)}"'
 
         html_output = f"""
-        <div class="media-video-player" data-asset-id="{asset_id}">
+        <div class="media-video-player" data-cb-media-kind="video" data-asset-id="{safe_asset_id}">
             {f'<div class="video-title">{safe_title}</div>' if title else ''}
-            <video controls preload="metadata" {poster_url} src="/media-gateway/video/{asset_id}/">
-                您的浏览器不支持视频播放。
-            </video>
+            <div class="cb-media-stage">
+                <video controls playsinline preload="metadata" {poster_url} src="{safe_src}">
+                    您的浏览器不支持视频播放。
+                </video>
+            </div>
         </div>
         """
         return BlockRenderResult(html=sanitize_html(html_output), is_safe=True)
@@ -290,7 +331,7 @@ class CustomVideoBlock(blocks.StructBlock):
             return []
         refs: list[MediaReference] = []
         video_inst = value.get("video")
-        asset_id = _resolve_asset_id(video_inst)
+        asset_id = _resolve_asset_id(video_inst, expected_model=Video)
         if asset_id:
             refs.append(MediaReference(asset_id=asset_id, asset_type="video", block_path=path))
         # 检查是否有关联的封面海报图引用

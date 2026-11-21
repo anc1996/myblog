@@ -14,6 +14,7 @@ from wagtail.admin.telepath import JSContext
 from wagtail.models import Collection, GroupCollectionPermission
 
 from content_blocks.blocks.markdown import CustomMarkdownBlock
+from content_blocks.blocks.media import CustomAudioBlock, CustomVideoBlock
 from content_blocks.blocks.mermaid import CustomMermaidBlock
 from content_blocks.blocks.table import CustomTableBlock
 from content_blocks.widgets import (
@@ -22,7 +23,7 @@ from content_blocks.widgets import (
     VditorMarkdownWidget,
 )
 from content_lifecycle.permissions import ensure_author_role_infrastructure
-from media_library.models import CustomImage, VisibilityChoices
+from media_library.models import Audio, CustomImage, Video, VisibilityChoices
 
 User = get_user_model()
 
@@ -80,6 +81,117 @@ class AdminSplitEditorsTests(TestCase):
         self.assertIn("content_blocks.widgets.VditorMarkdownWidget", packed_json)
         self.assertIn("content_blocks.widgets.MermaidSplitWidget", packed_json)
         self.assertIn("content_blocks.widgets.TableJsonSplitWidget", packed_json)
+
+    def test_av3_media_split_struct_block_template_and_telepath_media(self):
+        from wagtail import hooks
+
+        hooks.search_for_hooks()
+        audio_block = CustomAudioBlock()
+        video_block = CustomVideoBlock()
+        self.assertEqual(audio_block.meta.form_template, "content_blocks/widgets/media_split.html")
+        self.assertEqual(video_block.meta.form_template, "content_blocks/widgets/media_split.html")
+
+        js_ctx = JSContext()
+        packed = js_ctx.pack([audio_block, video_block])
+        packed_json = json.dumps(packed)
+        self.assertIn("data-cb-admin-media-split", packed_json)
+        self.assertIn(reverse("media_library_preview_metadata"), packed_json)
+        media_html = str(js_ctx.media)
+        self.assertIn("content_blocks/js/media-player.js", media_html)
+        self.assertIn("content_blocks/js/admin-media-split.js", media_html)
+        self.assertIn("content_blocks/css/media-blocks.css", media_html)
+        self.assertIn("content_blocks/css/admin-split-editors.css", media_html)
+
+    def test_av3_media_preview_metadata_permissions_and_payload(self):
+        url = reverse("media_library_preview_metadata")
+        infra = ensure_author_role_infrastructure()
+        superuser = User.objects.create_superuser(
+            username="av_meta_su", email="su@example.com", password="Password123!"
+        )
+        author_a = User.objects.create_user(username="av_meta_a", password="Password123!")
+        author_b = User.objects.create_user(username="av_meta_b", password="Password123!")
+        author_a.groups.add(infra["authors_group"])
+        author_b.groups.add(infra["authors_group"])
+
+        plain_admin = User.objects.create_user(username="av_meta_plain", password="Password123!")
+        plain_admin.user_permissions.add(Permission.objects.get(codename="access_admin"))
+
+        poster_a = CustomImage.objects.create(
+            title="作者A封面",
+            file=_make_png_upload("poster_a.png"),
+            collection=infra["workspace_collection"],
+            uploaded_by_user=author_a,
+            visibility=VisibilityChoices.RESTRICTED,
+        )
+        poster_b = CustomImage.objects.create(
+            title="作者B受限封面",
+            file=_make_png_upload("poster_b.png"),
+            collection=infra["workspace_collection"],
+            uploaded_by_user=author_b,
+            visibility=VisibilityChoices.RESTRICTED,
+        )
+        audio_a = Audio.objects.create(
+            title="作者A音频",
+            file=SimpleUploadedFile("demo.mp3", b"ID3-audio", content_type="audio/mpeg"),
+            uploaded_by_user=author_a,
+            visibility=VisibilityChoices.RESTRICTED,
+            storage_key="secret/path/demo.mp3",
+        )
+        video_a = Video.objects.create(
+            title="作者A视频",
+            file=SimpleUploadedFile("demo.mp4", b"ftypmp42", content_type="video/mp4"),
+            poster=poster_a,
+            uploaded_by_user=author_a,
+            visibility=VisibilityChoices.RESTRICTED,
+            storage_key="secret/path/demo.mp4",
+        )
+        video_cross_poster = Video.objects.create(
+            title="跨作者受限封面视频",
+            file=SimpleUploadedFile("demo2.mp4", b"ftypmp42", content_type="video/mp4"),
+            poster=poster_b,
+            uploaded_by_user=author_a,
+            visibility=VisibilityChoices.RESTRICTED,
+        )
+
+        resp_anon = self.client.get(url, {"kind": "audio", "id": str(audio_a.pk)})
+        self.assertIn(resp_anon.status_code, (302, 403))
+
+        self.client.force_login(author_a)
+        self.assertEqual(self.client.get(url, {"kind": "image", "id": str(audio_a.pk)}).status_code, 400)
+        self.assertEqual(self.client.get(url, {"kind": "audio", "id": "not-an-int"}).status_code, 400)
+        self.assertEqual(self.client.get(url, {"kind": "audio", "id": "9999999"}).status_code, 404)
+
+        r_audio = self.client.get(url, {"kind": "audio", "id": str(audio_a.pk)})
+        self.assertEqual(r_audio.status_code, 200)
+        self.assertIn("no-store", r_audio.headers.get("Cache-Control", ""))
+        audio_data = r_audio.json()
+        self.assertEqual(audio_data["asset_id"], str(audio_a.public_id))
+        self.assertEqual(audio_data["src"], f"/media-gateway/audio/{audio_a.public_id}/")
+        self.assertIsNone(audio_data["poster"])
+        self.assertNotIn("storage_key", json.dumps(audio_data))
+        self.assertEqual(self.client.get(audio_data["src"]).status_code, 200)
+
+        r_video = self.client.get(url, {"kind": "video", "id": str(video_a.pk)})
+        self.assertEqual(r_video.status_code, 200)
+        video_data = r_video.json()
+        self.assertEqual(video_data["src"], f"/media-gateway/video/{video_a.public_id}/")
+        self.assertEqual(video_data["poster"], f"/media-gateway/image/{poster_a.public_id}/")
+
+        r_cross = self.client.get(url, {"kind": "video", "id": str(video_cross_poster.pk)})
+        self.assertEqual(r_cross.status_code, 200)
+        self.assertIsNone(r_cross.json()["poster"])
+
+        self.client.force_login(author_b)
+        self.assertEqual(self.client.get(url, {"kind": "audio", "id": str(audio_a.pk)}).status_code, 403)
+        self.assertEqual(self.client.get(audio_data["src"]).status_code, 403)
+        self.client.force_login(plain_admin)
+        self.assertEqual(self.client.get(url, {"kind": "audio", "id": str(audio_a.pk)}).status_code, 403)
+
+        self.client.force_login(superuser)
+        self.assertEqual(self.client.get(url, {"kind": "video", "id": str(video_a.pk)}).status_code, 200)
+
+        for f in (poster_a.file, poster_b.file, audio_a.file, video_a.file, video_cross_poster.file):
+            f.delete(save=False)
 
     def test_vditor_image_upload_permission_and_author_isolation(self):
         """验证 Vditor 粘贴传图：匿名拦截、无权拦截、受限作者上传自动绑定 RESTRICTED 与工作区集合"""

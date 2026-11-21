@@ -50,6 +50,7 @@ ALLOWED_ATTRIBUTES = {
         "data-mode",
         "data-theme",
         "data-asset-id",
+        "data-cb-media-kind",
         "data-embed-url",
         "data-embed-src",
         "data-embed-provider",
@@ -65,7 +66,7 @@ ALLOWED_ATTRIBUTES = {
     "figcaption": {"class"},
     "button": {"type", "class", "disabled", "data-clipboard-text"},
     "audio": {"controls", "preload", "src", "class"},
-    "video": {"controls", "preload", "src", "poster", "width", "height", "class"},
+    "video": {"controls", "playsinline", "preload", "src", "poster", "width", "height", "class"},
     "source": {"src", "type"},
     "track": {"src", "kind", "srclang", "label"},
 }
@@ -75,6 +76,8 @@ ALLOWED_URL_SCHEMES = {"http", "https", "mailto"}
 
 
 def _filter_attributes(tag: str, attr: str, value: str) -> str | None:
+    if tag == "div" and attr == "data-cb-media-kind":
+        return value if value in {"audio", "video"} else None
     if tag == "img" and attr == "style":
         safe_decls: list[str] = []
         for part in (value or "").split(";"):

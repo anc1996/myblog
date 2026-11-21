@@ -1,0 +1,74 @@
+{% load static %}
+<div
+    class="cb-admin-split-field cb-media-split-editor {{ classname }}"
+    data-cb-admin-media-split="{{ media_kind }}"
+    data-chooser-field="{{ chooser_field }}"
+    data-preview-url="{% url 'media_library_preview_metadata' %}"
+    data-videojs-audio-url="{% static 'vendor/videojs/audio.js' %}"
+    data-videojs-video-url="{% static 'vendor/videojs/video.js' %}"
+    data-videojs-locale-url="{% static 'vendor/videojs/locales/zh-CN.js' %}"
+    data-videojs-global-css-url="{% static 'vendor/videojs/global.css' %}"
+>
+    <div class="cb-admin-split-grid cb-media-split-grid">
+        <div class="cb-admin-split-left cb-media-split-left">
+            <div class="cb-admin-pane-head">
+                <span>{% if media_kind == 'audio' %}音频设置{% else %}视频设置{% endif %}</span>
+                <div class="cb-mmd-segmented" role="tablist" aria-label="编辑与源码视图">
+                    <button
+                        type="button"
+                        class="cb-mmd-btn is-active"
+                        role="tab"
+                        aria-selected="true"
+                        data-cb-media-tab="settings"
+                    >设置</button>
+                    <button
+                        type="button"
+                        class="cb-mmd-btn"
+                        role="tab"
+                        aria-selected="false"
+                        data-cb-media-tab="json"
+                    >源码 (只读)</button>
+                </div>
+            </div>
+
+            <div class="cb-media-settings-pane" data-cb-media-panel="settings">
+                <div class="cb-media-field-group" data-contentpath="{{ chooser_field }}">
+                    <label class="w-field__label">
+                        {% if media_kind == 'audio' %}选择或上传音频{% else %}选择或上传视频{% endif %}
+                        <span class="w-required-mark">*</span>
+                    </label>
+                    {% if media_kind == 'audio' %}
+                        {{ children.audio.render_form }}
+                    {% else %}
+                        {{ children.video.render_form }}
+                    {% endif %}
+                </div>
+                <div class="cb-media-field-group" data-contentpath="title_override">
+                    <label class="w-field__label">
+                        {% if media_kind == 'audio' %}自定义音频标题（可选）{% else %}自定义视频标题（可选）{% endif %}
+                    </label>
+                    {{ children.title_override.render_form }}
+                </div>
+            </div>
+
+            <div class="cb-media-json-pane" data-cb-media-panel="json" hidden>
+                <div class="cb-media-json-bar">
+                    <span class="cb-admin-pane-hint">只读配置 JSON（从当前表单实时派生）</span>
+                    <button type="button" class="cb-mmd-btn" data-cb-media-copy-json>复制 JSON</button>
+                </div>
+                <pre class="cb-media-json-pre"><code data-cb-media-json></code></pre>
+            </div>
+        </div>
+
+        <div class="cb-admin-split-right cb-media-split-right">
+            <div class="cb-admin-pane-head">
+                <span>{% if media_kind == 'audio' %}右侧实时试听{% else %}右侧实时试看{% endif %}</span>
+                <span class="cb-mmd-status-pill" data-cb-media-status>未选素材</span>
+            </div>
+            <div class="cb-media-preview-message" data-cb-media-message>
+                请在左侧选择或上传{% if media_kind == 'audio' %}音频{% else %}视频{% endif %}以预览播放效果。
+            </div>
+            <div class="cb-media-preview-host" data-cb-media-preview></div>
+        </div>
+    </div>
+</div>

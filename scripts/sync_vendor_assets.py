@@ -101,6 +101,14 @@ def build_upstream_md(pkg_name: str, spec: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _install_rules_digest(spec: dict[str, Any]) -> str:
+    rules = {
+        key: spec.get(key)
+        for key in ("extract", "strip_missing_sourcemaps", "fix_vditor_markmap_katex_fonts")
+    }
+    return hashlib.sha256(json.dumps(rules, sort_keys=True).encode()).hexdigest()
+
+
 def package_is_current(pkg_dir: Path, spec: dict[str, Any]) -> tuple[bool, str]:
     manifest_path = pkg_dir / MANIFEST_NAME
     if not manifest_path.is_file():
@@ -114,6 +122,10 @@ def package_is_current(pkg_dir: Path, spec: dict[str, Any]) -> tuple[bool, str]:
         return False, f"版本不一致 (local={manifest.get('version')}, lock={spec['version']})"
     if manifest.get("integrity_sha512") != spec.get("integrity_sha512"):
         return False, "SHA-512 摘要与锁文件不一致"
+    digest = manifest.get("install_rules_sha256")
+    if digest is not None or spec.get("strip_missing_sourcemaps") or spec.get("fix_vditor_markmap_katex_fonts"):
+        if digest != _install_rules_digest(spec):
+            return False, "提取或兼容规则已变化"
 
     for rule in spec.get("extract", []):
         target = pkg_dir / rule["dest"]
@@ -125,6 +137,55 @@ def package_is_current(pkg_dir: Path, spec: dict[str, Any]) -> tuple[bool, str]:
                 return False, f"文件缺失或为空: {rule['dest']}"
 
     return True, "OK"
+
+
+_SOURCEMAP_LINE_RE = re.compile(
+    rb"(?m)^[ \t]*//[#@][ \t]*sourceMappingURL=([A-Za-z0-9._/\-]+\.map)[ \t]*\r?$(?:\n)?"
+)
+
+
+def _strip_missing_sourcemaps(pkg_root: Path) -> int:
+    """移除指向缺失 .map 文件的独立 sourceMappingURL 注释行，避免 ManifestStaticFilesStorage 报错。"""
+    removed = 0
+    for js_path in pkg_root.rglob("*.js"):
+        if not js_path.is_file():
+            continue
+        raw = js_path.read_bytes()
+        if b"sourceMappingURL=" not in raw:
+            continue
+
+        def _replace(match: re.Match[bytes]) -> bytes:
+            nonlocal removed
+            rel_map = match.group(1).decode("ascii", errors="ignore")
+            if (js_path.parent / rel_map).is_file():
+                return match.group(0)
+            removed += 1
+            return b""
+
+        updated = _SOURCEMAP_LINE_RE.sub(_replace, raw)
+        if updated != raw:
+            js_path.write_bytes(updated)
+    return removed
+
+
+def _fix_vditor_markmap_katex_fonts(pkg_root: Path) -> bool:
+    """修正 Vditor markmap/katex.min.css 中指向缺失相对字体目录的路径为同包已有 ../katex/fonts/。"""
+    css_path = pkg_root / "dist" / "js" / "markmap" / "katex.min.css"
+    katex_fonts_dir = pkg_root / "dist" / "js" / "katex" / "fonts"
+    if not css_path.is_file() or not katex_fonts_dir.is_dir():
+        return False
+    if (css_path.parent / "fonts").is_dir():
+        return False
+    raw = css_path.read_bytes()
+    if b"url(fonts/" not in raw:
+        return False
+    referenced = re.findall(rb"url\(fonts/([A-Za-z0-9._-]+)\)", raw)
+    if not referenced:
+        return False
+    if not all((katex_fonts_dir / name.decode("ascii", errors="ignore")).is_file() for name in referenced):
+        return False
+    css_path.write_bytes(raw.replace(b"url(fonts/", b"url(../katex/fonts/"))
+    return True
 
 
 def cmd_check(lock_path: Path) -> int:
@@ -202,16 +263,35 @@ def sync_one_package(
 
         for rule in spec.get("extract", []):
             src_path = extracted_dir / rule["src"]
-            dest_path = staged_pkg_dir / rule["dest"]
+            dest_path = (staged_pkg_dir / rule["dest"]).resolve()
+            staged_root_resolved = staged_pkg_dir.resolve()
+            if dest_path != staged_root_resolved and staged_root_resolved not in dest_path.parents:
+                raise ValueError(f"非法提取目标路径: {rule['dest']}")
             if rule.get("recursive"):
                 if not src_path.is_dir():
                     raise FileNotFoundError(f"{pkg_name} 压缩包缺少目录: {rule['src']}")
-                shutil.copytree(src_path, dest_path)
+                exclude_suffixes = tuple(rule.get("exclude_suffixes", []))
+                ignore_fn = None
+                if exclude_suffixes:
+                    def _ignore(directory: str, names: list[str]) -> set[str]:
+                        dir_path = Path(directory)
+                        return {
+                            name
+                            for name in names
+                            if (dir_path / name).is_file() and name.endswith(exclude_suffixes)
+                        }
+                    ignore_fn = _ignore
+                shutil.copytree(src_path, dest_path, dirs_exist_ok=True, ignore=ignore_fn)
             else:
                 if not src_path.is_file():
                     raise FileNotFoundError(f"{pkg_name} 压缩包缺少文件: {rule['src']}")
                 dest_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src_path, dest_path)
+
+        if spec.get("strip_missing_sourcemaps"):
+            _strip_missing_sourcemaps(staged_pkg_dir)
+        if spec.get("fix_vditor_markmap_katex_fonts"):
+            _fix_vditor_markmap_katex_fonts(staged_pkg_dir)
 
         (staged_pkg_dir / "UPSTREAM.md").write_text(
             build_upstream_md(pkg_name, spec), encoding="utf-8"
@@ -222,6 +302,7 @@ def sync_one_package(
             "integrity_sha512": spec.get("integrity_sha512"),
             "shasum_sha1": spec.get("shasum_sha1"),
             "license": spec.get("license"),
+            "install_rules_sha256": _install_rules_digest(spec),
         }
         (staged_pkg_dir / MANIFEST_NAME).write_text(
             json.dumps(manifest_payload, indent=2, ensure_ascii=False) + "\n",

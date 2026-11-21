@@ -215,3 +215,32 @@ class UnifiedEmbedAndAVUploadTests(TestCase):
         )
         self.assertFalse(form_replace.is_valid())
         self.assertIn("禁止直接覆盖替换原文件", str(form_replace.errors))
+
+    def test_av_gateway_range_206_and_416_for_audio_and_video(self):
+        payload = b"0123456789ABCDEF" * 4  # 64 bytes
+        audio_obj = Audio.objects.create(
+            title="分段音频",
+            file=SimpleUploadedFile("seg.mp3", payload, content_type="audio/mpeg"),
+            uploaded_by_user=self.author_a,
+            visibility=VisibilityChoices.PUBLIC,
+        )
+        video_obj = Video.objects.create(
+            title="分段视频",
+            file=SimpleUploadedFile("seg.mp4", payload, content_type="video/mp4"),
+            uploaded_by_user=self.author_a,
+            visibility=VisibilityChoices.PUBLIC,
+        )
+        try:
+            for kind, obj in (("audio", audio_obj), ("video", video_obj)):
+                url = reverse("media_gateway_asset", kwargs={"asset_type": kind, "asset_id": obj.public_id})
+                resp_206 = self.client.get(url, HTTP_RANGE="bytes=10-25")
+                self.assertEqual(resp_206.status_code, 206)
+                self.assertEqual(resp_206["Content-Range"], f"bytes 10-25/{len(payload)}")
+                self.assertEqual(resp_206.content, payload[10:26])
+
+                resp_416 = self.client.get(url, HTTP_RANGE=f"bytes={len(payload)}-")
+                self.assertEqual(resp_416.status_code, 416)
+                self.assertEqual(resp_416["Content-Range"], f"bytes */{len(payload)}")
+        finally:
+            audio_obj.file.delete(save=False)
+            video_obj.file.delete(save=False)
