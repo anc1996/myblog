@@ -11,6 +11,7 @@
 """
 
 import contextvars
+import json
 import uuid
 from contextlib import contextmanager
 from django.db import models
@@ -41,11 +42,121 @@ def is_purge_authorized() -> bool:
     return _PURGE_AUTHORIZED.get()
 
 
+MAX_RESTRICTED_AUTHOR_ROWS = 50
+
+
+def validate_universal_author_attributions(
+    author_entries,
+    *,
+    max_authors: int | None = MAX_RESTRICTED_AUTHOR_ROWS,
+) -> list[dict]:
+    """
+    全角色通用作者署名纯校验逻辑（对超管、主编与受限作者一律生效）：
+    1. 贡献者数量不得超过表单上限（默认 50 人）；
+    2. 禁止引用不存在的人物或系统内置「佚名」名片 (is_system_anonymous=True)；
+    3. 禁止在同一篇页面重复选择同一位公开人物；
+    返回按 (sort_val, orig_idx, person_id) 排序后的归一化条目列表。
+    """
+    from django.core.exceptions import ValidationError
+
+    normalized_rows: list[dict] = []
+    for idx, entry in enumerate(author_entries or ()):
+        if isinstance(entry, dict):
+            raw_pid = entry.get("person_id")
+            is_sys_anon = bool(entry.get("is_system_anonymous", False))
+            raw_role = entry.get("role", "")
+            raw_sort = entry.get("sort_order")
+            orig_idx = entry.get("orig_idx", idx)
+            exists = bool(entry.get("exists", True))
+        else:
+            raw_pid = getattr(entry, "person_id", None)
+            is_sys_anon = bool(getattr(entry, "is_system_anonymous", False))
+            raw_role = getattr(entry, "role", "")
+            raw_sort = getattr(entry, "sort_order", None)
+            orig_idx = getattr(entry, "orig_idx", idx)
+            exists = bool(getattr(entry, "exists", True))
+
+        if not exists or raw_pid is None:
+            raise ValidationError("署名列表中包含不存在或无效的公开人物名片。")
+
+        pid = int(raw_pid)
+        sort_val = int(raw_sort) if raw_sort not in (None, "") else 10**9
+        normalized_rows.append({
+            "person_id": pid,
+            "is_system_anonymous": is_sys_anon,
+            "role": str(raw_role or ""),
+            "sort_val": sort_val,
+            "orig_idx": int(orig_idx),
+        })
+
+    if max_authors is not None and len(normalized_rows) > max_authors:
+        raise ValidationError(f"单篇页面最多只能添加 {max_authors} 个贡献者。")
+
+    seen_person_ids: set[int] = set()
+    for row in normalized_rows:
+        if row["is_system_anonymous"]:
+            raise ValidationError("禁止手动选择系统内置「佚名」名片作为显式作者。")
+        pid = row["person_id"]
+        if pid in seen_person_ids:
+            raise ValidationError("同一篇页面禁止重复选择同一位公开人物。")
+        seen_person_ids.add(pid)
+
+    normalized_rows.sort(key=lambda r: (r["sort_val"], r["orig_idx"], r["person_id"]))
+    return normalized_rows
+
+
+def validate_restricted_author_attributions(
+    author_entries,
+    *,
+    linked_person_id: int | None,
+    allow_empty_draft: bool = False,
+    max_authors: int | None = MAX_RESTRICTED_AUTHOR_ROWS,
+) -> None:
+    """
+    受限作者署名纯校验逻辑（叠加在通用校验之上，不触发数据库 IO）：
+    1. 若署名为空：已绑定名片的受限作者禁止清空本人署名；未绑定者仅允许在保存草稿/预览阶段留空；
+    2. 若署名非空：用户必须已绑定非系统名片，第一条有效署名必须是本人绑定名片且归一化角色
+       属于 primary_author / core_dev，其余署名行不得设为 primary_author / core_dev。
+    """
+    from django.core.exceptions import ValidationError
+    from people.author_identity import MAJOR_AUTHOR_ROLES, normalize_author_role
+
+    normalized_rows = validate_universal_author_attributions(
+        author_entries,
+        max_authors=max_authors,
+    )
+
+    if not normalized_rows:
+        if linked_person_id is not None:
+            raise ValidationError("受限作者禁止清空本人已绑定的公开人物署名。")
+        if allow_empty_draft:
+            return
+        raise ValidationError("当前账号尚未由管理员绑定公开人物名片，受限作者不可提交审核或发布无署名页面。")
+
+    if linked_person_id is None:
+        raise ValidationError("当前账号尚未由管理员绑定公开人物名片，受限作者不可擅自填写或冒用他人人物署名。")
+
+    first_row = normalized_rows[0]
+    if first_row["person_id"] != linked_person_id:
+        raise ValidationError("受限作者保存或发布页面时，第一署名作者必须为您本人关联的公开人物名片。")
+
+    first_canonical_role, _ = normalize_author_role(first_row["role"])
+    if first_canonical_role not in MAJOR_AUTHOR_ROLES:
+        raise ValidationError("受限作者本人的第一署名角色必须为主要角色（primary_author 或 core_dev）。")
+
+    for row in normalized_rows[1:]:
+        canonical_role, _ = normalize_author_role(row["role"])
+        if canonical_role in MAJOR_AUTHOR_ROLES:
+            raise ValidationError("受限作者禁止将其他人员设为主要角色（primary_author 或 core_dev）。")
+
+
 def bind_linked_person_for_page_owner(page) -> bool:
     """
-    为已绑定 linked_user 的页面所有者预填第一署名人物（供后台表单与编程式导入共用）：
+    为已绑定 linked_user 的页面所有者预填第一署名人物（供新建页与 Markdown 导入共用）：
     - 严禁按用户名/邮箱自动认领或新建 Person；
-    - 兼容各页面作者中间表 role 字段是否带有 choices（如 ProjectPagePerson 无 choices）。
+    - 仅在 page.authors 的 modelcluster 关系中 add() 一条记录，交由页面与 Revision 保存路径统一落库；
+    - 兼容各页面作者中间表 role 字段：有 choices 时设为 primary_author，无 choices（如 ProjectPagePerson）时设为 core_dev；
+    - 若页面已有有效 authors 行则不覆盖，重复调用不追加。
     """
     owner = getattr(page, "owner", None)
     if not owner or not getattr(owner, "is_authenticated", False):
@@ -53,14 +164,17 @@ def bind_linked_person_for_page_owner(page) -> bool:
     if not hasattr(page, "authors"):
         return False
     try:
-        if list(page.authors.all()):
+        if any(
+            getattr(rel, "person_id", None) is not None or getattr(rel, "person", None) is not None
+            for rel in page.authors.all()
+        ):
             return False
     except Exception:
         pass
 
     from people.models import Person
 
-    person = Person.objects.filter(linked_user_id=owner.pk).first()
+    person = Person.objects.filter(linked_user_id=owner.pk, is_system_anonymous=False).first()
     if not person:
         return False
     rel_descriptor = getattr(type(page), "authors", None)
@@ -70,16 +184,10 @@ def bind_linked_person_for_page_owner(page) -> bool:
     role_kwargs = {}
     try:
         role_field = rel_model._meta.get_field("role")
-        if role_field.choices:
-            role_kwargs["role"] = "primary_author"
+        role_kwargs["role"] = "primary_author" if role_field.choices else "core_dev"
     except Exception:
         pass
     page.authors.add(rel_model(person=person, sort_order=0, **role_kwargs))
-    if getattr(page, "pk", None):
-        # 已落库的 ClusterableModel 在仅调 add() 时只写入内存；补一次持久化确保查询与 Revision 均可见
-        fk_name = rel_descriptor.rel.field.name
-        if not rel_model.objects.filter(**{fk_name: page, "person": person}).exists():
-            rel_model.objects.create(**{fk_name: page, "person": person, "sort_order": 0, **role_kwargs})
     return True
 
 
@@ -284,6 +392,8 @@ class CustomBasePage(Page):
 
         from django.contrib.auth import get_user_model
         UserModel = get_user_model()
+        fresh_user = None
+        fresh_rev_user = None
         if user is not None:
             fresh_user = UserModel.objects.filter(pk=user.pk).first() if getattr(user, "pk", None) else user
             if fresh_user is None or not getattr(fresh_user, "is_active", False):
@@ -299,6 +409,92 @@ class CustomBasePage(Page):
                     raise PermissionDenied("排期发布人账号已停用，禁止自动发布。")
                 if not getattr(fresh_rev_user, "is_superuser", False) and not self.permissions_for_user(fresh_rev_user).can_publish():
                     raise PermissionDenied("排期发布人已被撤权，禁止自动发布。")
+
+        # 全角色作者署名门禁：
+        # 1. 对所有用户禁止选入系统「佚名」或重复同一公开人物；
+        # 2. 当发布人是受限作者，或待审批/排期 Revision 本身由受限作者提交时，按该原作者核验受限署名。
+        from content_lifecycle.permissions import user_is_restricted_author_for_page
+
+        if hasattr(self, "authors"):
+            rev_content = getattr(revision, "content", None) if revision is not None else None
+            if isinstance(rev_content, str):
+                try:
+                    rev_content = json.loads(rev_content)
+                except Exception:
+                    rev_content = None
+
+            if isinstance(rev_content, dict) and "authors" in rev_content:
+                raw_authors = rev_content.get("authors")
+                if raw_authors is None:
+                    raw_refs = []
+                elif not isinstance(raw_authors, list):
+                    raise ValidationError("待发布版本中的作者署名格式无效。")
+                else:
+                    raw_refs = []
+                    for idx, item in enumerate(raw_authors):
+                        if not isinstance(item, dict):
+                            raise ValidationError("待发布版本中的作者署名条目格式无效。")
+                        raw_pid = item.get("person") if item.get("person") is not None else item.get("person_id")
+                        if raw_pid in (None, ""):
+                            continue
+                        try:
+                            pid_int = int(raw_pid)
+                        except (TypeError, ValueError) as exc:
+                            raise ValidationError("待发布版本中的作者人物标识无效。") from exc
+                        raw_refs.append({
+                            "person_id": pid_int,
+                            "role": item.get("role", ""),
+                            "sort_order": item.get("sort_order"),
+                            "_idx": idx,
+                        })
+            else:
+                from people.attribution import extract_raw_author_refs_from_page
+                raw_refs = extract_raw_author_refs_from_page(self)
+
+            from people.models import Person
+
+            person_ids = sorted({int(r["person_id"]) for r in raw_refs if r.get("person_id") is not None})
+            persons_by_id = (
+                {p.pk: p for p in Person.objects.filter(pk__in=person_ids)}
+                if person_ids
+                else {}
+            )
+            author_entries = []
+            for idx, ref in enumerate(raw_refs):
+                pid = ref.get("person_id")
+                person = persons_by_id.get(pid) if pid is not None else None
+                author_entries.append({
+                    "person_id": pid,
+                    "is_system_anonymous": bool(getattr(person, "is_system_anonymous", False)) if person is not None else False,
+                    "role": ref.get("role", ""),
+                    "sort_order": ref.get("sort_order"),
+                    "orig_idx": ref.get("_idx", idx),
+                    "exists": person is not None,
+                })
+
+            validate_universal_author_attributions(author_entries, max_authors=None)
+
+            restricted_subject = None
+            if fresh_user is not None and user_is_restricted_author_for_page(fresh_user, self):
+                restricted_subject = fresh_user
+            else:
+                rev_author_user = getattr(revision, "user", None) if revision is not None else None
+                if rev_author_user is not None and user_is_restricted_author_for_page(rev_author_user, self):
+                    restricted_subject = rev_author_user
+                elif user is None and fresh_rev_user is not None and user_is_restricted_author_for_page(fresh_rev_user, self):
+                    restricted_subject = fresh_rev_user
+
+            if restricted_subject is not None:
+                linked_person = Person.objects.filter(
+                    linked_user_id=restricted_subject.pk,
+                    is_system_anonymous=False,
+                ).first()
+                validate_restricted_author_attributions(
+                    author_entries,
+                    linked_person_id=linked_person.pk if linked_person is not None else None,
+                    allow_empty_draft=False,
+                    max_authors=None,
+                )
 
         # 核查受限媒体引用归属：避免越权通过发布将他人受限媒体暴露给公众
         from media_library.models import (

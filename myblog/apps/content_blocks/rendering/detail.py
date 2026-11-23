@@ -319,6 +319,163 @@ def resolve_tag_links(page: Any, request: Any = None) -> list[dict[str, Any]]:
     return links
 
 
+def _resolve_author_badges(page: Any, request: Any, *, is_preview: bool) -> list[dict[str, Any]]:
+    """
+    生成文章详情页统一署名徽章 DTO（支持跳转至 /authors/<slug>/ 与未署名兜底「佚名」）：
+    - 公开浏览优先读取与当前 live_revision_id 严格匹配的 PublishedSearchAuthor + 最新 Person 资料；
+    - 副本暂缺时从当前 page.authors / 历史核准计算，不在 GET 中写库或水合正文；
+    - 后台预览读取预览对象草稿作者，仅在对方已具备有效公开专栏目标时附链接。
+    """
+    if not hasattr(page, "authors"):
+        return []
+
+    from django.urls import NoReverseMatch, reverse
+    from django.conf import settings
+    from django.utils import timezone
+    from wagtail.models import Site
+    from media_library.models import VisibilityChoices
+    from people.attribution import (
+        extract_raw_author_refs_from_page,
+        extract_raw_author_refs_from_revision_content,
+        resolve_author_attributions,
+    )
+    from people.author_identity import normalize_author_role
+    from people.models import Person
+
+    author_discovery_enabled = getattr(settings, "AUTHOR_DISCOVERY_ENABLED", True)
+
+    def _author_url(slug: str) -> str:
+        if not author_discovery_enabled:
+            return ""
+        try:
+            return reverse("people:author_detail", kwargs={"slug": slug})
+        except NoReverseMatch:
+            return f"/authors/{slug}/"
+
+    def _avatar_url_for_person(p: Person | None) -> str:
+        if p is None or not getattr(p, "avatar_id", None):
+            return ""
+        av = getattr(p, "avatar", None)
+        if av is None or getattr(av, "visibility", None) != VisibilityChoices.PUBLIC:
+            return ""
+        return f"/media-gateway/image/{av.public_id}/"
+
+    live_rev_id = getattr(page, "live_revision_id", None)
+    page_id = getattr(page, "id", None)
+
+    if not is_preview and getattr(page, "live", False) and page_id and live_rev_id:
+        from discovery.models import PublishedSearchAuthor, PublishedSearchDocument
+
+        doc = (
+            PublishedSearchDocument.objects.filter(
+                page_id=page_id,
+                effective_revision_id=live_rev_id,
+                index_generation=1,
+                is_live=True,
+                is_recycled=False,
+            )
+            .only("id")
+            .first()
+        )
+        if doc is not None:
+            rows = list(
+                PublishedSearchAuthor.objects.filter(document=doc)
+                .order_by("sort_order", "id")
+                .values("person_id", "author_name", "author_slug", "role")
+            )
+            if rows:
+                persons_map = {
+                    p.pk: p
+                    for p in Person.objects.select_related("avatar").filter(
+                        pk__in=[r["person_id"] for r in rows]
+                    )
+                }
+                badges: list[dict[str, Any]] = []
+                for r in rows:
+                    p = persons_map.get(r["person_id"])
+                    slug = p.slug if p else r["author_slug"]
+                    name = p.name if p else r["author_name"]
+                    is_anon = bool(p.is_system_anonymous) if p else (slug == "anonymous")
+                    _, role_label = normalize_author_role(r["role"])
+                    badges.append({
+                        "name": name,
+                        "slug": slug,
+                        "url": _author_url(slug),
+                        "avatar_url": _avatar_url_for_person(p),
+                        "role": r["role"],
+                        "role_label": role_label,
+                        "is_anonymous": is_anon,
+                    })
+                return badges
+
+    if not is_preview and live_rev_id:
+        live_rev = getattr(page, "live_revision", None)
+        if live_rev is None or getattr(live_rev, "id", None) != live_rev_id:
+            from wagtail.models import Revision
+            live_rev = Revision.objects.filter(id=live_rev_id).first()
+        raw_refs = extract_raw_author_refs_from_revision_content(
+            getattr(live_rev, "content", None) if live_rev is not None else None
+        )
+    else:
+        raw_refs = extract_raw_author_refs_from_page(page)
+    try:
+        resolved = resolve_author_attributions(
+            raw_refs,
+            revision_id=None if is_preview else live_rev_id,
+            allow_anonymous=True,
+        )
+    except RuntimeError:
+        resolved = []
+
+    if not resolved:
+        return []
+
+    persons_map = {
+        p.pk: p
+        for p in Person.objects.select_related("avatar").filter(
+            pk__in=[a.person_id for a in resolved]
+        )
+    }
+
+    active_preview_pids: set[int] = set()
+    if is_preview:
+        from discovery.eligibility import apply_public_eligibility_filter
+        from discovery.models import PublishedSearchAuthor, PublishedSearchDocument
+        from discovery.registry import get_author_enabled_type_keys
+
+        site = Site.find_for_request(request) if request is not None else None
+        eligible = PublishedSearchDocument.objects.filter(
+            is_live=True,
+            is_recycled=False,
+            type_key__in=get_author_enabled_type_keys(),
+            authored_on__lte=timezone.localdate(),
+        )
+        if site is not None:
+            eligible = eligible.filter(site_id=site.id)
+        eligible = apply_public_eligibility_filter(eligible)
+        active_preview_pids = set(
+            PublishedSearchAuthor.objects.filter(
+                person_id__in=[a.person_id for a in resolved],
+                document__in=eligible,
+            ).values_list("person_id", flat=True)
+        )
+
+    badges = []
+    for a in resolved:
+        p = persons_map.get(a.person_id)
+        url = _author_url(a.slug) if (not is_preview or a.person_id in active_preview_pids) else ""
+        badges.append({
+            "name": p.name if p else a.name,
+            "slug": a.slug,
+            "url": url,
+            "avatar_url": _avatar_url_for_person(p),
+            "role": a.role,
+            "role_label": a.role_label,
+            "is_anonymous": a.is_anonymous,
+        })
+    return badges
+
+
 def _build_toc_tree(flat_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
     根据平铺标题列表构建真实多级嵌套树（支持最多 4 级：如 h2→h3→h4，兼容旧文含 h1）。
@@ -424,12 +581,12 @@ def build_detail_presentation(page: Any, request: Any = None, *, body_field: str
         for ancestor in page.get_ancestors()
         if not ancestor.is_root() and not getattr(ancestor, "is_recycled", False)
     ]
-    authors = list(page.authors.select_related("person").all()) if hasattr(page, "authors") else []
     tag_links = resolve_tag_links(page, request)
     is_preview = bool(
         request is not None
         and (getattr(request, "is_preview", False) or getattr(request, "in_preview_panel", False))
     )
+    authors = _resolve_author_badges(page, request, is_preview=is_preview)
 
     return {
         "rendered_body_html": mark_safe("".join(rendered_blocks)),

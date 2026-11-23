@@ -8,6 +8,11 @@
 
 from django.core.exceptions import ValidationError
 from wagtail.admin.forms.pages import WagtailAdminPageForm
+from content_lifecycle.models import (
+    MAX_RESTRICTED_AUTHOR_ROWS,
+    validate_restricted_author_attributions,
+    validate_universal_author_attributions,
+)
 
 
 class CustomBasePageAdminForm(WagtailAdminPageForm):
@@ -15,6 +20,35 @@ class CustomBasePageAdminForm(WagtailAdminPageForm):
 
     def _validate_restricted_authors_formset(self) -> None:
         for_user = getattr(self, "for_user", None)
+        authors_formset = self.formsets.get("authors") if hasattr(self, "formsets") else None
+        if authors_formset is None:
+            return
+
+        from people.models import Person
+
+        author_entries = []
+        for idx, form in enumerate(authors_formset.forms):
+            cdata = getattr(form, "cleaned_data", None)
+            if not cdata or cdata.get("DELETE"):
+                continue
+            person = cdata.get("person")
+            if person is None:
+                continue
+            author_entries.append({
+                "person_id": person.pk,
+                "is_system_anonymous": bool(getattr(person, "is_system_anonymous", False)),
+                "role": cdata.get("role") or "",
+                "sort_order": cdata.get("ORDER"),
+                "orig_idx": idx,
+                "exists": True,
+            })
+
+        # 全角色通用校验：限制 50 人、禁止重复人物、禁止显式选入系统「佚名」
+        validate_universal_author_attributions(
+            author_entries,
+            max_authors=MAX_RESTRICTED_AUTHOR_ROWS,
+        )
+
         if not for_user or not getattr(for_user, "is_authenticated", False) or getattr(for_user, "is_superuser", False):
             return
 
@@ -29,39 +63,17 @@ class CustomBasePageAdminForm(WagtailAdminPageForm):
         if not user_is_restricted_author_for_page(for_user, check_page):
             return
 
-        authors_formset = self.formsets.get("authors") if hasattr(self, "formsets") else None
-        if not authors_formset:
-            return
-
-        from people.models import Person
-
-        linked_person = Person.objects.filter(linked_user_id=for_user.pk).first()
-        active_rows = []
-        for idx, form in enumerate(authors_formset.forms):
-            cdata = getattr(form, "cleaned_data", None)
-            if not cdata or cdata.get("DELETE"):
-                continue
-            person = cdata.get("person")
-            if person is None:
-                continue
-            order_val = cdata.get("ORDER")
-            sort_key = order_val if order_val is not None else idx
-            active_rows.append((sort_key, idx, person, cdata.get("role") or ""))
-
-        if not active_rows:
-            return
-
-        active_rows.sort(key=lambda item: (item[0], item[1]))
-        first_person = active_rows[0][2]
-
-        if linked_person is not None:
-            if first_person.pk != linked_person.pk:
-                raise ValidationError("受限作者保存页面时，第一署名作者必须为您本人关联的公开人物名片。")
-            for _, _, person, role in active_rows:
-                if role == "primary_author" and person.pk != linked_person.pk:
-                    raise ValidationError("受限作者禁止将其他人员设为主要作者 (primary_author)。")
-        else:
-            raise ValidationError("当前账号尚未由管理员绑定公开人物名片，受限作者不可擅自填写或冒用他人人物署名。")
+        linked_person = Person.objects.filter(
+            linked_user_id=for_user.pk,
+            is_system_anonymous=False,
+        ).first()
+        is_draft_save = bool(getattr(self, "is_deferred_validation", False))
+        validate_restricted_author_attributions(
+            author_entries,
+            linked_person_id=linked_person.pk if linked_person is not None else None,
+            allow_empty_draft=is_draft_save,
+            max_authors=MAX_RESTRICTED_AUTHOR_ROWS,
+        )
 
     def is_valid(self):
         valid = super().is_valid()

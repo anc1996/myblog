@@ -60,10 +60,11 @@
             el.dataset.uiMounted = "1";
             var allowClear = el.getAttribute("data-ui-clear") === "true";
             var placeholder = el.getAttribute("data-placeholder") || "输入关键词搜索筛选...";
+            var remoteUrl = el.getAttribute("data-ui-select-remote") || "";
             var plugins = [];
             if (el.multiple) plugins.push("remove_button");
             if (allowClear) plugins.push("clear_button");
-            new window.TomSelect(el, {
+            var config = {
                 plugins: plugins,
                 placeholder: placeholder,
                 allowEmptyOption: true,
@@ -71,7 +72,23 @@
                 onChange: function () {
                     el.dispatchEvent(new Event("change", { bubbles: true }));
                 },
-            });
+            };
+            if (remoteUrl) {
+                config.valueField = "value";
+                config.labelField = "label";
+                config.searchField = ["label"];
+                config.preload = "focus";
+                config.load = function (query, callback) {
+                    var sep = remoteUrl.indexOf("?") === -1 ? "?" : "&";
+                    fetch(remoteUrl + sep + "q=" + encodeURIComponent(query || ""), {
+                        headers: { "X-Requested-With": "XMLHttpRequest" },
+                    })
+                        .then(function (resp) { return resp.ok ? resp.json() : { items: [] }; })
+                        .then(function (data) { callback((data && Array.isArray(data.items)) ? data.items : []); })
+                        .catch(function () { callback(); });
+                };
+            }
+            new window.TomSelect(el, config);
         });
     }
 

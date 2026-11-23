@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block body_class %}template-author-detail{% endblock %}
+{% block title %}{{ person.name }} - 作者专栏{% endblock %}
+
+{% block extra_css %}
+<link rel="canonical" href="{{ request.scheme }}://{{ request.get_host }}{{ canonical_url }}">
+<link rel="alternate" type="application/rss+xml" title="{{ person.name }} RSS 订阅" href="{{ rss_url }}">
+<link rel="alternate" type="application/atom+xml" title="{{ person.name }} Atom 订阅" href="{{ atom_url }}">
+<link rel="stylesheet" type="text/css" href="{% static 'people/css/author_directory.css' %}?v=20261123a">
+{% endblock %}
+
+{% block content %}
+<div class="author-shell">
+    <nav class="author-breadcrumb" aria-label="面包屑导航">
+        <a href="/">首页</a>
+        <span aria-hidden="true">/</span>
+        <a href="{{ directory_url }}">作者专栏</a>
+        <span aria-hidden="true">/</span>
+        <span>{{ person.name }}</span>
+    </nav>
+
+    <section class="author-profile-card" aria-labelledby="author-profile-heading">
+        <div class="author-profile-avatar-wrap">
+            {% if avatar_url %}
+                <img src="{{ avatar_url }}" alt="{{ person.name }}" class="author-profile-avatar">
+            {% else %}
+                <span class="author-profile-avatar-fallback" aria-hidden="true">{% if person.is_system_anonymous %}👤{% else %}{{ person.initial }}{% endif %}</span>
+            {% endif %}
+        </div>
+        <div class="author-profile-body">
+            <div class="author-profile-title-row">
+                <h1 id="author-profile-heading" class="author-profile-name">{{ person.name }}</h1>
+                {% if person.is_system_anonymous %}
+                <span class="author-anon-pill">未单独署名内容统一归档</span>
+                {% endif %}
+            </div>
+            {% if person.bio %}
+            <p class="author-profile-bio">{{ person.bio }}</p>
+            {% endif %}
+            <div class="author-profile-meta">
+                <span class="author-meta-item">共 <strong>{{ card_total_count|default:0 }}</strong> 篇公开内容</span>
+                {% if public_email %}
+                <span class="author-meta-item">邮箱：<a href="mailto:{{ public_email }}">{{ public_email }}</a></span>
+                {% endif %}
+            </div>
+            <div class="author-profile-actions">
+                <a href="{{ rss_url }}" class="ui-btn ui-btn-outline ui-btn-sm">📡 RSS 订阅</a>
+                <a href="{{ atom_url }}" class="ui-btn ui-btn-outline ui-btn-sm">⚛️ Atom 订阅</a>
+                <a href="{{ search_in_site_url }}" class="ui-btn ui-btn-outline ui-btn-sm">🔍 在全站搜索此作者</a>
+            </div>
+        </div>
+    </section>
+
+    <form id="author-detail-form" action="{{ canonical_url }}" method="get" class="author-filter-card" role="search">
+        <div id="author-preserved-params" hidden>
+            {% if selected_type and selected_type != "all" %}
+            <input type="hidden" name="type" value="{{ selected_type }}">
+            {% endif %}
+            {% if selected_role and selected_role != "all" %}
+            <input type="hidden" name="role" value="{{ selected_role }}">
+            {% endif %}
+        </div>
+
+        <div class="author-filter-top">
+            <div class="listing-search-group">
+                <label for="author-detail-q" class="sr-only">在 {{ person.name }} 的文章中搜索</label>
+                <input
+                    type="search"
+                    id="author-detail-q"
+                    name="q"
+                    value="{{ search_query }}"
+                    class="ui-input form-control"
+                    placeholder="在 {{ person.name }} 的全部文章中搜索标题、简介与万字正文..."
+                    autocomplete="off"
+                >
+                <button type="submit" class="ui-btn ui-btn-primary">搜索专栏</button>
+            </div>
+
+            <div class="author-sort-wrap">
+                <select
+                    name="sort"
+                    id="author-detail-sort"
+                    class="ui-select form-select"
+                    data-ui-select
+                    data-placeholder="排序方式"
+                    aria-label="排序方式"
+                >
+                    <option value="authored_desc"{% if effective_sort == "authored_desc" %} selected{% endif %}>成文日期：新 &rarr; 旧</option>
+                    <option value="authored_asc"{% if effective_sort == "authored_asc" %} selected{% endif %}>成文日期：旧 &rarr; 新</option>
+                    <option value="relevance"{% if effective_sort == "relevance" %} selected{% endif %}>按匹配相关度优先</option>
+                </select>
+            </div>
+
+            <a href="{{ canonical_url }}" id="author-detail-reset" class="ui-btn ui-btn-outline author-ajax-link" data-author-reset="1">重置</a>
+        </div>
+
+        <div class="author-filter-advanced">
+            <label class="ui-check-label" for="author-title-only">
+                <input
+                    type="checkbox"
+                    id="author-title-only"
+                    name="title_only"
+                    value="1"
+                    {% if title_only %}checked{% endif %}
+                >
+                <span>仅搜标题</span>
+            </label>
+
+            <div class="listing-date-range">
+                <span class="small text-muted">成文日期：</span>
+                <input
+                    type="date"
+                    id="author-date-from"
+                    name="date_from"
+                    class="ui-input ui-date-input"
+                    data-ui-date="single"
+                    placeholder="开始日期"
+                    value="{{ date_from }}"
+                >
+                <span class="small text-muted">至</span>
+                <input
+                    type="date"
+                    id="author-date-to"
+                    name="date_to"
+                    class="ui-input ui-date-input"
+                    data-ui-date="single"
+                    placeholder="结束日期"
+                    value="{{ date_to }}"
+                >
+            </div>
+        </div>
+    </form>
+
+    <div id="author-detail-dynamic" aria-live="polite">
+        {% include "people/partials/_author_results.html" %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'people/js/author_controller.js' %}?v=20261123a" defer></script>
+{% endblock %}

@@ -1,0 +1,30 @@
+<section class="author-missing-box">
+    <h1>未找到该作者的公开专栏</h1>
+    <p>该作者链接可能不存在，或当前站点尚无该作者公开发布的内容。</p>
+    <p><a href="{{ directory_url }}" class="ui-btn ui-btn-primary">返回全站作者专栏大厅</a></p>
+
+    {% if recommended_authors %}
+    <div class="author-missing-rec">
+        <h2>为你推荐以下活跃作者</h2>
+        <div class="author-card-grid">
+            {% for card in recommended_authors %}
+            <article class="author-card">
+                <a href="{{ card.url }}" class="author-card-link">
+                    <div class="author-card-head">
+                        {% if card.avatar_url %}
+                            <img src="{{ card.avatar_url }}" alt="{{ card.name }}" class="author-card-avatar" loading="lazy">
+                        {% else %}
+                            <span class="author-card-avatar-fallback" aria-hidden="true">{% if card.is_anonymous %}👤{% else %}{{ card.initial }}{% endif %}</span>
+                        {% endif %}
+                        <div class="author-card-identity">
+                            <h3 class="author-card-name">{{ card.name }}</h3>
+                            <span class="author-card-total">{{ card.total_count }} 篇公开内容</span>
+                        </div>
+                    </div>
+                </a>
+            </article>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+</section>

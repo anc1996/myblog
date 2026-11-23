@@ -91,6 +91,14 @@
                     </div>
                     <p class="text-muted small mb-2">
                         成文日期：{{ item.authored_on|date:"Y-m-d" }}
+                        {% if entry.authors %}
+                            <span class="search-result-authors">
+                                · 作者：
+                                {% for au in entry.authors %}
+                                    <a href="{{ au.url }}" class="search-result-author-link">{% if au.is_anonymous %}👤 {% endif %}{{ au.name }}</a>{% if not forloop.last %}、{% endif %}
+                                {% endfor %}
+                            </span>
+                        {% endif %}
                     </p>
                     {% if item.highlights %}
                         <p class="text-secondary small mb-2 search-result-snippet">
@@ -177,6 +185,25 @@
                     >
                         <span>#{{ tg.name }}</span>
                         <span class="search-facet-badge">{{ tg.count }}</span>
+                    </a>
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+
+        {% if author_discovery_enabled and author_facet_items %}
+        <div class="search-facet-group">
+            <strong class="search-facet-title">活跃作者（支持多选）</strong>
+            <ul class="search-facet-list">
+                {% for au in author_facet_items %}
+                <li>
+                    <a
+                        href="{{ au.url }}"
+                        class="search-facet-link search-ajax-link{% if au.is_active %} is-active{% endif %}"
+                    >
+                        <span>{% if au.is_anonymous %}👤 {% endif %}{{ au.label }}</span>
+                        <span class="search-facet-badge">{{ au.count }}</span>
                     </a>
                 </li>
                 {% endfor %}

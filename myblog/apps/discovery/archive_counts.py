@@ -354,7 +354,8 @@ def reconcile_archive_counts(*, apply: bool = False, batch_size: int = 1000) -> 
             ArchiveDailyCount.objects.filter(generation__lt=next_gen).delete()
             ArchiveContribution.objects.filter(generation__lt=next_gen).delete()
 
-        ContentDiscoveryEpoch.increment_epoch()
+    # 统一锁顺序约定：释放 ArchiveCountState 行锁后再递增 Epoch，杜绝逆序死锁
+    ContentDiscoveryEpoch.increment_epoch()
 
     return {
         "mode": "applied",

@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block body_class %}template-author-directory{% endblock %}
+{% block title %}全站作者专栏{% endblock %}
+
+{% block extra_css %}
+<link rel="canonical" href="{{ request.scheme }}://{{ request.get_host }}{{ canonical_url }}">
+<link rel="stylesheet" type="text/css" href="{% static 'people/css/author_directory.css' %}?v=20261123a">
+{% endblock %}
+
+{% block content %}
+<div class="author-shell">
+    <header class="author-hero">
+        <div>
+            <p class="author-eyebrow">AUTHORS &amp; CONTRIBUTORS</p>
+            <h1 class="author-hero-title">全站作者专栏</h1>
+            <p class="author-hero-desc">按作者与贡献者发现全站已发布的技术博客、专题指南与开源项目。</p>
+        </div>
+        <div class="author-hero-stat">
+            <span class="author-stat-num">{{ total_active_authors }}</span>
+            <span class="author-stat-label">位活跃创作者</span>
+        </div>
+    </header>
+
+    <form id="author-directory-form" action="{{ canonical_url }}" method="get" class="author-search-card" role="search">
+        <div class="author-search-row">
+            <label for="author-directory-q" class="sr-only">搜索作者姓名或简介</label>
+            <input
+                type="search"
+                id="author-directory-q"
+                name="q"
+                value="{{ search_query }}"
+                class="ui-input"
+                placeholder="输入作者姓名或简介关键词搜索..."
+                autocomplete="off"
+            >
+            {% if selected_initial %}
+            <input type="hidden" id="author-directory-initial-input" name="initial" value="{{ selected_initial }}">
+            {% endif %}
+            <button type="submit" class="ui-btn ui-btn-primary">查找作者</button>
+            <a href="{{ reset_url }}" id="author-directory-reset" class="ui-btn ui-btn-outline author-ajax-link">重置</a>
+        </div>
+    </form>
+
+    <div id="author-directory-dynamic" aria-live="polite">
+        {% include "people/partials/_author_directory.html" %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'people/js/author_controller.js' %}?v=20261123a" defer></script>
+{% endblock %}

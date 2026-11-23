@@ -681,9 +681,15 @@ def commit_import_job(*, actor, site: Site, job_id: uuid.UUID) -> dict[str, Any]
             page.slug = _generate_unique_child_slug(parent_page, page.title, draft_spec.slug_hint)
 
             parent_page.add_child(instance=page)
-            bind_linked_person_for_page_owner(page)
-            if draft_spec.tags and hasattr(page, "tags"):
+            # 仅当操作人属于受限作者时预填其绑定名片；超管/主编导入保留空署名（正式发布后投影归入佚名）
+            from content_lifecycle.permissions import user_is_restricted_author_for_page
+            bound_person = False
+            if user_is_restricted_author_for_page(actor, parent_page):
+                bound_person = bind_linked_person_for_page_owner(page)
+            has_tags = bool(draft_spec.tags and hasattr(page, "tags"))
+            if has_tags:
                 page.tags.set(list(draft_spec.tags))
+            if bound_person or has_tags:
                 page.save(clean=False)
 
             page._prepared_external_pointers = mongo_pointers

@@ -9,6 +9,7 @@ Wagtail 页面生命周期与全站内容发现信号监听器。
 """
 
 import logging
+from django.db import transaction
 from django.dispatch import receiver
 from django.db.models.signals import post_save, post_delete, m2m_changed
 from wagtail.signals import page_published, page_unpublished, post_page_move, page_slug_changed
@@ -46,20 +47,54 @@ logger = logging.getLogger(__name__)
 
 @receiver(page_published)
 def on_page_published(sender, instance, **kwargs):
-    """页面正式上线：自动投影/更新到搜索副本"""
+    """页面正式上线：强制原子登记 Outbox 任务并尝试同步投影，投影异常时回滚内部 savepoint 并保留 pending 待办。"""
+    from external_content.models import OutboxEvent
+
+    page_id = getattr(instance, "id", None)
+    rev_id = getattr(instance, "live_revision_id", None)
+    event = OutboxEvent.objects.create(
+        event_type="page.published",
+        page_id=page_id,
+        revision_id=rev_id,
+        payload={"revision_id": rev_id},
+        status="pending",
+    )
+
     try:
-        project_page_to_discovery(instance)
+        with transaction.atomic():
+            project_page_to_discovery(instance)
+        from django.utils import timezone
+        OutboxEvent.objects.filter(pk=event.pk, status="pending").update(
+            status="processed",
+            processed_at=timezone.now(),
+        )
     except Exception as exc:
-        logger.exception("Failed to project published page %s to discovery: %s", getattr(instance, "id", None), exc)
+        logger.exception("Failed to project published page %s to discovery: %s", page_id, exc)
+        OutboxEvent.objects.filter(pk=event.pk).update(
+            retry_count=event.retry_count + 1,
+            payload={"revision_id": rev_id, "last_error": str(exc)[:500]},
+        )
 
 
 @receiver(page_unpublished)
 def on_page_unpublished(sender, instance, **kwargs):
-    """页面撤销发布：自动标记下架并递增 epoch"""
+    """页面撤销发布：登记 Outbox 并同步下架"""
+    from external_content.models import OutboxEvent
+
+    page_id = getattr(instance, "id", None)
     try:
         unpublish_page_discovery(instance.id)
     except Exception as exc:
-        logger.exception("Failed to mark unpublished page %s in discovery: %s", getattr(instance, "id", None), exc)
+        logger.exception("Failed to mark unpublished page %s in discovery: %s", page_id, exc)
+        try:
+            OutboxEvent.objects.create(
+                event_type="page.unpublished",
+                page_id=page_id,
+                payload={"last_error": str(exc)[:500]},
+                status="pending",
+            )
+        except Exception:
+            pass
 
 
 @receiver(post_page_move)
@@ -131,13 +166,20 @@ def on_tag_changed(sender, instance, **kwargs):
 
 # 监听 Person 与 GuideTopic 维度变更
 try:
-    from people.models import Person
+    from people.models import LegacyAuthorAttribution, Person
     @receiver([post_save, post_delete], sender=Person)
     def on_person_changed(sender, instance, **kwargs):
         try:
             ContentDiscoveryEpoch.increment_epoch()
         except Exception as exc:
             logger.exception("Failed to increment epoch on Person mutation: %s", exc)
+
+    @receiver([post_save, post_delete], sender=LegacyAuthorAttribution)
+    def on_legacy_attribution_changed(sender, instance, **kwargs):
+        try:
+            ContentDiscoveryEpoch.increment_epoch()
+        except Exception as exc:
+            logger.exception("Failed to increment epoch on LegacyAuthorAttribution mutation: %s", exc)
 except Exception:
     pass
 

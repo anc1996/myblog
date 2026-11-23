@@ -8,7 +8,14 @@ BlogPage 与 BlogIndexPage 的统一内容发现适配器 (TypeAdapter)。
 import re
 from datetime import date
 from typing import Any
-from discovery.contracts import PublishedPayload, PublicListingCapabilities, TextSegment, TypeAdapterContract
+from discovery.contracts import (
+    PublishedAuthorRef,
+    PublishedPayload,
+    PublicListingCapabilities,
+    TextSegment,
+    TypeAdapterContract,
+)
+from people.attribution import extract_raw_author_refs_from_page
 
 
 class BlogPageAdapter:
@@ -61,35 +68,19 @@ class BlogPageAdapter:
                 tag_ids.append(t.id)
                 tags_data.append({"id": t.id, "name": t.name, "slug": t.slug})
 
-        # 提取 authors
-        authors_data = []
-        author_slugs = []
-        if hasattr(page, "authors"):
-            try:
-                for a in page.authors.all():
-                    person = getattr(a, "person", None)
-                    if person:
-                        p_name = getattr(person, "name", "")
-                        p_id = getattr(person, "id", None)
-                        p_uuid = str(getattr(person, "public_id", ""))
-                        authors_data.append({
-                            "id": p_id,
-                            "name": p_name,
-                            "public_id": p_uuid,
-                            "role": getattr(a, "role", ""),
-                        })
-                        if p_id is not None:
-                            author_slugs.append(str(p_id))
-                        if p_name:
-                            author_slugs.append(p_name.lower().replace(" ", "-"))
-                        if p_uuid:
-                            author_slugs.append(p_uuid)
-            except Exception:
-                pass
+        # 仅提取原始作者引用，由 discovery/projection.py 统一调用 people.attribution 解析与落库
+        raw_author_refs = extract_raw_author_refs_from_page(page)
+        author_refs = [
+            PublishedAuthorRef(
+                person_id=r["person_id"],
+                role=str(r.get("role") or ""),
+                sort_order=int(r["sort_order"]) if r.get("sort_order") is not None else idx,
+            )
+            for idx, r in enumerate(raw_author_refs)
+        ]
 
         extra_data = {
-            "authors": authors_data,
-            "author_slugs": author_slugs,
+            "authors": [],
             "last_published_at": page.last_published_at.isoformat() if getattr(page, "last_published_at", None) else None,
             "topic_slug": "",
             "topic_name": "",
@@ -117,6 +108,7 @@ class BlogPageAdapter:
             text_segments=segments,
             tag_ids=tag_ids,
             tags_data=tags_data,
+            author_refs=author_refs,
             extra_data=extra_data,
         )
 

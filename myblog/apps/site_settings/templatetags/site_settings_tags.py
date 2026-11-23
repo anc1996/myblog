@@ -64,3 +64,18 @@ def get_public_nav_items(context, nav_setting):
             "is_external": item["is_external"],
         })
     return result
+
+
+@register.simple_tag
+def nav_has_url(nav_items, target_path: str) -> bool:
+    """检查动态导航配置中是否已包含指定相对路径（防止重复渲染固定栏目入口）。"""
+    if not nav_items:
+        return False
+    norm_target = "/" + str(target_path or "").strip("/") + "/"
+    for item in nav_items:
+        raw_url = str(item.get("url") or "").strip()
+        if not raw_url:
+            continue
+        if raw_url.rstrip("/") + "/" == norm_target or raw_url.endswith(norm_target):
+            return True
+    return False

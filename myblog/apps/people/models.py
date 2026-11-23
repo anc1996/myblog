@@ -4,19 +4,25 @@
 独立于 identity.User 管理后台登录账户：
 1. 网站公开作者、审校等人物无需登录后台；
 2. 修改作者公开资料不影响后台用户权限，两者严格解耦；
-3. 注册为 Wagtail Snippet，方便在管理后台录入与选择。
+3. 注册为受控 Wagtail Snippet，保护内置「佚名」名片与稳定 URL Slug。
 """
 
 import uuid
 from django.conf import settings
-from django.db import models
-from wagtail.snippets.models import register_snippet
+from django.core.exceptions import PermissionDenied, ValidationError
+from django.db import IntegrityError, models, transaction
+from django.db.models import Q
 from wagtail.admin.panels import FieldPanel
 
 from media_library.models import CustomImage
+from people.author_identity import (
+    build_unique_slug_with_suffix,
+    compute_initial_and_sort_key,
+    generate_base_slug,
+    is_disallowed_ordinary_slug,
+)
 
 
-@register_snippet
 class Person(models.Model):
     public_id = models.UUIDField(
         default=uuid.uuid4,
@@ -27,6 +33,36 @@ class Person(models.Model):
         help_text="全站统一稳定的人员唯一标识",
     )
     name = models.CharField(max_length=120, verbose_name="姓名")
+    slug = models.SlugField(
+        max_length=96,
+        unique=True,
+        editable=False,
+        allow_unicode=False,
+        verbose_name="规范Slug",
+        help_text="全站作者专栏与订阅稳定地址标识，生成后改名不自动变化",
+    )
+    initial = models.CharField(
+        max_length=1,
+        default="#",
+        db_index=True,
+        verbose_name="首字母分组",
+    )
+    initial_group_rank = models.SmallIntegerField(
+        default=1,
+        db_index=True,
+        verbose_name="分组桶序(0=A-Z,1=#)",
+    )
+    sort_key = models.CharField(
+        max_length=255,
+        default="",
+        db_index=True,
+        verbose_name="排序键",
+    )
+    is_system_anonymous = models.BooleanField(
+        default=False,
+        editable=False,
+        verbose_name="系统内置佚名标记",
+    )
     avatar = models.ForeignKey(
         CustomImage,
         null=True,
@@ -60,6 +96,120 @@ class Person(models.Model):
         verbose_name = "公开人物/作者"
         verbose_name_plural = "公开人物/作者"
         ordering = ["name"]
+        indexes = [
+            models.Index(
+                fields=["initial_group_rank", "initial", "sort_key", "id"],
+                name="people_person_dir_idx",
+            ),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=~Q(slug=""),
+                name="people_person_slug_nonempty_chk",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(is_system_anonymous=True, slug="anonymous", linked_user__isnull=True, email="")
+                    | (Q(is_system_anonymous=False) & ~Q(slug="anonymous"))
+                ),
+                name="people_person_sys_anon_chk",
+            ),
+        ]
 
     def __str__(self):
         return self.name
+
+    def clean(self):
+        super().clean()
+        if self.is_system_anonymous:
+            if self.linked_user_id is not None:
+                raise ValidationError({"linked_user": "系统内置「佚名」名片禁止绑定后台账号。"})
+            if (self.email or "").strip():
+                raise ValidationError({"email": "系统内置「佚名」名片禁止设置公开邮箱。"})
+
+    def save(self, *args, **kwargs):
+        if not self.public_id:
+            self.public_id = uuid.uuid4()
+
+        init_char, group_rank, sort_key = compute_initial_and_sort_key(self.name)
+        self.initial = init_char
+        self.initial_group_rank = group_rank
+        self.sort_key = sort_key
+
+        if self.is_system_anonymous:
+            self.slug = "anonymous"
+            self.linked_user = None
+            self.email = ""
+            return super().save(*args, **kwargs)
+
+        if self.slug:
+            if self.slug == "anonymous" or is_disallowed_ordinary_slug(self.slug):
+                raise ValidationError("普通公开人物不可占用系统保留或非法 Slug。")
+            return super().save(*args, **kwargs)
+
+        base_slug = generate_base_slug(self.name)
+        using = kwargs.get("using") or self._state.db or "default"
+        for attempt in range(0, 8):
+            candidate = build_unique_slug_with_suffix(base_slug, self.public_id, attempt=attempt)
+            self.slug = candidate
+            try:
+                with transaction.atomic(using=using):
+                    return super().save(*args, **kwargs)
+            except IntegrityError as exc:
+                if type(self).objects.using(using).filter(slug=candidate).exclude(pk=self.pk).exists():
+                    continue
+                raise exc
+        self.slug = f"person-{uuid.uuid4().hex[:16]}"
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        if self.is_system_anonymous or self.slug == "anonymous":
+            raise PermissionDenied("系统内置「佚名」名片受永久保护，禁止删除。")
+        return super().delete(*args, **kwargs)
+
+
+def get_or_create_anonymous_person(*, using: str = "default") -> Person:
+    """幂等获取或创建全站内置「佚名」名片（slug='anonymous'），绝不覆盖管理员已修改的展示名/头像/简介。"""
+    existing = Person.objects.using(using).filter(slug="anonymous").first()
+    if existing is not None:
+        return existing
+    init_char, group_rank, sort_key = compute_initial_and_sort_key("佚名")
+    obj, _ = Person.objects.using(using).get_or_create(
+        slug="anonymous",
+        defaults={
+            "name": "佚名",
+            "bio": "未单独署名的站点推送与资料归档",
+            "email": "",
+            "linked_user": None,
+            "is_system_anonymous": True,
+            "initial": init_char,
+            "initial_group_rank": group_rank,
+            "sort_key": sort_key,
+        },
+    )
+    return obj
+
+
+class LegacyAuthorAttribution(models.Model):
+    """
+    受控历史正式版本署名核准表。
+    仅通过管理员审定与受控命令按 revision_id 幂等写入，不自动从当前 owner 推导。
+    """
+    page_id = models.IntegerField(db_index=True, verbose_name="页面ID")
+    revision_id = models.IntegerField(unique=True, verbose_name="正式Revision ID")
+    person = models.ForeignKey(
+        Person,
+        on_delete=models.PROTECT,
+        related_name="legacy_attributions",
+        verbose_name="核准作者",
+    )
+    approved_by_id = models.IntegerField(null=True, blank=True, verbose_name="核准人ID")
+    approved_at = models.DateTimeField(auto_now_add=True, verbose_name="核准时间")
+
+    class Meta:
+        verbose_name = "历史版本署名核准"
+        verbose_name_plural = "历史版本署名核准"
+        ordering = ["-approved_at"]
+
+    def __str__(self):
+        return f"LegacyAuthorAttribution(page={self.page_id}, rev={self.revision_id}, person={self.person_id})"

@@ -128,14 +128,20 @@ class AuthorIsolationPhase4Tests(TestCase):
         self.person_b = Person.objects.create(name=f"作者B_{suffix}", linked_user=self.author_b)
 
     def _create_blog(self, owner, slug_prefix="b"):
+        from content_lifecycle.models import bind_linked_person_for_page_owner
+
         p = BlogPage(title=f"Blog by {owner.username}", slug=f"{slug_prefix}-{uuid4().hex[:6]}", owner=owner, live=False)
         self.blog_index.add_child(instance=p)
         p.body = [("markdown", f"Content by {owner.username}")]
+        if bind_linked_person_for_page_owner(p):
+            p.save(clean=False)
         p.save_revision(user=owner)
         p.refresh_from_db()
         return p
 
     def _create_guide(self, owner, with_step=True):
+        from content_lifecycle.models import bind_linked_person_for_page_owner
+
         p = GuidePage(
             title=f"Guide by {owner.username}",
             slug=f"g-{uuid4().hex[:6]}",
@@ -146,14 +152,20 @@ class AuthorIsolationPhase4Tests(TestCase):
         if with_step:
             p.body = [("step", {"step_number": 1, "title": "Step 1", "content": "Do it"})]
         self.guide_index.add_child(instance=p)
+        if bind_linked_person_for_page_owner(p):
+            p.save(clean=False)
         p.save_revision(user=owner)
         p.refresh_from_db()
         return p
 
     def _create_project(self, owner):
+        from content_lifecycle.models import bind_linked_person_for_page_owner
+
         p = ProjectPage(title=f"Proj by {owner.username}", slug=f"prj-{uuid4().hex[:6]}", owner=owner, live=False)
         self.portfolio_index.add_child(instance=p)
         p.body = [("markdown", f"Project by {owner.username}")]
+        if bind_linked_person_for_page_owner(p):
+            p.save(clean=False)
         p.save_revision(user=owner)
         p.refresh_from_db()
         return p

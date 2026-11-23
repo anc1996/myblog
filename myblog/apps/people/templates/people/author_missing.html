@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block body_class %}template-author-missing{% endblock %}
+{% block title %}未找到该作者专栏{% endblock %}
+
+{% block extra_css %}
+<meta name="robots" content="noindex, nofollow">
+<link rel="stylesheet" type="text/css" href="{% static 'people/css/author_directory.css' %}?v=20261123a">
+{% endblock %}
+
+{% block content %}
+<div class="author-shell">
+    {% include "people/partials/_author_missing_inner.html" %}
+</div>
+{% endblock %}

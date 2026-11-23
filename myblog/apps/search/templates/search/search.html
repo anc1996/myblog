@@ -76,6 +76,38 @@
                 </label>
             </div>
 
+            {% if author_discovery_enabled %}
+            <div class="search-author-filter-group">
+                <select
+                    id="search-author-select"
+                    name="author"
+                    multiple
+                    class="ui-select form-select"
+                    data-ui-select
+                    data-ui-select-remote="{{ author_lookup_url }}"
+                    data-placeholder="按作者筛选（输入名字搜索，支持多选）"
+                    aria-label="按作者筛选"
+                >
+                    {% for au in selected_author_options %}
+                    <option value="{{ au.slug }}" selected>{{ au.label }}</option>
+                    {% endfor %}
+                </select>
+
+                <select
+                    id="search-author-role-select"
+                    name="author_role"
+                    class="ui-select form-select"
+                    data-ui-select
+                    data-placeholder="贡献角色"
+                    aria-label="作者贡献角色"
+                >
+                    {% for r_val, r_label in author_role_options %}
+                    <option value="{{ r_val }}"{% if selected_author_role == r_val %} selected{% endif %}>{{ r_label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
+
             <div class="listing-date-range">
                 <span class="small text-muted">成文日期：</span>
                 <input
@@ -108,5 +140,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{% static 'search/js/search_controller.js' %}?v=20261122a" defer></script>
+<script src="{% static 'search/js/search_controller.js' %}?v=20261123a" defer></script>
 {% endblock %}

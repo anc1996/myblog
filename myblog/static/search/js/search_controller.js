@@ -17,6 +17,8 @@
     var queryInput = document.getElementById('search-query-input');
     var titleOnlyCheck = document.getElementById('search-title-only-check');
     var sortSelect = document.getElementById('search-sort-select');
+    var authorSelect = document.getElementById('search-author-select');
+    var authorRoleSelect = document.getElementById('search-author-role-select');
     var dateFromInput = document.getElementById('search-date-from');
     var dateToInput = document.getElementById('search-date-to');
     var resetBtn = document.getElementById('search-reset-btn');
@@ -56,6 +58,30 @@
             sortSelect.tomselect.setValue(activeFilters.sort, true);
           } else {
             sortSelect.value = activeFilters.sort;
+          }
+        }
+        if (authorSelect) {
+          var nextAuthors = Array.isArray(activeFilters.authors) ? activeFilters.authors : [];
+          var authorOpts = Array.isArray(activeFilters.author_options) ? activeFilters.author_options : [];
+          if (authorSelect.tomselect) {
+            authorOpts.forEach(function (opt) {
+              if (opt && opt.slug && !authorSelect.tomselect.options[opt.slug]) {
+                authorSelect.tomselect.addOption({ value: opt.slug, label: opt.label || opt.slug });
+              }
+            });
+            authorSelect.tomselect.setValue(nextAuthors, true);
+          } else {
+            Array.from(authorSelect.options).forEach(function (optEl) {
+              optEl.selected = nextAuthors.indexOf(optEl.value) !== -1;
+            });
+          }
+        }
+        if (authorRoleSelect) {
+          var nextRole = activeFilters.author_role || '';
+          if (authorRoleSelect.tomselect) {
+            authorRoleSelect.tomselect.setValue(nextRole, true);
+          } else {
+            authorRoleSelect.value = nextRole;
           }
         }
         if (dateFromInput) {
@@ -228,6 +254,18 @@
       sortSelect.addEventListener('change', function () {
         if (isSyncingForm) return;
         userExplicitSort = true;
+        fetchSearch(buildUrlFromForm(), true);
+      });
+    }
+    if (authorSelect) {
+      authorSelect.addEventListener('change', function () {
+        if (isSyncingForm) return;
+        fetchSearch(buildUrlFromForm(), true);
+      });
+    }
+    if (authorRoleSelect) {
+      authorRoleSelect.addEventListener('change', function () {
+        if (isSyncingForm) return;
         fetchSearch(buildUrlFromForm(), true);
       });
     }

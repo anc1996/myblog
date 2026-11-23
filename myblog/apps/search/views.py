@@ -1,28 +1,35 @@
 from datetime import date, timedelta
+import re
 from typing import Any
 from urllib.parse import urlencode
 
+from django.conf import settings
 from django.db.models import Q
 from django.http import JsonResponse
 from django.template.loader import render_to_string
 from django.template.response import TemplateResponse
-from django.urls import reverse
+from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
 from taggit.models import Tag
+from wagtail.models import Site
 
 from content_lifecycle.access import AccessContext, AccessMode
 from discovery.contracts import QuerySpec
+from discovery.eligibility import apply_public_eligibility_filter
 from discovery.facets import (
     _tag_name_priority,
     get_type_display_label,
 )
-from discovery.models import PublishedSearchTag
+from discovery.models import PublishedSearchAuthor, PublishedSearchDocument, PublishedSearchTag
 from discovery.pagination import (
     PageWindowExceededError,
     build_count_meta,
     build_pagination_payload,
 )
 from discovery.query import ContentQuery
+from discovery.registry import get_author_enabled_type_keys
+from people.author_identity import normalize_author_role, roles_for_filter_key
+from people.models import Person
 
 
 TRUE_VALUES = {"1", "true", "on", "yes"}
@@ -30,6 +37,28 @@ ALLOWED_SORTS = {"relevance", "authored_desc", "authored_asc"}
 ALLOWED_DAYS = {"7", "30", "365"}
 DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 50
+MAX_AUTHOR_FILTERS = 10
+_VALID_SEARCH_AUTHOR_SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+
+AUTHOR_ROLE_OPTIONS = (
+    ("", "全部角色"),
+    ("major", "主笔 / 主要作者"),
+    ("co_author", "共同作者"),
+    ("other_contrib", "技术审校 / 其他"),
+)
+
+AUTHOR_ROLE_LABELS = {
+    "major": "主笔 / 主要作者",
+    "co_author": "共同作者",
+    "other_contrib": "技术审校 / 其他",
+    "primary_author": "主要作者",
+    "core_dev": "核心研发",
+    "reviewer": "技术审校",
+    "translator": "翻译",
+    "editor": "责任编辑",
+    "other": "其他贡献",
+    "anonymous": "佚名",
+}
 
 UNIFIED_TYPE_OPTIONS = (
     ("", "全部"),
@@ -62,6 +91,63 @@ def _parse_tag_tokens(request) -> list[str]:
             if cleaned and cleaned not in tokens:
                 tokens.append(cleaned)
     return tokens
+
+
+def _parse_author_slugs(request) -> tuple[list[str], bool]:
+    """解析多选 ?author= 参数（最多 10 项），校验规范 slug 语法。"""
+    slugs: list[str] = []
+    for raw in request.GET.getlist("author"):
+        for part in str(raw).split(","):
+            cleaned = part.strip().lower()
+            if not cleaned:
+                continue
+            if len(cleaned) > 96 or not _VALID_SEARCH_AUTHOR_SLUG_RE.fullmatch(cleaned):
+                return [], True
+            if cleaned not in slugs:
+                slugs.append(cleaned)
+            if len(slugs) > MAX_AUTHOR_FILTERS:
+                return [], True
+    return slugs, False
+
+
+def _resolve_active_author_options(request, slugs: list[str]) -> list[dict[str, str]]:
+    """仅解析当前站点有公开内容（或系统佚名）的作者名称，未知/零篇 slug 不泄漏隐私名称。"""
+    if not slugs:
+        return []
+    site = Site.find_for_request(request)
+    author_types = get_author_enabled_type_keys()
+    eligible_docs = PublishedSearchDocument.objects.filter(
+        is_live=True,
+        is_recycled=False,
+        type_key__in=author_types,
+        authored_on__lte=timezone.localdate(),
+    )
+    if site is not None:
+        eligible_docs = eligible_docs.filter(site_id=site.id)
+    eligible_docs = apply_public_eligibility_filter(eligible_docs)
+
+    active_pids = set(
+        PublishedSearchAuthor.objects.filter(
+            author_slug__in=slugs,
+            document__in=eligible_docs,
+        ).values_list("person_id", flat=True)
+    )
+    persons_by_slug = {
+        p.slug: p.name
+        for p in Person.objects.filter(slug__in=slugs, pk__in=active_pids)
+    }
+    if "anonymous" in slugs and "anonymous" not in persons_by_slug:
+        anon_name = Person.objects.filter(slug="anonymous", is_system_anonymous=True).values_list("name", flat=True).first()
+        if anon_name:
+            persons_by_slug["anonymous"] = anon_name
+
+    return [
+        {
+            "slug": s,
+            "label": persons_by_slug.get(s) or f"未匹配作者 ({s})",
+        }
+        for s in slugs
+    ]
 
 
 def _resolve_tag_tokens(raw_tokens: list[str]) -> tuple[list[int], list[dict[str, Any]], bool]:
@@ -182,6 +268,8 @@ def _build_search_url(
     remove_keys: set[str] | None = None,
     remove_tag_norm_key: str | None = None,
     toggle_tag: dict[str, Any] | None = None,
+    remove_author_slug: str | None = None,
+    toggle_author: str | None = None,
     reset_pagination: bool = True,
 ) -> str:
     """基于当前状态构造多维组合筛选 URL，绝不误清已有其他筛选条件"""
@@ -189,6 +277,7 @@ def _build_search_url(
         "query": base_state.get("query", ""),
         "title_only": base_state.get("title_only", False),
         "type": base_state.get("type", ""),
+        "author_role": base_state.get("author_role", ""),
         "year": base_state.get("year"),
         "month": base_state.get("month"),
         "date_from": base_state.get("date_from", ""),
@@ -204,6 +293,7 @@ def _build_search_url(
         "seek_direction": base_state.get("seek_direction", ""),
     }
     tag_groups = [dict(g) for g in base_state.get("tag_groups", [])]
+    author_slugs = list(base_state.get("author_slugs", []))
 
     if reset_pagination:
         state["cursor"] = None
@@ -215,6 +305,8 @@ def _build_search_url(
         for rk in remove_keys:
             if rk == "tag":
                 tag_groups = []
+            elif rk == "author":
+                author_slugs = []
             elif rk in ("title_only",):
                 state[rk] = False
             elif rk in ("year", "month", "page_size", "cursor", "page"):
@@ -228,6 +320,16 @@ def _build_search_url(
 
     if remove_tag_norm_key is not None:
         tag_groups = [g for g in tag_groups if g["norm_key"] != remove_tag_norm_key]
+
+    if remove_author_slug is not None:
+        author_slugs = [s for s in author_slugs if s != remove_author_slug]
+
+    if toggle_author is not None:
+        a_slug = str(toggle_author).strip().lower()
+        if a_slug in author_slugs:
+            author_slugs = [s for s in author_slugs if s != a_slug]
+        elif a_slug and len(author_slugs) < MAX_AUTHOR_FILTERS:
+            author_slugs.append(a_slug)
 
     if toggle_tag is not None:
         t_norm = (toggle_tag.get("name") or "").strip().lower()
@@ -262,6 +364,10 @@ def _build_search_url(
         pairs.append(("title_only", "1"))
     if state["type"]:
         pairs.append(("type", state["type"]))
+    for a_slug in author_slugs:
+        pairs.append(("author", a_slug))
+    if state["author_role"]:
+        pairs.append(("author_role", state["author_role"]))
     for g in tag_groups:
         pairs.append(("tag", g["token"]))
     if state["year"]:
@@ -298,6 +404,9 @@ def _build_search_url(
 
 def search(request):
     """全站统一中文搜索与组合筛选入口"""
+    author_discovery_enabled = getattr(settings, "AUTHOR_DISCOVERY_ENABLED", True)
+    current_site = Site.find_for_request(request)
+    effective_site_id = current_site.id if current_site is not None else -1
     canonical_url = reverse("search")
     raw_query = request.GET.get("query")
     if raw_query is None:
@@ -312,6 +421,26 @@ def search(request):
     effective_tag_ids = tag_ids if tag_ids else ([-1] if has_unmatched_tag else [])
     active_tag_ids_set = set(tag_ids)
     active_tag_norm_keys = {g["norm_key"] for g in selected_tag_groups}
+
+    if author_discovery_enabled:
+        selected_author_slugs, bad_author_param = _parse_author_slugs(request)
+        raw_author_role = (request.GET.get("author_role") or "").strip().lower()
+        if raw_author_role in ("", "all"):
+            selected_author_role = ""
+            bad_role_param = False
+        elif roles_for_filter_key(raw_author_role):
+            selected_author_role = raw_author_role
+            bad_role_param = False
+        else:
+            selected_author_role = ""
+            bad_role_param = True
+        selected_author_options = _resolve_active_author_options(request, selected_author_slugs)
+    else:
+        selected_author_slugs, bad_author_param = [], False
+        selected_author_role = ""
+        bad_role_param = False
+        selected_author_options = []
+    active_author_slugs_set = set(selected_author_slugs)
 
     type_key = request.GET.get("type", "").strip()
     type_keys = [type_key] if type_key else []
@@ -392,6 +521,8 @@ def search(request):
         "title_only": title_only,
         "type": type_key,
         "tag_groups": selected_tag_groups,
+        "author_slugs": selected_author_slugs,
+        "author_role": selected_author_role,
         "year": year,
         "month": month,
         "date_from": parsed_date_from.isoformat() if parsed_date_from else "",
@@ -410,8 +541,11 @@ def search(request):
     spec = QuerySpec(
         q=search_query or None,
         search_fields="title" if title_only else "all",
+        site_id=effective_site_id,
         type_keys=type_keys,
         tag_ids=effective_tag_ids,
+        author_slugs=selected_author_slugs,
+        author_role=selected_author_role or None,
         year=year,
         month=month,
         date_from=effective_date_from,
@@ -425,7 +559,7 @@ def search(request):
         seek_date=seek_date,
         seek_direction=seek_direction,
         count_mode="bounded",
-        facets=["types", "tags", "years"],
+        facets=["types", "tags", "years", "authors"] if author_discovery_enabled else ["types", "tags", "years"],
     )
 
     access_context = AccessContext(
@@ -437,17 +571,24 @@ def search(request):
     error_message: str | None = None
     result = None
 
-    try:
-        result = ContentQuery.execute(spec, access_context)
-    except PageWindowExceededError as exc:
-        http_status = 422
-        error_message = (
-            f"页码 {exc.requested_page} 超出直跳窗口上限（最多支持直跳第 {exc.max_jump_page} 页），"
-            "请使用「下一页」游标或按成文日期定位。"
-        )
-    except ValueError:
+    if bad_author_param:
         http_status = 400
-        error_message = "无效的分页游标参数，请重置或返回第 1 页重试。"
+        error_message = "无效的作者筛选参数（仅支持规范 Slug，最多同时选 10 位作者）。"
+    elif bad_role_param:
+        http_status = 400
+        error_message = "无效的作者贡献角色参数。"
+    else:
+        try:
+            result = ContentQuery.execute(spec, access_context)
+        except PageWindowExceededError as exc:
+            http_status = 422
+            error_message = (
+                f"页码 {exc.requested_page} 超出直跳窗口上限（最多支持直跳第 {exc.max_jump_page} 页），"
+                "请使用「下一页」游标或按成文日期定位。"
+            )
+        except ValueError:
+            http_status = 400
+            error_message = "无效的分页游标参数，请重置或返回第 1 页重试。"
 
     if result is not None:
         items = result.items
@@ -572,6 +713,19 @@ def search(request):
             "url": _build_search_url(canonical_url, base_state, set_params={"year": next_yr}, reset_pagination=True),
         })
 
+    # 3b. 作者分面（支持多选 toggle，按规范 slug 去重，展示当前 Person.name）
+    author_facet_items: list[dict[str, Any]] = []
+    for au in facets.get("authors", []):
+        a_slug = au["slug"]
+        author_facet_items.append({
+            "slug": a_slug,
+            "label": au["label"],
+            "count": au["count"],
+            "is_anonymous": bool(au.get("is_anonymous", False)),
+            "is_active": a_slug in active_author_slugs_set,
+            "url": _build_search_url(canonical_url, base_state, toggle_author=a_slug, reset_pagination=True),
+        })
+
     # 4. 快捷时间范围胶囊（全部时间 / 近 7 天 / 近 30 天 / 近 1 年）
     days_options: list[dict[str, Any]] = []
     for d_key, d_label in DAYS_OPTIONS:
@@ -635,6 +789,27 @@ def search(request):
                 canonical_url, base_state, remove_keys={"type"}, reset_pagination=True
             ),
         })
+    for au_opt in selected_author_options:
+        active_filter_pills.append({
+            "key": "author",
+            "label": "作者",
+            "value": au_opt["label"],
+            "remove_url": _build_search_url(
+                canonical_url,
+                base_state,
+                remove_author_slug=au_opt["slug"],
+                reset_pagination=True,
+            ),
+        })
+    if selected_author_role:
+        active_filter_pills.append({
+            "key": "author_role",
+            "label": "角色",
+            "value": AUTHOR_ROLE_LABELS.get(selected_author_role, normalize_author_role(selected_author_role)[1]),
+            "remove_url": _build_search_url(
+                canonical_url, base_state, remove_keys={"author_role"}, reset_pagination=True
+            ),
+        })
     for tg_grp in selected_tag_groups:
         active_filter_pills.append({
             "key": "tag",
@@ -688,6 +863,36 @@ def search(request):
         })
 
     # 6. 为结果卡片构造友好的类型中文名与标签跳转链接
+    item_page_ids = [it.page_id for it in items]
+    doc_authors_map: dict[int, list[dict[str, Any]]] = {}
+    if author_discovery_enabled and item_page_ids:
+        raw_au_rows = list(
+            PublishedSearchAuthor.objects.filter(
+                document__page_id__in=item_page_ids,
+                document__site_id=effective_site_id,
+                document__index_generation=1,
+            )
+            .order_by("sort_order", "id")
+            .values("document__page_id", "person_id", "author_name", "author_slug")
+        )
+        live_names = {
+            p["id"]: p["name"]
+            for p in Person.objects.filter(id__in={r["person_id"] for r in raw_au_rows}).values("id", "name")
+        }
+        for r in raw_au_rows:
+            pid_page = int(r["document__page_id"])
+            slug_val = r["author_slug"]
+            try:
+                au_url = reverse("people:author_detail", kwargs={"slug": slug_val})
+            except NoReverseMatch:
+                au_url = f"/authors/{slug_val}/"
+            doc_authors_map.setdefault(pid_page, []).append({
+                "name": live_names.get(r["person_id"], r["author_name"]),
+                "slug": slug_val,
+                "url": au_url,
+                "is_anonymous": slug_val == "anonymous",
+            })
+
     display_items: list[dict[str, Any]] = []
     for it in items:
         tag_links = []
@@ -709,6 +914,7 @@ def search(request):
             "item": it,
             "type_label": get_type_display_label(it.type_key),
             "tag_links": tag_links,
+            "authors": doc_authors_map.get(it.page_id, []),
         })
 
     selected_tag_tokens = [g["token"] for g in selected_tag_groups]
@@ -717,6 +923,9 @@ def search(request):
         "title_only": title_only,
         "type": type_key,
         "tags": selected_tag_tokens,
+        "authors": selected_author_slugs,
+        "author_options": selected_author_options,
+        "author_role": selected_author_role,
         "year": year_str if year else "",
         "days": days,
         "date_from": parsed_date_from.isoformat() if parsed_date_from else "",
@@ -725,6 +934,11 @@ def search(request):
         "explicit_sort": explicit_sort,
         "seek_date": seek_date.isoformat() if seek_date else "",
     }
+
+    try:
+        author_lookup_url = reverse("people:author_lookup")
+    except NoReverseMatch:
+        author_lookup_url = "/authors/lookup/"
 
     context = {
         "search_query": search_query,
@@ -745,6 +959,12 @@ def search(request):
         "selected_type": type_key,
         "selected_tag": selected_tag_tokens[0] if selected_tag_tokens else "",
         "selected_tag_tokens": selected_tag_tokens,
+        "selected_author_slugs": selected_author_slugs,
+        "selected_author_options": selected_author_options,
+        "selected_author_role": selected_author_role,
+        "author_role_options": AUTHOR_ROLE_OPTIONS,
+        "author_lookup_url": author_lookup_url,
+        "author_discovery_enabled": author_discovery_enabled,
         "selected_year": str(year) if year else "",
         "selected_days": days,
         "date_from": parsed_date_from.isoformat() if parsed_date_from else "",
@@ -752,6 +972,7 @@ def search(request):
         "effective_sort": effective_sort,
         "type_options": type_options,
         "tag_facet_items": tag_facet_items,
+        "author_facet_items": author_facet_items,
         "year_facet_items": year_facet_items,
         "days_options": days_options,
         "active_filter_pills": active_filter_pills,

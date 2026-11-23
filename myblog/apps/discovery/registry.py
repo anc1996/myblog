@@ -84,6 +84,25 @@ def get_type_key_to_public_slug_map() -> dict[str, str]:
     return mapping
 
 
+def is_author_discovery_enabled(adapter: Any) -> bool:
+    """严格判定适配器是否显式声明接入全站作者专栏与按作者发现维度。"""
+    if adapter is None:
+        return False
+    caps = getattr(adapter, "capabilities", None)
+    if caps is None:
+        return False
+    dims = getattr(caps, "supported_dimensions", ()) or ()
+    return "author" in dims
+
+
+def get_author_enabled_type_keys() -> list[str]:
+    """获取所有显式声明支持 'author' 维度的页面类型 type_key 列表。"""
+    return [
+        k for k, adapter in _ADAPTER_REGISTRY.items()
+        if is_author_discovery_enabled(adapter)
+    ]
+
+
 def clear_adapters() -> None:
     """清空适配器注册表（仅供测试套件重置使用）"""
     _ADAPTER_REGISTRY.clear()

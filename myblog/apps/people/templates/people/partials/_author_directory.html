@@ -1,0 +1,103 @@
+{% if show_top_authors and top_authors %}
+<section class="author-top-section" aria-labelledby="author-top-heading">
+    <h2 id="author-top-heading" class="author-section-title">高产热门作者</h2>
+    <div class="author-card-grid author-card-grid--top">
+        {% for card in top_authors %}
+        <article class="author-card">
+            <a href="{{ card.url }}" class="author-card-link">
+                <div class="author-card-head">
+                    {% if card.avatar_url %}
+                        <img src="{{ card.avatar_url }}" alt="{{ card.name }}" class="author-card-avatar" loading="lazy">
+                    {% else %}
+                        <span class="author-card-avatar-fallback" aria-hidden="true">{% if card.is_anonymous %}👤{% else %}{{ card.initial }}{% endif %}</span>
+                    {% endif %}
+                    <div class="author-card-identity">
+                        <h3 class="author-card-name">{{ card.name }}{% if card.is_anonymous %} <span class="author-anon-pill">系统归档</span>{% endif %}</h3>
+                        <span class="author-card-total">{{ card.total_count }} 篇公开内容</span>
+                    </div>
+                </div>
+                {% if card.bio_excerpt %}
+                <p class="author-card-bio">{{ card.bio_excerpt }}</p>
+                {% endif %}
+                {% if card.type_badges %}
+                <div class="author-card-types">
+                    {% for tb in card.type_badges %}
+                    <span class="author-type-badge">{{ tb.label }} {{ tb.count }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </a>
+        </article>
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
+
+<nav class="author-az-nav" aria-label="按首字母筛选作者">
+    {% for item in initial_nav %}
+        {% if item.has_items %}
+            <a href="{{ item.url }}" class="author-az-btn author-ajax-link{% if item.is_active %} is-active{% endif %}">{{ item.letter }}</a>
+        {% else %}
+            <span class="author-az-btn is-disabled" aria-disabled="true">{{ item.letter }}</span>
+        {% endif %}
+    {% endfor %}
+</nav>
+
+{% if grouped_authors %}
+<div class="author-directory-groups">
+    {% for grp in grouped_authors %}
+    <section class="author-group-section" aria-labelledby="author-group-{{ grp.initial }}">
+        <h2 id="author-group-{{ grp.initial }}" class="author-group-heading">{{ grp.initial }}</h2>
+        <div class="author-card-grid">
+            {% for card in grp.items %}
+            <article class="author-card">
+                <a href="{{ card.url }}" class="author-card-link">
+                    <div class="author-card-head">
+                        {% if card.avatar_url %}
+                            <img src="{{ card.avatar_url }}" alt="{{ card.name }}" class="author-card-avatar" loading="lazy">
+                        {% else %}
+                            <span class="author-card-avatar-fallback" aria-hidden="true">{% if card.is_anonymous %}👤{% else %}{{ card.initial }}{% endif %}</span>
+                        {% endif %}
+                        <div class="author-card-identity">
+                            <h3 class="author-card-name">{{ card.name }}{% if card.is_anonymous %} <span class="author-anon-pill">系统归档</span>{% endif %}</h3>
+                            <span class="author-card-total">{{ card.total_count }} 篇</span>
+                        </div>
+                    </div>
+                    {% if card.bio_excerpt %}
+                    <p class="author-card-bio">{{ card.bio_excerpt }}</p>
+                    {% endif %}
+                    {% if card.type_badges %}
+                    <div class="author-card-types">
+                        {% for tb in card.type_badges %}
+                        <span class="author-type-badge">{{ tb.label }} {{ tb.count }}</span>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                </a>
+            </article>
+            {% endfor %}
+        </div>
+    </section>
+    {% endfor %}
+</div>
+
+{% if page_obj.has_other_pages %}
+<nav class="author-dir-pagination" aria-label="作者目录分页">
+    {% if prev_page_url %}
+    <a href="{{ prev_page_url }}" class="ui-btn ui-btn-outline author-ajax-link">上一页</a>
+    {% endif %}
+    <span class="author-dir-page-info">第 {{ page_obj.number }} / {{ page_obj.paginator.num_pages }} 页（共 {{ filtered_count }} 位）</span>
+    {% if next_page_url %}
+    <a href="{{ next_page_url }}" class="ui-btn ui-btn-outline author-ajax-link">下一页</a>
+    {% endif %}
+</nav>
+{% endif %}
+{% else %}
+<div class="author-empty-state">
+    <p class="author-empty-title">暂无符合条件的活跃作者</p>
+    <p class="author-empty-desc">仅展示在当前站点拥有至少 1 篇正式发布且未回收内容的作者。</p>
+    {% if search_query or selected_initial %}
+    <a href="{{ reset_url }}" class="ui-btn ui-btn-primary author-ajax-link">查看全部活跃作者</a>
+    {% endif %}
+</div>
+{% endif %}

@@ -7,9 +7,16 @@
    并引导合规爬虫抓取 /sitemap.xml。
 """
 
+from urllib.parse import urlparse
+
+from django.contrib.sitemaps import Sitemap as DjangoSitemap
+from django.db.models import Exists, OuterRef
 from django.http import HttpResponse
+from django.urls import reverse
+from django.utils import timezone
 from wagtail.contrib.sitemaps.sitemap_generator import Sitemap
 from wagtail.contrib.sitemaps.views import sitemap
+from wagtail.models import Site
 
 
 class PublicOnlySitemap(Sitemap):
@@ -45,9 +52,83 @@ class PublicOnlySitemap(Sitemap):
         return qs
 
 
+class AuthorSitemap(DjangoSitemap):
+    """
+    当前站点活跃作者专栏 Sitemap。
+    仅收录在本站点拥有 >= 1 篇正式公开且未回收/未受限内容的活跃作者（含活跃时的 anonymous）。
+    """
+
+    def __init__(self, request=None):
+        self.request = request
+
+    def _get_site(self):
+        if getattr(self, "request", None) is not None:
+            return Site.find_for_request(self.request)
+        return Site.objects.filter(is_default_site=True).first()
+
+    def get_protocol(self, protocol=None):
+        site = self._get_site()
+        if site and site.root_url:
+            parsed = urlparse(site.root_url)
+            if parsed.scheme:
+                return parsed.scheme
+        return protocol or "https"
+
+    def get_domain(self, site=None):
+        wsite = self._get_site()
+        if wsite and wsite.root_url:
+            parsed = urlparse(wsite.root_url)
+            if parsed.netloc:
+                return parsed.netloc
+        if getattr(self, "request", None) is not None:
+            return self.request.get_host()
+        return super().get_domain(site)
+
+    def items(self):
+        from django.conf import settings
+        from discovery.eligibility import apply_public_eligibility_filter
+        from discovery.models import PublishedSearchAuthor, PublishedSearchDocument
+        from discovery.registry import get_author_enabled_type_keys
+        from people.models import Person
+
+        if not getattr(settings, "AUTHOR_DISCOVERY_ENABLED", True):
+            return Person.objects.none()
+
+        site = self._get_site()
+        site_today = timezone.localdate()
+        author_types = get_author_enabled_type_keys()
+        if not author_types:
+            return Person.objects.none()
+
+        eligible_docs = PublishedSearchDocument.objects.filter(
+            is_live=True,
+            is_recycled=False,
+            type_key__in=author_types,
+            authored_on__lte=site_today,
+        )
+        if site is not None:
+            eligible_docs = eligible_docs.filter(site_id=site.id)
+        eligible_docs = apply_public_eligibility_filter(eligible_docs)
+
+        active_author_exists = PublishedSearchAuthor.objects.filter(
+            person_id=OuterRef("pk"),
+            document__in=eligible_docs,
+        )
+        return Person.objects.filter(Exists(active_author_exists)).order_by("initial_group_rank", "initial", "sort_key", "id")
+
+    def location(self, obj):
+        return reverse("people:author_detail", kwargs={"slug": obj.slug})
+
+
 def sitemap_view(request):
     """Sitemap 路由交付视图"""
-    return sitemap(request, sitemaps={"wagtail": PublicOnlySitemap})
+    return sitemap(
+        request,
+        sitemaps={
+            "wagtail": PublicOnlySitemap,
+            "authors": AuthorSitemap(request=request),
+        },
+    )
 
 
 def robots_txt_view(request):

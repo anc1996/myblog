@@ -33,6 +33,7 @@ urlpatterns = [
     path("", include("identity.urls")),
     path("", include("media_library.urls")),
     path("documents/", include(wagtaildocs_urls)),
+    path("authors/", include("people.urls")),
     path("search/", search_views.search, name="search"),
     path("timeline/", timeline_view, name="timeline"),
     path("api/v1/", include("api.urls")),

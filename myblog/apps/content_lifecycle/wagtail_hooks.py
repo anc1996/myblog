@@ -398,6 +398,15 @@ def guard_page_bulk_actions(request, action_type, objects, bulk_action):
         if action_type == "publish":
             if not perms.can_publish():
                 raise PermissionDenied("批量发布包含无权发布的页面，已整批拒绝。")
+        elif action_type == "unpublish":
+            if not perms.can_unpublish():
+                raise PermissionDenied("批量下架包含无权下架的页面，已整批拒绝。")
+        elif action_type == "delete":
+            if not perms.can_delete():
+                raise PermissionDenied("批量删除包含无权删除的页面，已整批拒绝。")
+
+    if action_type == "publish":
+        for page in check_pages:
             specific = page.specific
             if hasattr(specific, "validate_for_publish"):
                 try:
@@ -406,20 +415,17 @@ def guard_page_bulk_actions(request, action_type, objects, bulk_action):
                     msg = "; ".join(exc.messages) if hasattr(exc, "messages") else str(exc)
                     messages.error(request, msg)
                     return redirect(bulk_action.next_url)
-        elif action_type == "unpublish":
-            if not perms.can_unpublish():
-                raise PermissionDenied("批量下架包含无权下架的页面，已整批拒绝。")
-        elif action_type == "delete":
-            if not perms.can_delete():
-                raise PermissionDenied("批量删除包含无权删除的页面，已整批拒绝。")
 
     return None
 
 
 @receiver(init_new_page)
 def prefill_linked_person_on_new_page(sender, page, parent, **kwargs):
-    """通用作者关联预填 (P1-4)：为已绑定 linked_user 的创作者自动预填第一署名人物。"""
+    """受限作者关联预填 (P1-4)：仅对受限创作者自动预填第一署名人物，管理员留空时保留无署名状态（投影为佚名）。"""
     if not isinstance(page, CustomBasePage):
+        return
+    owner = getattr(page, "owner", None)
+    if owner is None or not user_is_restricted_author_for_page(owner, parent or page):
         return
     from content_lifecycle.models import bind_linked_person_for_page_owner
     bind_linked_person_for_page_owner(page)

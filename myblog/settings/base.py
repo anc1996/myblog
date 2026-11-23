@@ -304,6 +304,14 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024  # 显式放宽到 20 MiB，避�
 # 站点对外名称
 WAGTAIL_SITE_NAME = "myblog"
 
+# 全站作者专栏与按作者搜索统一发布开关（切换与回退保护）
+AUTHOR_DISCOVERY_ENABLED = os.environ.get("MYBLOG_AUTHOR_DISCOVERY_ENABLED", "1").strip().lower() not in {
+    "0",
+    "false",
+    "no",
+    "off",
+}
+
 # Wagtail 8.1 工作流终审版本防篡改保护 (H-06)
 WAGTAIL_WORKFLOW_REQUIRE_REAPPROVAL_ON_EDIT = True
 WAGTAIL_FINISH_WORKFLOW_ACTION = "content_lifecycle.workflows.publish_approved_revision"

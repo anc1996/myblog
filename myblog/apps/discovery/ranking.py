@@ -50,8 +50,12 @@ def compute_query_fingerprint(
     expand: str = "auto",
     secondary: str = "none",
     extra_filters: dict[str, Any] | None = None,
+    author_slugs: list[str] | None = None,
+    author_role: str | None = None,
 ) -> str:
     """计算当前查询条件的唯一规范化指纹 (SHA-256 前16位)"""
+    norm_author_slugs = sorted({str(s).strip().lower() for s in (author_slugs or []) if str(s).strip()})
+    norm_author_role = (author_role or "").strip().lower()
     data = {
         "q": (q or "").strip().lower(),
         "search_fields": search_fields or "all",
@@ -61,6 +65,8 @@ def compute_query_fingerprint(
         "type_keys": sorted(type_keys or []),
         "tag_ids": sorted(tag_ids or []),
         "tag_mode": tag_mode or "ANY",
+        "author_slugs": norm_author_slugs,
+        "author_role": norm_author_role,
         "expand": expand or "auto",
         "secondary": secondary or "none",
         "date_from": date_from.isoformat() if date_from else None,

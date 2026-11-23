@@ -9,7 +9,9 @@
 
 from typing import Any
 from django.db.models import Count
-from discovery.models import PublishedSearchTag
+from discovery.models import PublishedSearchAuthor, PublishedSearchTag
+from people.author_identity import roles_for_filter_key
+from people.models import Person
 
 
 NAVIGATION_TYPE_KEYS = ("blog_index", "guide_index", "portfolio_index", "tag_index")
@@ -50,7 +52,12 @@ def _tag_name_priority(name: str, count: int) -> tuple[int, int, int, str]:
     return (tier, 1 if starts_upper else 0, count, name)
 
 
-def compute_facets(qs, requested_facets: list[str]) -> dict[str, list[dict[str, Any]]]:
+def compute_facets(
+    qs,
+    requested_facets: list[str],
+    *,
+    active_author_role: str | None = None,
+) -> dict[str, list[dict[str, Any]]]:
     """计算请求维度的精确分桶统计"""
     facets_result: dict[str, list[dict[str, Any]]] = {}
 
@@ -146,11 +153,53 @@ def compute_facets(qs, requested_facets: list[str]) -> dict[str, list[dict[str, 
             if item["authored_on__year"] is not None
         ]
 
-    # 4. 专属筛选器注册分桶动态聚合 (A-03)
+    # 4. 作者聚合 (按规范 person_id/author_slug 去重计 COUNT DISTINCT document_id，再取当前 Person.name)
+    if "authors" in requested_facets:
+        author_qs = PublishedSearchAuthor.objects.filter(document__in=qs)
+        if active_author_role:
+            role_codes = roles_for_filter_key(active_author_role)
+            if role_codes:
+                author_qs = author_qs.filter(role__in=role_codes)
+            else:
+                author_qs = author_qs.none()
+
+        raw_author_counts = list(
+            author_qs.values("person_id", "author_slug")
+            .annotate(count=Count("document_id", distinct=True))
+            .filter(count__gte=1)
+        )
+        person_ids = [int(r["person_id"]) for r in raw_author_counts]
+        persons_by_id = {
+            p["id"]: p
+            for p in Person.objects.filter(id__in=person_ids).values(
+                "id", "name", "slug", "sort_key", "is_system_anonymous"
+            )
+        }
+        author_items: list[dict[str, Any]] = []
+        for row in raw_author_counts:
+            pid = int(row["person_id"])
+            p = persons_by_id.get(pid)
+            if not p:
+                continue
+            author_items.append({
+                "id": pid,
+                "key": p["slug"],
+                "slug": p["slug"],
+                "label": p["name"],
+                "count": int(row["count"] or 0),
+                "sort_key": p["sort_key"] or p["name"].lower(),
+                "is_anonymous": bool(p["is_system_anonymous"]),
+            })
+        author_items.sort(key=lambda x: (-x["count"], x["sort_key"], x["slug"]))
+        for it in author_items:
+            it.pop("sort_key", None)
+        facets_result["authors"] = author_items[:20]
+
+    # 5. 专属筛选器注册分桶动态聚合 (A-03)
     try:
         from discovery.listing.registry import get_listing_filter_by_facet_key
         for f_key in requested_facets:
-            if f_key not in ("types", "tags", "years"):
+            if f_key not in ("types", "tags", "years", "authors"):
                 filter_def = get_listing_filter_by_facet_key(f_key)
                 if filter_def:
                     facets_result[f_key] = filter_def.compute_facet(qs)

@@ -29,7 +29,7 @@
         {% endif %}
 
         {# Global stylesheets #}
-        <link rel="stylesheet" type="text/css" href="{% static 'css/myblog.css' %}?v=20261122g">
+        <link rel="stylesheet" type="text/css" href="{% static 'css/myblog.css' %}?v=20261123a">
         {% include "includes/_ui_assets_css.html" %}
 
         {% block extra_css %}
@@ -59,11 +59,16 @@
                                 {% if item.badge %}<span class="nav-badge">{{ item.badge }}</span>{% endif %}
                             </a>
                         {% endfor %}
+                        {% nav_has_url public_nav_items "/authors/" as has_authors_nav %}
+                        {% if not has_authors_nav %}
+                            <a href="/authors/" class="nav-link">作者专栏</a>
+                        {% endif %}
                     {% else %}
                         <a href="/" class="nav-link">首页</a>
                         <a href="/tech/" class="nav-link">技术专栏</a>
                         <a href="/guides/" class="nav-link">专题指南</a>
                         <a href="/portfolio/" class="nav-link">开源作品</a>
+                        <a href="/authors/" class="nav-link">作者专栏</a>
                         <a href="/tags/" class="nav-link">全站标签</a>
                         <a href="/timeline/" class="nav-link">时间线</a>
                     {% endif %}
@@ -127,6 +132,7 @@
                     <div class="footer-col footer-col-discovery">
                         <h5 class="footer-subtitle">发现与归档</h5>
                         <ul class="footer-link-list">
+                            <li><a href="/authors/">全站作者专栏</a></li>
                             <li><a href="/tags/">全站标签大厅</a></li>
                             <li><a href="/timeline/">年月时间线归档</a></li>
                             <li><a href="/search/">全站中文搜索</a></li>

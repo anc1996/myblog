@@ -22,9 +22,10 @@ import logging
 import re
 from typing import Any
 from django.db import connection, transaction
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 from django.contrib.postgres.search import SearchQuery
 from django.http import Http404
+from django.utils import timezone
 
 from discovery.contracts import QuerySpec, QueryResult, SearchResultItem
 from discovery.eligibility import apply_public_eligibility_filter
@@ -38,10 +39,12 @@ from discovery.ranking import (
 )
 from discovery.models import (
     ContentDiscoveryEpoch,
+    PublishedSearchAuthor,
     PublishedSearchDocument,
     PublishedSearchChunk,
     PublishedSearchTag,
 )
+from people.author_identity import roles_for_filter_key
 from discovery.analysis import normalize_text, protect_tech_terms, tokenize_text
 from discovery.synonyms import expand_terms
 from discovery.facets import (
@@ -128,6 +131,8 @@ class ContentQuery:
 
         page_size = max(1, min(spec.page_size, 50))
         effective_type_keys = _expand_type_keys(spec.type_keys)
+        norm_author_slugs = sorted({str(s).strip().lower() for s in (spec.author_slugs or []) if str(s).strip()})
+        norm_author_role = (spec.author_role or "").strip().lower() or None
         query_fp = compute_query_fingerprint(
             q=spec.q,
             search_fields=spec.search_fields,
@@ -144,6 +149,8 @@ class ContentQuery:
             expand=spec.expand,
             secondary=spec.secondary,
             extra_filters=spec.extra_filters,
+            author_slugs=norm_author_slugs,
+            author_role=norm_author_role,
         )
 
         # 快照事务状态机检查 (B-03)
@@ -281,6 +288,22 @@ class ContentQuery:
             else:
                 candidates = candidates.filter(search_tags__tag_id__in=spec.tag_ids).distinct()
 
+        # 作者与同一关系行贡献角色过滤 (Exists 绝不将合著文章扩成多行)
+        norm_author_slugs = sorted({str(s).strip().lower() for s in (spec.author_slugs or []) if str(s).strip()})
+        norm_author_role = (spec.author_role or "").strip().lower() or None
+        if norm_author_slugs or norm_author_role:
+            candidates = candidates.filter(authored_on__lte=timezone.localdate())
+            author_rows = PublishedSearchAuthor.objects.filter(document_id=OuterRef("pk"))
+            if norm_author_slugs:
+                author_rows = author_rows.filter(author_slug__in=norm_author_slugs)
+            if norm_author_role:
+                role_codes = roles_for_filter_key(norm_author_role)
+                if role_codes:
+                    author_rows = author_rows.filter(role__in=role_codes)
+                else:
+                    author_rows = author_rows.none()
+            candidates = candidates.filter(Exists(author_rows))
+
         # 日期过滤 (闭区间)
         if spec.year:
             candidates = candidates.filter(authored_on__year=spec.year)
@@ -317,7 +340,11 @@ class ContentQuery:
 
         if not raw_q:
             # 无关键词：纯 FILTER 模式 (先计算跨类型分桶统计，再按 type_keys 切片，BLK-03 / R04)
-            facets_data = compute_facets(candidates, spec.facets) if (spec.compute_facets_flag and spec.facets) else {}
+            facets_data = (
+                compute_facets(candidates, spec.facets, active_author_role=norm_author_role)
+                if (spec.compute_facets_flag and spec.facets)
+                else {}
+            )
             archive_data = compute_archive_groups(candidates) if (not spec.include_listing_scope and spec.count_mode == "exact") else []
 
             # 应用当前选中的类型过滤
@@ -334,6 +361,8 @@ class ContentQuery:
                 else:
                     can_use_summary = (
                         not spec.tag_ids
+                        and not norm_author_slugs
+                        and not norm_author_role
                         and not spec.root_page_id
                         and not spec.page_id
                         and not spec.year
@@ -503,7 +532,7 @@ class ContentQuery:
             previous_cursor = None
             if has_more and items_to_render:
                 last_doc = items_to_render[-1]
-                if is_keyset or spec.include_listing_scope or spec.count_mode == "bounded":
+                if is_keyset or spec.include_listing_scope or spec.count_mode == "bounded" or spec.use_keyset:
                     next_cursor = encode_keyset_cursor(
                         epoch=current_epoch,
                         direction="next",
@@ -521,7 +550,7 @@ class ContentQuery:
             if has_prev:
                 if items_to_render:
                     first_doc = items_to_render[0]
-                    if is_keyset or spec.include_listing_scope or spec.count_mode == "bounded":
+                    if is_keyset or spec.include_listing_scope or spec.count_mode == "bounded" or spec.use_keyset:
                         previous_cursor = encode_keyset_cursor(
                             epoch=current_epoch,
                             direction="prev",
@@ -640,7 +669,11 @@ class ContentQuery:
 
         # 先在跨类型全集上计算 facets 与归档统计
         final_hit_qs = PublishedSearchDocument.objects.filter(id__in=matched_doc_ids)
-        facets_data = compute_facets(final_hit_qs, spec.facets) if (spec.compute_facets_flag and spec.facets) else {}
+        facets_data = (
+            compute_facets(final_hit_qs, spec.facets, active_author_role=norm_author_role)
+            if (spec.compute_facets_flag and spec.facets)
+            else {}
+        )
         archive_data = compute_archive_groups(final_hit_qs) if (not spec.include_listing_scope and spec.count_mode == "exact") else []
 
         # 过滤当前选中的类型
@@ -776,7 +809,7 @@ class ContentQuery:
             last_item = items[-1]
             last_mode = last_item.match_mode
             t_rank = MATCH_MODE_TO_TIER_RANK.get(last_mode, 3)
-            if is_keyset or spec.include_listing_scope or spec.count_mode == "bounded":
+            if is_keyset or spec.include_listing_scope or spec.count_mode == "bounded" or spec.use_keyset:
                 next_cursor = encode_keyset_cursor(
                     epoch=current_epoch,
                     direction="next",
@@ -796,7 +829,7 @@ class ContentQuery:
                 first_item = items[0]
                 first_mode = first_item.match_mode
                 f_tr = MATCH_MODE_TO_TIER_RANK.get(first_mode, 3)
-                if is_keyset or spec.include_listing_scope or spec.count_mode == "bounded":
+                if is_keyset or spec.include_listing_scope or spec.count_mode == "bounded" or spec.use_keyset:
                     previous_cursor = encode_keyset_cursor(
                         epoch=current_epoch,
                         direction="prev",

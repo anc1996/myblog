@@ -13,28 +13,38 @@ discovery.feeds
 import hashlib
 import html
 import re
+import uuid
 from datetime import date, datetime, time, timezone as dt_timezone
 from typing import Any
 
 from django.conf import settings
 from django.db import models
+from django.db.models import Exists, OuterRef
 from django.db.models.functions import TruncMonth
-from django.http import Http404, HttpRequest, HttpResponse
+from django.http import Http404, HttpRequest, HttpResponse, HttpResponsePermanentRedirect
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.cache import get_conditional_response
 from django.utils.feedgenerator import Atom1Feed, Rss201rev2Feed
 from wagtail.models import Site
 
 from discovery.contracts import PublicListingCapabilities
-from discovery.models import ContentDiscoveryEpoch, PublishedSearchDocument
+from discovery.eligibility import apply_public_eligibility_filter
+from discovery.models import (
+    ContentDiscoveryEpoch,
+    PublishedSearchAuthor,
+    PublishedSearchDocument,
+)
 from discovery.registry import (
     get_adapter_by_public_type_slug,
     get_archive_enabled_type_keys,
+    get_author_enabled_type_keys,
     get_feed_enabled_type_keys,
     get_public_type_slug_map,
     get_type_key_to_public_slug_map,
     list_type_adapters,
 )
+from people.models import Person
 from content_lifecycle.public_access import get_public_blocked_page_ids
 
 _XML_ILLEGAL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
@@ -167,12 +177,13 @@ def public_feed_view(request: HttpRequest, dimension: str = "all", slug: str | N
     slug_token = hashlib.sha256(slug.encode("utf-8")).hexdigest()[:12] if slug else "all"
     weak_etag = f'W/"feed:v1:s{site_id or 0}:e{epoch}:{dimension}:{slug_token}:{fmt}:{site_today}"'
 
-    # 校验条件请求
-    conditional_response = get_conditional_response(request, etag=weak_etag)
-    if conditional_response is not None:
-        conditional_response["Cache-Control"] = "public, max-age=60"
-        conditional_response["ETag"] = weak_etag
-        return conditional_response
+    # 作者维度禁用 304 短路，确保撤权/更名/改私有即时生效
+    if dimension != "author":
+        conditional_response = get_conditional_response(request, etag=weak_etag)
+        if conditional_response is not None:
+            conditional_response["Cache-Control"] = "public, max-age=60"
+            conditional_response["ETag"] = weak_etag
+            return conditional_response
 
     # 2. 构造基础合法候选集 (for_feed=True)
     qs = get_public_listing_queryset(site_id=site_id, for_feed=True)
@@ -203,13 +214,60 @@ def public_feed_view(request: HttpRequest, dimension: str = "all", slug: str | N
         channel_description = f"带有标签 #{slug} 的最新文章"
 
     elif dimension == "author":
+        if not getattr(settings, "AUTHOR_DISCOVERY_ENABLED", True):
+            raise Http404("Author discovery is disabled.")
         if not slug:
             raise Http404("Missing author slug")
-        # 匹配 extra_data 中的 author_slugs
-        slug_clean = slug.strip().lower()
-        qs = qs.filter(extra_data__author_slugs__contains=slug_clean)
-        channel_title = f"{site_name} - 作者: {slug}"
-        channel_description = f"作者 {slug} 撰写的技术内容"
+        raw_slug = slug.strip()
+        person = Person.objects.filter(slug__iexact=raw_slug).first()
+        is_legacy_redirect = False
+        if person is not None:
+            if person.slug != raw_slug:
+                is_legacy_redirect = True
+        else:
+            # 兼容历史 public_id (UUID) 或纯数字主键重定向到规范 slug Feed
+            try:
+                uid = uuid.UUID(raw_slug)
+                person = Person.objects.filter(public_id=uid).first()
+                if person is not None:
+                    is_legacy_redirect = True
+            except (ValueError, TypeError):
+                if raw_slug.isdigit():
+                    pk_val = int(raw_slug)
+                    if 1 <= pk_val <= 9223372036854775807:
+                        person = Person.objects.filter(pk=pk_val).first()
+                        if person is not None:
+                            is_legacy_redirect = True
+
+        if person is None:
+            raise Http404("Unknown author")
+
+        author_enabled_types = get_author_enabled_type_keys()
+        author_exists_sub = PublishedSearchAuthor.objects.filter(
+            document_id=OuterRef("pk"),
+            author_slug=person.slug,
+        )
+        site_active_qs = apply_public_eligibility_filter(
+            get_public_listing_queryset(site_id=site_id, for_feed=False)
+            .filter(type_key__in=author_enabled_types)
+        ).filter(Exists(author_exists_sub))
+        has_site_posts = site_active_qs.exists()
+
+        if is_legacy_redirect:
+            if not has_site_posts:
+                raise Http404("Unknown author")
+            target_name = "discovery:feed_atom_author" if fmt == "atom" else "discovery:feed_author"
+            target_url = reverse(target_name, kwargs={"slug": person.slug})
+            return HttpResponsePermanentRedirect(target_url)
+
+        if person.slug != "anonymous" and not has_site_posts:
+            raise Http404("Author has no published content")
+
+        qs = apply_public_eligibility_filter(
+            qs.filter(type_key__in=author_enabled_types)
+        ).filter(Exists(author_exists_sub))
+        channel_title = f"{site_name} - 作者: {person.name}"
+        channel_description = f"作者 {person.name} 撰写的技术内容"
 
     elif dimension == "topic":
         if not slug:
@@ -220,6 +278,25 @@ def public_feed_view(request: HttpRequest, dimension: str = "all", slug: str | N
 
     # 排序并取最近 50 篇
     docs = list(qs.order_by("-authored_on", "-page_id")[:50])
+    doc_ids = [d.id for d in docs]
+    author_rows_by_doc: dict[int, list[dict[str, str]]] = {}
+    if doc_ids:
+        raw_author_rows = list(
+            PublishedSearchAuthor.objects.filter(document_id__in=doc_ids)
+            .order_by("sort_order", "id")
+            .values("document_id", "person_id", "author_slug")
+        )
+        live_person_names = {
+            p["id"]: p["name"]
+            for p in Person.objects.filter(
+                id__in={r["person_id"] for r in raw_author_rows}
+            ).values("id", "name")
+        }
+        for row in raw_author_rows:
+            did = row["document_id"]
+            pname = live_person_names.get(row["person_id"])
+            if pname:
+                author_rows_by_doc.setdefault(did, []).append({"name": pname})
 
     # 构建 Feed 实例
     feed_cls = SafeAtom1Feed if fmt == "atom" else SafeRss2Feed
@@ -247,7 +324,13 @@ def public_feed_view(request: HttpRequest, dimension: str = "all", slug: str | N
 
         # 作者信息
         extra = doc.extra_data or {}
-        authors = extra.get("authors") or []
+        authors = author_rows_by_doc.get(doc.id)
+        if not authors:
+            authors = [
+                {"name": a.get("name", "")}
+                for a in (extra.get("authors") or [])
+                if isinstance(a, dict) and a.get("name")
+            ]
         primary_author = authors[0]["name"] if authors else site_name
 
         feed.add_item(
@@ -265,8 +348,11 @@ def public_feed_view(request: HttpRequest, dimension: str = "all", slug: str | N
     # 序列化 XML
     content_type = "application/atom+xml; charset=utf-8" if fmt == "atom" else "application/rss+xml; charset=utf-8"
     response = HttpResponse(feed.writeString("utf-8"), content_type=content_type)
-    response["ETag"] = weak_etag
-    response["Cache-Control"] = "public, max-age=60"
+    if dimension == "author":
+        response["Cache-Control"] = "no-store"
+    else:
+        response["ETag"] = weak_etag
+        response["Cache-Control"] = "public, max-age=60"
     return response
 
 

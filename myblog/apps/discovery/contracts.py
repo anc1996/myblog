@@ -43,6 +43,14 @@ class TextSegment:
 
 
 @dataclass(frozen=True)
+class PublishedAuthorRef:
+    """页面类型适配器提取的原始作者引用（尚未解析为公开展示名片）"""
+    person_id: int
+    role: str = ""
+    sort_order: int = 0
+
+
+@dataclass(frozen=True)
 class PublishedPayload:
     """页面类型适配器从有效发布快照中提取的统一发布载荷"""
     page_id: int
@@ -55,6 +63,7 @@ class PublishedPayload:
     text_segments: list[TextSegment] = field(default_factory=list)
     tag_ids: list[int] = field(default_factory=list)
     tags_data: list[dict[str, Any]] = field(default_factory=list)
+    author_refs: list[PublishedAuthorRef] = field(default_factory=list)
     extra_data: dict[str, Any] = field(default_factory=dict)
 
 
@@ -70,6 +79,8 @@ class QuerySpec:
     page_id: int | None = None
     tag_ids: list[int] = field(default_factory=list)
     tag_mode: str = "ANY"  # 'ANY' | 'ALL'
+    author_slugs: list[str] = field(default_factory=list)
+    author_role: str | None = None
     year: int | None = None
     month: int | None = None
     date_from: date | None = None
@@ -87,6 +98,7 @@ class QuerySpec:
     seek_date: date | None = None
     seek_direction: str = "date"  # 'date' | 'oldest'
     count_mode: str = "exact"  # 'exact' | 'bounded'
+    use_keyset: bool = False
     compute_facets_flag: bool = True
     extra_filters: dict[str, Any] = field(default_factory=dict)
 

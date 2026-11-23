@@ -2046,3 +2046,39 @@ body {
     margin-right: 12px;
   }
 }
+
+/* 作者详情页可点击署名徽章与全站搜索作者组合筛选 */
+.author-badge-link {
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.15s ease, background-color 0.15s ease, transform 0.15s ease;
+}
+.author-badge-link:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  transform: translateY(-1px);
+}
+.author-badge--anonymous {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.35);
+}
+.search-author-filter-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  flex: 1 1 320px;
+}
+.search-author-filter-group > select,
+.search-author-filter-group > .ts-wrapper {
+  flex: 1 1 200px;
+  min-width: 180px;
+}
+.search-result-author-link {
+  color: var(--color-primary);
+  text-decoration: none;
+  font-weight: 500;
+}
+.search-result-author-link:hover {
+  text-decoration: underline;
+}
