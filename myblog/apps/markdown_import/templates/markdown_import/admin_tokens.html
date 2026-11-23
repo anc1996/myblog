@@ -1,0 +1,71 @@
+{% extends "wagtailadmin/base.html" %}
+{% block titletag %}Markdown 导入令牌与配对码{% endblock %}
+
+{% block content %}
+{% include "wagtailadmin/shared/header.html" with title="Markdown 客户端导入授权" icon="upload" %}
+<div class="nice-padding">
+    <p>在此生成用于本地 GUI / CLI 导入客户端的 10 分钟一次性配对码或短期 Bearer 令牌（服务端仅保存摘要，不存明文）。</p>
+
+    {% if issued_pair_code %}
+        <div class="help-block help-info">
+            <strong>一次性配对码（10 分钟内有效）：</strong>
+            <code>{{ issued_pair_code }}</code>
+        </div>
+    {% endif %}
+
+    {% if issued_token_plaintext %}
+        <div class="help-block help-warning">
+            <strong>新建导入令牌（仅此次展示完整明文，请立即复制）：</strong>
+            <code>{{ issued_token_plaintext }}</code>
+        </div>
+    {% endif %}
+
+    <form method="post" style="display:flex; gap:12px; flex-wrap:wrap; margin:16px 0;">
+        {% csrf_token %}
+        <button type="submit" name="action" value="create_pair_code" class="button button-primary">
+            生成 10 分钟配对码（推荐）
+        </button>
+        <input type="text" name="name" placeholder="令牌备注（如 笔记本向导）" style="max-width:220px;">
+        <button type="submit" name="action" value="create_token" class="button button-secondary">
+            直接签发 14 天令牌
+        </button>
+    </form>
+
+    <h2>我的导入令牌列表</h2>
+    <table class="listing">
+        <thead>
+            <tr>
+                <th>备注</th>
+                <th>前缀</th>
+                <th>状态</th>
+                <th>过期时间</th>
+                <th>最近使用</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for tok in tokens %}
+            <tr>
+                <td>{{ tok.name }}</td>
+                <td><code>{{ tok.prefix }}...</code></td>
+                <td>{% if tok.is_active and not tok.revoked_at %}有效{% else %}已吊销{% endif %}</td>
+                <td>{{ tok.expires_at|date:"Y-m-d H:i" }}</td>
+                <td>{% if tok.last_used_at %}{{ tok.last_used_at|date:"Y-m-d H:i" }}{% else %}未使用{% endif %}</td>
+                <td>
+                    {% if tok.is_active and not tok.revoked_at %}
+                    <form method="post" style="display:inline;">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="revoke_token">
+                        <input type="hidden" name="token_id" value="{{ tok.pk }}">
+                        <button type="submit" class="button button-small no">吊销</button>
+                    </form>
+                    {% endif %}
+                </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="6">暂无导入令牌。</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

@@ -15,6 +15,7 @@ from wagtail.models import Site
 
 from django.http import Http404
 from discovery.contracts import QuerySpec
+from discovery.pagination import PageWindowExceededError, build_count_meta, build_pagination_payload
 from discovery.query import ContentQuery
 from discovery.listing.contracts import ListingPolicy, ListingFilters, ListingViewModel
 from discovery.listing.params import parse_listing_filters
@@ -81,6 +82,10 @@ class IndexListingService:
             facets=list(policy.facet_keys),
             page_size=filters.page_size,
             cursor=filters.cursor,
+            page=filters.page,
+            seek_date=filters.seek_date,
+            seek_direction=filters.seek_direction,
+            count_mode="bounded",
             navigation_cursor=filters.navigation_cursor,
             extra_filters=filters.extra_filters,
         )
@@ -94,6 +99,38 @@ class IndexListingService:
         # 调用全站统一查询引擎 (单快照执行，0 MongoDB 网络访问)
         try:
             query_result = ContentQuery.execute(spec, AccessContext(mode=AccessMode.PUBLIC))
+        except PageWindowExceededError as exc:
+            return ListingViewModel(
+                items=[],
+                total_count=0,
+                facets={},
+                canonical_url=canonical_url,
+                active_filters={
+                    "q": filters.q,
+                    "title_only": filters.title_only,
+                    "include_descendants": filters.include_descendants,
+                    "date_from": filters.date_from.isoformat() if filters.date_from else "",
+                    "date_to": filters.date_to.isoformat() if filters.date_to else "",
+                    "sort": filters.sort,
+                    **filters.extra_filters,
+                },
+                is_empty=True,
+                http_status=422,
+                error_message=f"页码 {exc.requested_page} 超出直跳窗口上限（最多支持直跳第 {exc.max_jump_page} 页），请使用「下一页」游标或按成文日期定位。",
+                is_preview=is_preview,
+                pagination=build_pagination_payload(
+                    mode="shallow_page",
+                    current_page=None,
+                    page_size=filters.page_size,
+                    total_count=0,
+                    count_kind="lower_bound",
+                    has_next=False,
+                    has_previous=False,
+                    next_cursor=None,
+                    previous_cursor=None,
+                ),
+                count_meta=build_count_meta(value=0, kind="lower_bound"),
+            )
         except Http404:
             if is_preview:
                 return ListingViewModel(
@@ -122,6 +159,8 @@ class IndexListingService:
             "include_descendants": filters.include_descendants,
             "date_from": filters.date_from.isoformat() if filters.date_from else "",
             "date_to": filters.date_to.isoformat() if filters.date_to else "",
+            "seek_date": filters.seek_date.isoformat() if filters.seek_date else "",
+            "seek_direction": filters.seek_direction if filters.seek_direction == "oldest" else "",
             "sort": filters.sort,
             **filters.extra_filters,
         }
@@ -151,4 +190,6 @@ class IndexListingService:
             cursor_reset=query_result.cursor_reset,
             is_preview=is_preview,
             corpus_epoch=query_result.corpus_epoch,
+            pagination=query_result.pagination,
+            count_meta=query_result.count_meta,
         )

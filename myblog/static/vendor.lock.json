@@ -86,6 +86,85 @@
         {"src": "package/locales/zh-CN.js", "dest": "locales/zh-CN.js"},
         {"src": "package/LICENSE", "dest": "LICENSE"}
       ]
+    },
+    "alpinejs": {
+      "npm_package": "alpinejs",
+      "version": "3.17.5",
+      "registry_url": "https://registry.npmjs.org/alpinejs/-/alpinejs-3.17.5.tgz",
+      "integrity_sha512": "XewMqRC6zjy8iaUPn86dxjvooAsNai3hUtQbdn0A5H2w7Jt10xHGZ1SczN5+Dvp3UKkuSEt9moy/UaUWOwKdnQ==",
+      "shasum_sha1": "85027affeb3a9b8030e82cc1ca4c09ac9f5c1687",
+      "license": "MIT",
+      "upstream": "https://github.com/alpinejs/alpine",
+      "security_note": "Lightweight declarative UI reactivity without build step",
+      "strip_missing_sourcemaps": true,
+      "extract": [
+        {"src": "package/dist/cdn.min.js", "dest": "alpine.min.js"}
+      ]
+    },
+    "htmx": {
+      "npm_package": "htmx.org",
+      "version": "2.0.11",
+      "registry_url": "https://registry.npmjs.org/htmx.org/-/htmx.org-2.0.11.tgz",
+      "integrity_sha512": "Thx/WtpeOQqSrqBCw/A1cwGJGg4UrVa3+sW0GmrM3p4gJgO89ecH4qtbnyzDDWFvBTqjnIMCgELTNt636dtamA==",
+      "shasum_sha1": "a85363c4c5af94cd634df04c4b83d06dd0e91aa7",
+      "license": "0BSD",
+      "upstream": "https://github.com/bigskysoftware/htmx",
+      "security_note": "HTML-driven partial updates for Django/Wagtail SSR templates",
+      "strip_missing_sourcemaps": true,
+      "extract": [
+        {"src": "package/dist/htmx.min.js", "dest": "htmx.min.js"},
+        {"src": "package/LICENSE", "dest": "LICENSE"}
+      ]
+    },
+    "tomselect": {
+      "npm_package": "tom-select",
+      "version": "2.7.0",
+      "registry_url": "https://registry.npmjs.org/tom-select/-/tom-select-2.7.0.tgz",
+      "integrity_sha512": "i/iuTfrzYfGPAILfgPdU9/CCSm8XcnomjO2bHjAcFQPV7od0ghVngjaMfB5x5Agkrpe+49/tK6soegrwWyi6Lg==",
+      "shasum_sha1": "87325ad8f308c1bdba3d1b8941171c3a485e4a94",
+      "license": "Apache-2.0",
+      "upstream": "https://github.com/orchidjs/tom-select",
+      "security_note": "Accessible searchable select & tag combobox with zero jQuery dependency",
+      "strip_missing_sourcemaps": true,
+      "extract": [
+        {"src": "package/dist/js/tom-select.complete.min.js", "dest": "tom-select.complete.min.js"},
+        {"src": "package/dist/css/tom-select.default.min.css", "dest": "tom-select.default.min.css"},
+        {"src": "package/LICENSE", "dest": "LICENSE"}
+      ]
+    },
+    "flatpickr": {
+      "npm_package": "flatpickr",
+      "version": "4.6.13",
+      "registry_url": "https://registry.npmjs.org/flatpickr/-/flatpickr-4.6.13.tgz",
+      "integrity_sha512": "97PMG/aywoYpB4IvbvUJi0RQi8vearvU0oov1WW3k0WZPBMrTQVqekSX5CjSG/M4Q3i6A/0FKXC7RyAoAUUSPw==",
+      "shasum_sha1": "8a029548187fd6e0d670908471e43abe9ad18d94",
+      "license": "MIT",
+      "upstream": "https://github.com/flatpickr/flatpickr",
+      "security_note": "Zero-dependency accessible date/range picker with Chinese locale",
+      "strip_missing_sourcemaps": true,
+      "extract": [
+        {"src": "package/dist/flatpickr.min.js", "dest": "flatpickr.min.js"},
+        {"src": "package/dist/flatpickr.min.css", "dest": "flatpickr.min.css"},
+        {"src": "package/dist/themes/dark.css", "dest": "themes/dark.css"},
+        {"src": "package/dist/l10n/zh.js", "dest": "l10n/zh.js"},
+        {"src": "package/LICENSE.md", "dest": "LICENSE.md"}
+      ]
+    },
+    "splide": {
+      "npm_package": "@splidejs/splide",
+      "version": "4.1.4",
+      "registry_url": "https://registry.npmjs.org/@splidejs/splide/-/splide-4.1.4.tgz",
+      "integrity_sha512": "5I30evTJcAJQXt6vJ26g2xEkG+l1nXcpEw4xpKh0/FWQ8ozmAeTbtniVtVmz2sH1Es3vgfC4SS8B2X4o5JMptA==",
+      "shasum_sha1": "02d029360569e7d75d28357a9727fc48322015a3",
+      "license": "MIT",
+      "upstream": "https://github.com/Splidejs/splide",
+      "security_note": "Accessible zero-dependency responsive carousel/slider",
+      "strip_missing_sourcemaps": true,
+      "extract": [
+        {"src": "package/dist/js/splide.min.js", "dest": "splide.min.js"},
+        {"src": "package/dist/css/splide.min.css", "dest": "splide.min.css"},
+        {"src": "package/LICENSE", "dest": "LICENSE"}
+      ]
     }
   }
 }

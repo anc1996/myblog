@@ -5,6 +5,8 @@
 ## 建议阅读顺序
 
 0. [会员体系、多角色创作权限与双轨防刷评论架构方案](myblog_会员体系与多角色创作权限架构方案_RFC_2026-11-11.md)：**【Phase 1–5 已实现并通过 `gemini-4-argon` 审核、全量测试与真实浏览器验收】** 前台会员中心（`/account/*`）、`MemberProfile` 独立头像与 `AvatarPurgeTask`、会话代次守卫与账号硬删过户（Phase 1）、全站公共图片验证码 `captcha`（Phase 2）、双轨防刷评论配额与 5 分钟内联编辑（Phase 3），以及基于 `CustomBasePage` 与 Wagtail 通用生命周期的作者隔离、图片/文档网关鉴权与回收站冲突恢复（Phase 4–5）均已落地。
+0. [课件附件下载增强与通用多页面 Markdown 导入系统架构方案](myblog_课件附件下载与通用多页面Markdown导入架构方案_RFC_2026-11-22.md)：**【已实现并通过 Terra 独立审查加固与 108 项隔离回归测试】** 区分 `.md` 附件下载与多页面导入入口，含 RFC 5987 下载头修复、公共 `CustomAttachmentListBlock`、三类页面写前脱水加固、`markdown_import` 子应用与接口、10 万字四区采样 AI 引擎与本地 CLI/GUI 客户端。
+0. [全站响应式前端共享组件与底层 StructBlock 协议架构方案](myblog_全站响应式前端共享组件与StructBlock协议方案_RFC_2026-11-22.md)：**【已实现并通过隔离测试与多视口浏览器核验】** 接入 `Alpine.js / HTMX / Tom Select / Flatpickr / Splide` 离线前端公共组件（`vendor.lock.json`），统一 `myblog.css` 浅深色语义令牌与防溢出规则，落地 `detail_shell.html` 共享详情骨架与单次服务端分级 TOC 提取器（桌面可折叠左侧栏 + 手机/iPad `<dialog>` 抽屉）。
 0. [第一阶段技术实现方案与架构规范](myblog_第一阶段技术方案_v1.0.md)：**【核心必读】** 系统完整落地实现蓝图，涵盖彻底脱水模式、受控回收站原树恢复、中文搜索与 GIN 索引、专栏体系、通用评论系统、全站多页面 RSS/Atom 订阅与时间线归档、RESTful JSON API 规范与架构拓扑图。
 1. [全站多页面评论后台管理与多维治理系统 RFC](myblog_全站多页面评论管理与多维治理系统_RFC_2026-11-10.md)：**【RFC-020 最新】** 全局分类与溯源中控台、Page 编辑器【💬 评论与互动】Tab（100% 异步隔离 Wagtail 自动保存）、Purge 级联物理清空、作者自删占位、V1/V2 审核隔离与 24h 主体限制。
 1. [全站层级列表与多维检索通用框架 RFC](myblog_全站层级列表与多维检索通用框架_RFC_2026-11-09.md)：通用 HierarchicalListingMixin、IndexListingService、Keyset 签名游标、双模同构与 Wagtail 8.1 后台预览守卫闭环。
@@ -44,12 +46,14 @@
   - `/robots.txt`：阻断爬虫抓取 `/admin/`、`/django-admin/`、`/media-gateway/`、`/avatar-gateway/`、`/account/` 与 `/api/` 等私密网关，自动定位并引导抓取 `/sitemap.xml`。
 - **测试与质量**：隔离测试库全站 **224 项自动化单元与集成测试全部通过**；Django 系统检查 0 错误 0 警告；`ManifestStaticFilesStorage` 静态产物收集 839 项全部通过；已通过 Headless Chrome 真实浏览器实测验收。
 - **前端与交互闭环**：
-  - **全局响应式导航与页脚**：绑定 `site_settings`，纯 CSS 移动端汉堡菜单自适应；
-  - **首页综合门户**：Hero 标语导引 + 文章流 + 专栏推荐 + 开源项目 + 热门标签云；
-  - **全站层级列表检索**：双模同构、中文输入法焦点保护、签名 Keyset 游标上一页/下一页；
+  - **全局响应式导航、浅深色主题与公共 UI 组件**：绑定 `site_settings`，支持 `data-theme="light|dark"` 切换与防闪烁恢复；通过 `vendor.lock.json` 统一挂载 `Alpine.js`、`HTMX`、`Tom Select`、`Flatpickr` 与 `Splide`；
+  - **全站共享详情壳层与单次服务端 TOC 目录 (`detail_shell.html`)**：统一服务 `BlogPage`、`GuidePage`、`ProjectPage` 及后续 `XxPage`；后端单遍提取 `h1`–`h4` 与 `step` 锚点并注入 `[data-cb-block]` 防溢出容器，桌面（`>=1025px`）展示可折叠左侧 sticky 目录，手机/iPad（`<=1024px`）使用粘性触发栏 + 原生 `<dialog>` 抽屉；标签统一反解 `TagIndexPage` 详情路由；
+  - **详情页四级树形目录与动态定位**：`build_detail_presentation()` 构建 `h2→h3→h4`（兼容 `h1` 最多 4 级）可折叠树形目录；`detail-toc.js` 通过 `ResizeObserver` 动态测量顶部遮挡高度驱动 `--detail-anchor-offset`，提供「回到顶部」「正文开头」与精确阅读线高亮，窄屏无 JS 自动降级为原生 `<details>` 目录；
+  - **首页综合门户**：Hero 标语导引 + Splide 精选轮播 + 文章流 + 专栏推荐 + 开源项目 + 热门标签云；
+  - **千万级混合分页与部分复合索引**：`discovery.pagination` 支持浅页直跳窗口（`1…4 5 [6] 7 8…100`，超出返回 HTTP 422 引导）、双向 Keyset 游标（`v2:` 上下翻页）、`seek_date` / `seek_direction=oldest` 日期定位及 `LIMIT 5001` 有界计数探测（精确 / 汇总 / 下限明标）；`PublishedSearchDocument` 挂载条件部分 B-tree 索引；
   - **全站标签大厅**：RESTful 路由 `/tags/` 与 `/tags/<slug>/`，A-Z 首字母分组，跨类型 Tab 分栏；
   - **读者评论互动组件**：AJAX 免刷新提交、两层回复、CAS 审核提示、nh3 防 XSS 净化；
-  - **时间线年月归档**：`/timeline/` 独立归档大厅，SARGable 只读快照秒级扫描。
+  - **月历归档与预聚合汇总表**：`/timeline/` 与 `/api/v1/archives/calendar/` 按 `authored_on` 提供按月日历网格与 12 月快速切换；只读 `ArchiveDailyCount`（单月最多 31 行），通过 `ArchiveContribution` 事务 +/-1 增量维护、`ArchiveSyncOutbox` 与 `reconcile_archive_counts` 管理命令保障计数一致，点击日/月下钻走 SARGable 区间与混合分页。
 - **目录架构**：全站 16 个业务子应用物理收敛于 `myblog/myblog/apps/*`（与 `settings/`、`static/`、`templates/` 同级），通过 `myblog.bootstrap` 注入 `sys.path[0]`，保证数据库表名与 `ContentType` 100% 零漂移。
 - **基础设施拓扑**：PostgreSQL 18.6 + MongoDB 9.0.4 + RustFS 1.0.4 (S3) + Redis 8.10.3，端口统一发布至 `0.0.0.0`。
 - **凭据安全**：所有生产凭据与私密 `.env` 严格由本地安全管理，禁止提交至版本库。

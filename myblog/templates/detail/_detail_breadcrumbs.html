@@ -1,0 +1,12 @@
+{% load wagtailcore_tags %}
+{% if detail.breadcrumbs %}
+<nav class="detail-breadcrumbs blog-breadcrumbs" aria-label="面包屑导航">
+    <a href="/">首页</a>
+    {% for ancestor in detail.breadcrumbs %}
+        <span class="breadcrumb-separator">/</span>
+        <a href="{% pageurl ancestor %}">{{ ancestor.title }}</a>
+    {% endfor %}
+    <span class="breadcrumb-separator">/</span>
+    <span class="current-crumb" aria-current="page">{{ page.title }}</span>
+</nav>
+{% endif %}

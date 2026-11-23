@@ -67,6 +67,20 @@ class CrossStorageReconciler:
         candidates = []
         purged = []
 
+        # 豁免仍处于活跃有效期的 Markdown 导入暂存资产，防止并发被零引用清理误删
+        active_staging_ids = set()
+        from django.apps import apps
+        if apps.is_installed("markdown_import"):
+            ImportAsset = apps.get_model("markdown_import", "ImportAsset")
+            active_staging_ids = set(
+                ImportAsset.objects.filter(
+                    is_staging=True,
+                    target_public_id__isnull=False,
+                    job__status__in=["uploading", "ready", "preparing"],
+                    job__expires_at__gt=now,
+                ).values_list("target_public_id", flat=True)
+            )
+
         models_to_check = [
             (CustomImage, "image"),
             (CustomDocument, "document"),
@@ -78,6 +92,8 @@ class CrossStorageReconciler:
             for item in model_cls.objects.all():
                 public_id = getattr(item, "public_id", None)
                 if not public_id:
+                    continue
+                if public_id in active_staging_ids:
                     continue
                 # 1. 深度核查引用计数：跨全站历史版本核实
                 can_delete, _, refs = MediaReferenceTracker.check_asset_references(public_id)

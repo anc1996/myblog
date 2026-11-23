@@ -1,0 +1,15 @@
+{% if gallery_images %}
+<section class="blog-gallery-section" aria-label="文章独立图集画廊">
+    <h2 class="gallery-title">文章图集 (共 {{ gallery_images|length }} 张)</h2>
+    <div class="gallery-grid">
+        {% for item in gallery_images %}
+        <div class="gallery-card" data-full-src="/media-gateway/image/{{ item.image.public_id }}/" data-caption="{{ item.caption }}">
+            <img src="/media-gateway/image/{{ item.image.public_id }}/" alt="{{ item.caption|default:page.title }}" class="gallery-thumb" loading="lazy">
+            {% if item.caption %}
+            <div class="gallery-caption">{{ item.caption }}</div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</section>
+{% endif %}

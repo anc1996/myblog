@@ -4,19 +4,19 @@
 {% block title %}年月时间线归档 - {{ current_site.site_name|default:"myblog" }}{% endblock %}
 
 {% block content %}
-<div class="timeline-page-container" style="max-width: 960px; margin: 30px auto; padding: 0 20px;">
+<div class="timeline-page-container">
   {# 面包屑导航 #}
-  <nav class="timeline-breadcrumbs mb-4" aria-label="面包屑导航">
-    <a href="/" class="text-muted text-decoration-none small">首页</a>
-    <span class="text-muted small">/</span>
-    <span class="text-dark small fw-bold" aria-current="page">时间线归档</span>
+  <nav class="detail-breadcrumbs timeline-breadcrumbs" aria-label="面包屑导航">
+    <a href="/">首页</a>
+    <span>/</span>
+    <span class="fw-semibold text-dark" aria-current="page">时间线归档</span>
   </nav>
 
   <header class="timeline-header mb-4 p-4 bg-white rounded border shadow-sm">
     <div class="d-flex justify-content-between align-items-center">
       <div>
-        <h1 class="fw-bold text-dark mb-1">⏳ 年月时间线归档</h1>
-        <p class="text-muted small mb-0">全站历史文章与专栏按年份、月份结构化沉淀。</p>
+        <h1 class="fw-bold text-dark mb-1">📅 月历与年月时间线归档</h1>
+        <p class="text-muted small mb-0">按成文日期统计每日发表篇数；点击任意有记录的日期或月份，高速分页浏览。</p>
       </div>
       <div class="text-end">
         <span class="fs-4 fw-bold text-primary">{{ total_count }}</span>
@@ -29,4 +29,5 @@
     {% include "discovery/timeline/_timeline_content.html" %}
   </div>
 </div>
+<script src="{% static 'discovery/js/timeline_controller.js' %}?v=20261122g" defer></script>
 {% endblock %}

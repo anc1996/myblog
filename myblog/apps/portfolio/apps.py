@@ -9,6 +9,9 @@ class PortfolioConfig(AppConfig):
     def ready(self):
         from discovery.registry import register_type_adapter
         from .adapters import ProjectPageAdapter, PortfolioIndexPageAdapter
+        from markdown_import.registry import register_import_adapter
+        from .import_adapter import ProjectPageImportAdapter
 
         register_type_adapter(ProjectPageAdapter())
         register_type_adapter(PortfolioIndexPageAdapter())
+        register_import_adapter(ProjectPageImportAdapter())

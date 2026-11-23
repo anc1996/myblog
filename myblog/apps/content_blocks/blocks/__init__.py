@@ -12,6 +12,7 @@ from .media import (
     CustomDocumentBlock,
     CustomAudioBlock,
     CustomVideoBlock,
+    CustomAttachmentListBlock,
 )
 from .embed import CustomEmbedBlock
 from .structured import (
@@ -32,6 +33,7 @@ __all__ = [
     "CustomDocumentBlock",
     "CustomAudioBlock",
     "CustomVideoBlock",
+    "CustomAttachmentListBlock",
     "CustomEmbedBlock",
     "CustomLeadBlock",
     "CustomStepBlock",
@@ -64,6 +66,7 @@ def get_common_stream_blocks(include_structured: bool = False):
         ("table", CustomTableBlock()),
         ("image", CustomImageBlock()),
         ("document", CustomDocumentBlock()),
+        ("attachment_list", CustomAttachmentListBlock()),
         ("audio", CustomAudioBlock()),
         ("video", CustomVideoBlock()),
         ("embed", CustomEmbedBlock()),

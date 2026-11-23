@@ -14,6 +14,7 @@
     var COLLAPSE_AFTER_LINES = 14;
 
     var CODE_SELECTOR = [
+        ".detail-body-section pre > code",
         ".blog-body-section pre > code",
         ".blog-intro-card pre > code",
         ".guide-main pre > code",

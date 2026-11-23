@@ -20,21 +20,17 @@ S9 全站统一中文搜索 (PostgreSQL 18 + Jieba) 与组合筛选单元测试�
 """
 
 import os
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
-import unittest
+from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
+
+from django.test import Client, TestCase
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 
 
-class S9SearchAndDiscoveryTests(unittest.TestCase):
-
-    @classmethod
-    def setUpClass(cls):
-        os.environ["DJANGO_SETTINGS_MODULE"] = "myblog.settings.dev"
-        import django
-        django.setup()
+class S9SearchAndDiscoveryTests(TestCase):
 
     def setUp(self):
         from home.models import HomePage
@@ -42,12 +38,25 @@ class S9SearchAndDiscoveryTests(unittest.TestCase):
         from discovery.models import PublishedSearchDocument, ContentDiscoveryEpoch
 
         self.home = HomePage.objects.first()
+        if not self.home:
+            from wagtail.models import Page
+            root = Page.get_first_root_node() or Page.add_root(title="Root")
+            self.home = HomePage(title="Home", slug=f"home-{uuid4().hex[:6]}")
+            root.add_child(instance=self.home)
+            self.home.save_revision().publish()
+        self.client = Client()
         self.created_pages = []
+        self.created_topics = []
 
     def tearDown(self):
         for p in reversed(self.created_pages):
             try:
                 p.delete(allow_physical_purge=True)
+            except Exception:
+                pass
+        for t in reversed(self.created_topics):
+            try:
+                t.delete()
             except Exception:
                 pass
 
@@ -279,6 +288,293 @@ class S9SearchAndDiscoveryTests(unittest.TestCase):
         self.assertEqual(res.total_count, 1)
         self.assertEqual(res.items[0].page_id, page.id)
 
+    def test_07_navigation_type_filter_and_facet_labels(self):
+        """测试 type=navigation 展开所有 _index 类型，以及 compute_facets 的中文名称与 navigation 聚合"""
+        from blog.models import BlogIndexPage
+        from discovery.contracts import QuerySpec
+        from discovery.query import ContentQuery
+        from guides.models import GuideIndexPage, GuidePage, GuideTopic
+        from portfolio.models import PortfolioIndexPage
+        from taxonomy.models import TagIndexPage
 
-if __name__ == "__main__":
-    unittest.main()
+        b_idx = BlogIndexPage(title="搜索测试博客栏目", slug=f"bidx-{uuid4().hex[:6]}")
+        self.home.add_child(instance=b_idx)
+        b_idx.save_revision().publish()
+        self.created_pages.append(b_idx)
+
+        g_idx = GuideIndexPage(title="搜索测试指南栏目", slug=f"gidx-{uuid4().hex[:6]}")
+        self.home.add_child(instance=g_idx)
+        g_idx.save_revision().publish()
+        self.created_pages.append(g_idx)
+
+        p_idx = PortfolioIndexPage(title="搜索测试作品栏目", slug=f"pidx-{uuid4().hex[:6]}")
+        self.home.add_child(instance=p_idx)
+        p_idx.save_revision().publish()
+        self.created_pages.append(p_idx)
+
+        t_idx = TagIndexPage.objects.live().filter(is_recycled=False).first()
+        if not t_idx:
+            t_idx = TagIndexPage(title="搜索测试标签大厅", slug=f"tidx-{uuid4().hex[:6]}")
+            self.home.add_child(instance=t_idx)
+            t_idx.save_revision().publish()
+            self.created_pages.append(t_idx)
+
+        topic = GuideTopic.objects.create(name=f"NavTopic-{uuid4().hex[:4]}", slug=f"nt-{uuid4().hex[:4]}")
+        self.created_topics.append(topic)
+        from wagtail.rich_text import RichText
+        guide = GuidePage(
+            title="非栏目指南正文",
+            slug=f"gpage-{uuid4().hex[:6]}",
+            topic=topic,
+            body=[("step", {"step_number": "1", "title": "步骤一", "content": RichText("<p>步骤内容</p>")})],
+        )
+        g_idx.add_child(instance=guide)
+        guide.save_revision().publish()
+        self.created_pages.append(guide)
+
+        blog = self._create_and_publish_blog_page("非栏目博客文章")
+
+        # 1. ContentQuery 直接验证 type_keys=["navigation"]
+        res = ContentQuery.execute(QuerySpec(type_keys=["navigation"], facets=["types"]))
+        result_type_keys = {it.type_key for it in res.items}
+        self.assertTrue(result_type_keys.issubset({"blog_index", "guide_index", "portfolio_index", "tag_index"}))
+        self.assertIn("blog_index", result_type_keys)
+        self.assertIn("guide_index", result_type_keys)
+        self.assertIn("portfolio_index", result_type_keys)
+        self.assertIn("tag_index", result_type_keys)
+        result_ids = {it.page_id for it in res.items}
+        self.assertNotIn(blog.id, result_ids)
+        self.assertNotIn(guide.id, result_ids)
+
+        # 2. 检查 facets["types"] 中的中文显示名与 navigation 聚合总和
+        types_map = {t["key"]: t for t in res.facets["types"]}
+        self.assertIn("navigation", types_map)
+        self.assertEqual(types_map["navigation"]["label"], "栏目导航页")
+        expected_nav_count = sum(
+            t["count"] for k, t in types_map.items() if k.endswith("_index")
+        )
+        self.assertEqual(types_map["navigation"]["count"], expected_nav_count)
+        self.assertEqual(types_map["blog_page"]["label"], "博客文章")
+
+        # 3. /search/?type=navigation HTTP 视图校验
+        resp = self.client.get("/search/?type=navigation")
+        self.assertEqual(resp.status_code, 200)
+        html = resp.content.decode("utf-8")
+        self.assertIn("搜索测试博客栏目", html)
+        self.assertIn("搜索测试指南栏目", html)
+        self.assertIn("搜索测试作品栏目", html)
+        self.assertNotIn("非栏目博客文章", html)
+        for label in ("全部", "博客文章", "专题指南", "开源项目", "栏目导航页"):
+            self.assertIn(label, html)
+
+    def test_08_case_insensitive_tag_facet_merging_and_multi_tag_view(self):
+        """测试大小写标签在 facets 中去重合并（保留首字母大写/驼峰），以及视图多选与 slug/id 解析"""
+        from discovery.contracts import QuerySpec
+        from discovery.query import ContentQuery
+        from taggit.models import Tag
+
+        unique_suffix = uuid4().hex[:5]
+        upper_name = f"PostGreSQL{unique_suffix}"
+        lower_name = f"postgresql{unique_suffix}"
+        other_name = f"Django{unique_suffix}"
+
+        p1 = self._create_and_publish_blog_page(f"PG大写标签文章-{unique_suffix}", tags=[upper_name])
+        # 确保创建独立的小写 Tag 记录模拟历史大小写重复标签
+        lower_tag, _ = Tag.objects.get_or_create(
+            name=lower_name,
+            defaults={"slug": f"{lower_name}-lower"},
+        )
+        p2 = self._create_and_publish_blog_page(f"PG小写标签文章-{unique_suffix}")
+        p2.tags.add(lower_tag)
+        p2.save_revision().publish()
+
+        p3 = self._create_and_publish_blog_page(f"Django标签文章-{unique_suffix}", tags=[other_name])
+
+        # 1. 验证 facets["tags"] 仅保留一条，展示名为 Camel/首字母大写形式，count 累加且记录全部 tag_ids
+        res = ContentQuery.execute(QuerySpec(facets=["tags"]))
+        matching = [t for t in res.facets["tags"] if t["name"].lower() == lower_name.lower()]
+        self.assertEqual(len(matching), 1, "大小写不同但小写相同的标签必须在 facets 中合并为 1 行")
+        merged = matching[0]
+        self.assertEqual(merged["name"], upper_name)
+        self.assertGreaterEqual(merged["count"], 2)
+        upper_tag = p1.tags.get(name=upper_name)
+        self.assertEqual(set(merged["tag_ids"]), {upper_tag.id, lower_tag.id})
+
+        # 2. 通过 slug 过滤：同时命中大小写两篇文章
+        resp_slug = self.client.get(f"/search/?tag={upper_tag.slug}")
+        self.assertEqual(resp_slug.status_code, 200)
+        html_slug = resp_slug.content.decode("utf-8")
+        self.assertIn(f"PG大写标签文章-{unique_suffix}", html_slug)
+        self.assertIn(f"PG小写标签文章-{unique_suffix}", html_slug)
+
+        # 3. 通过 tag_id 过滤：同样命中两篇
+        resp_id = self.client.get(f"/search/?tag={lower_tag.id}")
+        self.assertEqual(resp_id.status_code, 200)
+        html_id = resp_id.content.decode("utf-8")
+        self.assertIn(f"PG大写标签文章-{unique_suffix}", html_id)
+        self.assertIn(f"PG小写标签文章-{unique_suffix}", html_id)
+
+        # 4. 多标签组合（重复参数与逗号分隔）
+        other_tag = p3.tags.get(name=other_name)
+        resp_multi_1 = self.client.get(f"/search/?tag={upper_tag.slug}&tag={other_tag.slug}")
+        self.assertEqual(resp_multi_1.status_code, 200)
+        html_multi_1 = resp_multi_1.content.decode("utf-8")
+        self.assertIn(f"PG大写标签文章-{unique_suffix}", html_multi_1)
+        self.assertIn(f"Django标签文章-{unique_suffix}", html_multi_1)
+
+        resp_multi_2 = self.client.get(f"/search/?tag={upper_tag.slug},{other_tag.id}")
+        self.assertEqual(resp_multi_2.status_code, 200)
+        html_multi_2 = resp_multi_2.content.decode("utf-8")
+        self.assertIn(f"PG大写标签文章-{unique_suffix}", html_multi_2)
+        self.assertIn(f"Django标签文章-{unique_suffix}", html_multi_2)
+
+    def test_09_search_view_multidimensional_combo_and_url_preservation(self):
+        """测试多维组合筛选（query + title_only + type + tag + days + year + sort）、已选胶囊与侧栏参数保持"""
+        from django.utils import timezone
+        from guides.models import GuidePage, GuideTopic
+
+        today = timezone.localdate()
+        tag_name = f"ComboTag{uuid4().hex[:4]}"
+
+        p_recent = self._create_and_publish_blog_page(
+            "微服务核心架构演进",
+            intro="近期最新发表的架构笔记。",
+            authored_on=today - timedelta(days=2),
+            tags=[tag_name],
+        )
+        p_body_only = self._create_and_publish_blog_page(
+            "普通运维日志",
+            intro="正文里提到了微服务核心，但标题没有。",
+            authored_on=today - timedelta(days=2),
+            tags=[tag_name],
+        )
+        p_old = self._create_and_publish_blog_page(
+            "微服务核心历史回顾",
+            intro="很久之前的旧文章。",
+            authored_on=today - timedelta(days=60),
+            tags=[tag_name],
+        )
+
+        topic = GuideTopic.objects.create(name=f"ComboTopic-{uuid4().hex[:4]}", slug=f"ct-{uuid4().hex[:4]}")
+        self.created_topics.append(topic)
+        from wagtail.rich_text import RichText
+        g_recent = GuidePage(
+            title="微服务核心实战指南",
+            slug=f"g-combo-{uuid4().hex[:6]}",
+            topic=topic,
+            authored_on=today - timedelta(days=2),
+            body=[("step", {"step_number": "1", "title": "步骤一", "content": RichText("<p>指南内容</p>")})],
+        )
+        self.home.add_child(instance=g_recent)
+        g_recent.tags.add(tag_name)
+        g_recent.save_revision().publish()
+        self.created_pages.append(g_recent)
+
+        tag_obj = p_recent.tags.get(name=tag_name)
+        url = (
+            f"/search/?query=微服务核心&title_only=1&type=blog_page"
+            f"&tag={tag_obj.slug}&days=7&sort=authored_desc&cursor=dummy_old_cursor"
+        )
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        ctx = resp.context
+
+        # 仅命中近期且标题含“微服务核心”的博客文章
+        hit_ids = [it.page_id for it in ctx["items"]]
+        self.assertEqual(hit_ids, [p_recent.id])
+        self.assertNotIn(p_body_only.id, hit_ids)
+        self.assertNotIn(p_old.id, hit_ids)
+        self.assertNotIn(g_recent.id, hit_ids)
+
+        # 校验已选条件胶囊（关键词、范围、类型、标签、时间、排序）与移除 URL 保持其他筛选
+        pills_by_key = {p["key"]: p for p in ctx["active_filter_pills"]}
+        self.assertIn("query", pills_by_key)
+        self.assertIn("title_only", pills_by_key)
+        self.assertIn("type", pills_by_key)
+        self.assertIn("tag", pills_by_key)
+        self.assertIn("days", pills_by_key)
+        self.assertIn("sort", pills_by_key)
+
+        # 移除 type 胶囊后，query/tag/days/title_only/sort 必须仍然保留，且 cursor 已被清空
+        rm_type_qs = parse_qs(urlparse(pills_by_key["type"]["remove_url"]).query)
+        self.assertNotIn("type", rm_type_qs)
+        self.assertEqual(rm_type_qs.get("query"), ["微服务核心"])
+        self.assertEqual(rm_type_qs.get("tag"), [tag_obj.slug])
+        self.assertEqual(rm_type_qs.get("days"), ["7"])
+        self.assertEqual(rm_type_qs.get("title_only"), ["1"])
+        self.assertNotIn("cursor", rm_type_qs)
+
+        # 侧栏类型切换选项必须保留现有 query/tag/days，绝不清空其他筛选
+        guide_opt = next(o for o in ctx["type_options"] if o["key"] == "guide")
+        guide_qs = parse_qs(urlparse(guide_opt["url"]).query)
+        self.assertEqual(guide_qs.get("type"), ["guide"])
+        self.assertEqual(guide_qs.get("query"), ["微服务核心"])
+        self.assertEqual(guide_qs.get("tag"), [tag_obj.slug])
+        self.assertEqual(guide_qs.get("days"), ["7"])
+        self.assertNotIn("cursor", guide_qs)
+        self.assertEqual(ctx["reset_url"], "/search/")
+
+    def test_10_search_view_hybrid_pagination_422_and_ajax_fragment(self):
+        """测试 /search/ 接入千万级混合分页、超窗 422 提示与 AJAX 局部返回"""
+        prefix = f"分页验证{uuid4().hex[:4]}"
+        for i in range(5):
+            self._create_and_publish_blog_page(
+                f"{prefix}-第{i + 1}篇",
+                intro="混合分页集成验证内容。",
+                authored_on=date(2026, 8, 10 - i),
+            )
+
+        # 预热站点全局设置单例，避免首屏渲染 {% get_settings %} 初始化 3 个单例行时触发 Epoch 自增
+        self.client.get("/search/")
+
+        # 1. 第 1 页（page_size=2）
+        resp_p1 = self.client.get(f"/search/?query={prefix}&page_size=2&page=1")
+        self.assertEqual(resp_p1.status_code, 200)
+        html_p1 = resp_p1.content.decode("utf-8")
+        self.assertIn("listing-pagination-wrap", html_p1)
+        self.assertIn("listing-jump-page-form", html_p1)
+        self.assertIn("listing-seek-date-form", html_p1)
+        self.assertIn("search_controller.js", html_p1)
+        self.assertEqual(len(resp_p1.context["items"]), 2)
+        next_cursor = resp_p1.context["next_cursor"]
+        self.assertTrue(next_cursor and next_cursor.startswith("v2:"))
+
+        # 2. 游标翻页到第 2 页再上一页回到第 1 页
+        resp_c2 = self.client.get(f"/search/?query={prefix}&page_size=2&cursor={next_cursor}")
+        self.assertEqual(resp_c2.status_code, 200)
+        self.assertEqual(len(resp_c2.context["items"]), 2)
+        prev_cursor = resp_c2.context["previous_cursor"]
+        self.assertTrue(prev_cursor)
+
+        resp_back = self.client.get(f"/search/?query={prefix}&page_size=2&cursor={prev_cursor}")
+        self.assertEqual(resp_back.status_code, 200)
+        self.assertEqual(
+            [it.page_id for it in resp_back.context["items"]],
+            [it.page_id for it in resp_p1.context["items"]],
+        )
+
+        # 3. 超过浅页窗口上限返回 HTTP 422 友好提示
+        resp_422 = self.client.get(f"/search/?query={prefix}&page_size=2&page=105")
+        self.assertEqual(resp_422.status_code, 422)
+        self.assertIn("超出直跳窗口上限", resp_422.content.decode("utf-8"))
+
+        # 4. AJAX 请求返回 JSON 局部片段与 canonical_url
+        resp_ajax = self.client.get(
+            f"/search/?query={prefix}&type=blog_page&page_size=2",
+            HTTP_X_LISTING_RESPONSE="fragment-v1",
+        )
+        self.assertEqual(resp_ajax.status_code, 200)
+        payload = resp_ajax.json()
+        self.assertEqual(payload["canonical_url"], "/search/")
+        self.assertEqual(payload["total_count"], 5)
+        self.assertIn("search-result-list", payload["html"])
+        self.assertEqual(payload["active_filters"]["type"], "blog_page")
+
+        # 5. AJAX 422 局部提示
+        resp_ajax_422 = self.client.get(
+            f"/search/?query={prefix}&page_size=2&page=105&format=partial",
+        )
+        self.assertEqual(resp_ajax_422.status_code, 422)
+        payload_422 = resp_ajax_422.json()
+        self.assertIn("超出直跳窗口上限", payload_422["error_message"])
+        self.assertIn("超出直跳窗口上限", payload_422["html"])

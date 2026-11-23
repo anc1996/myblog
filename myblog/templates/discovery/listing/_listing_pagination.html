@@ -1,27 +1,95 @@
-<div class="listing-pagination d-flex justify-content-between align-items-center pt-3 border-top mt-4">
-  <div class="text-muted small">
-    共匹配到 <strong>{{ view_model.total_count }}</strong> 篇内容
+<div class="listing-pagination-wrap pt-3 border-top mt-4">
+  <div class="listing-pagination d-flex justify-content-between align-items-center">
+    <div class="text-muted small">
+      {% if view_model.count_meta.label %}
+        <strong>{{ view_model.count_meta.label }}</strong>
+      {% else %}
+        共匹配到 <strong>{{ view_model.total_count }}</strong> 篇内容
+      {% endif %}
+      {% if view_model.pagination.is_window_capped %}
+        <span class="ms-1 text-muted">（页码直跳上限 {{ view_model.pagination.max_jump_page }} 页，更早内容请用游标或日期定位）</span>
+      {% endif %}
+    </div>
+
+    <div class="btn-group">
+      {% if view_model.previous_cursor %}
+        <button type="button" class="ui-btn ui-btn-sm btn btn-sm btn-outline-primary listing-page-prev-btn" data-cursor="{{ view_model.previous_cursor }}">
+          &larr; 上一页
+        </button>
+      {% else %}
+        <button type="button" class="ui-btn ui-btn-sm btn btn-sm btn-outline-secondary disabled" disabled>
+          &larr; 上一页
+        </button>
+      {% endif %}
+
+      {% if view_model.next_cursor %}
+        <button type="button" class="ui-btn ui-btn-sm btn btn-sm btn-outline-primary listing-page-next-btn" data-cursor="{{ view_model.next_cursor }}">
+          下一页 &rarr;
+        </button>
+      {% else %}
+        <button type="button" class="ui-btn ui-btn-sm btn btn-sm btn-outline-secondary disabled" disabled>
+          下一页 &rarr;
+        </button>
+      {% endif %}
+    </div>
   </div>
 
-  <div class="btn-group">
-    {% if view_model.previous_cursor %}
-      <button type="button" class="btn btn-sm btn-outline-primary listing-page-prev-btn" data-cursor="{{ view_model.previous_cursor }}">
-        &larr; 上一页
-      </button>
-    {% else %}
-      <button type="button" class="btn btn-sm btn-outline-secondary disabled" disabled>
-        &larr; 上一页
-      </button>
+  {% if view_model.pagination.page_links or view_model.pagination.max_jump_page %}
+  <div class="listing-pagination-bar">
+    {% if view_model.pagination.page_links %}
+    <nav class="listing-page-numbers" aria-label="页码分页导航">
+      {% for link in view_model.pagination.page_links %}
+        {% if link.type == "ellipsis" %}
+          <span class="listing-page-ellipsis" aria-hidden="true">…</span>
+        {% elif link.is_current %}
+          <span class="ui-btn ui-btn-sm ui-btn-primary listing-page-current" aria-current="page">{{ link.label }}</span>
+        {% else %}
+          <a
+            href="?page={{ link.page }}{% if view_model.query_string %}&amp;{{ view_model.query_string }}{% endif %}"
+            class="ui-btn ui-btn-sm ui-btn-outline listing-page-num-btn"
+            data-page="{{ link.page }}"
+          >{{ link.label }}</a>
+        {% endif %}
+      {% endfor %}
+    </nav>
     {% endif %}
 
-    {% if view_model.next_cursor %}
-      <button type="button" class="btn btn-sm btn-outline-primary listing-page-next-btn" data-cursor="{{ view_model.next_cursor }}">
-        下一页 &rarr;
-      </button>
-    {% else %}
-      <button type="button" class="btn btn-sm btn-outline-secondary disabled" disabled>
-        下一页 &rarr;
-      </button>
-    {% endif %}
+    <div class="listing-pagination-tools">
+      <form method="get" action="{{ view_model.canonical_url|default:'' }}" class="listing-tool-form listing-jump-page-form">
+        <label class="small text-muted" for="listing-jump-page-input">跳至</label>
+        <input
+          type="number"
+          id="listing-jump-page-input"
+          name="page"
+          min="1"
+          max="{{ view_model.pagination.max_jump_page|default:100 }}"
+          class="ui-input listing-jump-input"
+          placeholder="页码"
+          value="{{ view_model.pagination.page|default:'' }}"
+        >
+        <button type="submit" class="ui-btn ui-btn-sm ui-btn-outline">前往</button>
+      </form>
+
+      <form method="get" action="{{ view_model.canonical_url|default:'' }}" class="listing-tool-form listing-seek-date-form">
+        <label class="small text-muted" for="listing-seek-date-input">定位日期</label>
+        <input
+          type="date"
+          id="listing-seek-date-input"
+          name="seek_date"
+          class="ui-input ui-date-input listing-seek-input"
+          data-ui-date="single"
+          placeholder="选择日期"
+          value="{{ view_model.active_filters.seek_date|default:'' }}"
+        >
+        <button type="submit" class="ui-btn ui-btn-sm ui-btn-outline">定位</button>
+      </form>
+
+      <a
+        href="?seek_direction=oldest{% if view_model.query_string %}&amp;{{ view_model.query_string }}{% endif %}"
+        class="ui-btn ui-btn-sm ui-btn-outline listing-oldest-btn"
+        data-seek-oldest="1"
+      >最早一批</a>
+    </div>
   </div>
+  {% endif %}
 </div>

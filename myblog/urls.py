@@ -36,6 +36,7 @@ urlpatterns = [
     path("search/", search_views.search, name="search"),
     path("timeline/", timeline_view, name="timeline"),
     path("api/v1/", include("api.urls")),
+    path("api/markdown-import/", include("markdown_import.urls")),
     path("feed/", RedirectView.as_view(url="/feeds/", permanent=True)),
     path("feeds/", include("discovery.urls")),
 ]

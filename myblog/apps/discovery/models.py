@@ -12,6 +12,7 @@
 
 import uuid
 from django.db import models, transaction
+from django.db.models import Q
 from django.contrib.postgres.search import SearchVectorField
 from django.contrib.postgres.indexes import GinIndex
 
@@ -82,6 +83,16 @@ class PublishedSearchDocument(models.Model):
             models.Index(fields=["type_key", "authored_on", "page_id"], name="disc_doc_type_date_idx"),
             models.Index(fields=["is_live", "is_recycled", "authored_on"], name="disc_doc_live_date_idx"),
             models.Index(fields=["root_path", "depth"], name="disc_doc_tree_path_idx"),
+            models.Index(
+                fields=["site_id", "-authored_on", "-page_id"],
+                name="disc_doc_live_site_date_idx",
+                condition=Q(is_live=True, is_recycled=False, index_generation=1),
+            ),
+            models.Index(
+                fields=["site_id", "type_key", "-authored_on", "-page_id"],
+                name="disc_doc_live_type_date_idx",
+                condition=Q(is_live=True, is_recycled=False, index_generation=1),
+            ),
         ]
 
     def __str__(self):
@@ -143,3 +154,94 @@ class PublishedSearchTag(models.Model):
 
     def __str__(self):
         return f"SearchTag doc={self.document_id} tag={self.tag_name}(id={self.tag_id})"
+
+
+class ArchiveCountState(models.Model):
+    """日历归档预聚合汇总表的当前读指针与脏状态标记"""
+    name = models.CharField(max_length=64, unique=True, default="global", verbose_name="作用域")
+    active_generation = models.BigIntegerField(default=1, verbose_name="当前生效汇总代次")
+    is_stale = models.BooleanField(default=False, verbose_name="是否正在对账刷新")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="更新时间")
+
+    class Meta:
+        verbose_name = "归档汇总代次状态"
+        verbose_name_plural = "归档汇总代次状态"
+
+    @classmethod
+    def get_active_generation_readonly(cls, name: str = "global") -> tuple[int, bool]:
+        row = cls.objects.filter(name=name).values_list("active_generation", "is_stale").first()
+        if row is None:
+            return 1, False
+        return int(row[0]), bool(row[1])
+
+
+class ArchiveDailyCount(models.Model):
+    """按自然日(authored_on)预聚合的公开文章计数表，打开月历最多只读当月 31 行"""
+    generation = models.BigIntegerField(default=1, db_index=True, verbose_name="汇总代次")
+    site_id = models.IntegerField(default=0, verbose_name="站点ID(0=未绑定站点)")
+    type_key = models.CharField(max_length=64, verbose_name="页面类型标识")
+    bucket_date = models.DateField(verbose_name="成文日期日桶")
+    article_count = models.BigIntegerField(default=0, verbose_name="公开文章数")
+
+    class Meta:
+        verbose_name = "按日归档计数"
+        verbose_name_plural = "按日归档计数"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["generation", "site_id", "type_key", "bucket_date"],
+                name="uniq_arch_daily_gen_site_type_date",
+            ),
+            models.CheckConstraint(
+                condition=Q(article_count__gte=0),
+                name="chk_arch_daily_nonneg",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["generation", "site_id", "bucket_date"],
+                name="arch_daily_gen_site_date_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return f"ArchiveDaily(gen={self.generation}, site={self.site_id}, type={self.type_key}, date={self.bucket_date}, count={self.article_count})"
+
+
+class ArchiveContribution(models.Model):
+    """单篇文章在归档日历中的当前计入凭证，用于幂等 +/-1 增量维护防重算"""
+    generation = models.BigIntegerField(default=1, verbose_name="汇总代次")
+    site_id = models.IntegerField(default=0, verbose_name="站点ID")
+    page_id = models.IntegerField(verbose_name="页面ID")
+    type_key = models.CharField(max_length=64, verbose_name="已计入类型")
+    bucket_date = models.DateField(verbose_name="已计入日期桶")
+    effective_revision_id = models.IntegerField(default=0, verbose_name="计入时生效Revision")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="更新时间")
+
+    class Meta:
+        verbose_name = "归档计数贡献记录"
+        verbose_name_plural = "归档计数贡献记录"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["generation", "site_id", "page_id"],
+                name="uniq_arch_contrib_gen_site_page",
+            ),
+        ]
+
+
+class ArchiveSyncOutbox(models.Model):
+    """与业务数据同事务落库的归档汇总待处理任务表 (Transactional Outbox)"""
+    event_type = models.CharField(max_length=64, verbose_name="事件类型")
+    page_id = models.IntegerField(null=True, blank=True, db_index=True, verbose_name="页面ID")
+    root_path = models.CharField(max_length=255, blank=True, verbose_name="子树路径")
+    status = models.CharField(max_length=24, default="pending", db_index=True, verbose_name="处理状态")
+    attempts = models.IntegerField(default=0, verbose_name="重试次数")
+    last_error = models.TextField(blank=True, verbose_name="最后错误")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="创建时间")
+    processed_at = models.DateTimeField(null=True, blank=True, verbose_name="完成时间")
+
+    class Meta:
+        verbose_name = "归档同步Outbox"
+        verbose_name_plural = "归档同步Outbox"
+        indexes = [
+            models.Index(fields=["status", "created_at"], name="arch_outbox_status_idx"),
+        ]

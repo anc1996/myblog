@@ -44,10 +44,35 @@ from discovery.models import (
 )
 from discovery.analysis import normalize_text, protect_tech_terms, tokenize_text
 from discovery.synonyms import expand_terms
-from discovery.facets import compute_facets, compute_archive_groups
+from discovery.facets import (
+    NAVIGATION_TYPE_KEYS,
+    compute_facets,
+    compute_archive_groups,
+)
+from discovery.pagination import (
+    COUNT_PROBE_LIMIT,
+    PageWindowExceededError,
+    build_count_meta,
+    build_pagination_payload,
+    compute_max_jump_page,
+    try_summary_count_from_archive_daily,
+)
 from content_lifecycle.access import AccessContext, AccessMode
 
 logger = logging.getLogger(__name__)
+
+
+def _expand_type_keys(type_keys: list[str] | None) -> list[str]:
+    """将复合类型别名（如 navigation）展开为底层的具体页面 type_key 列表"""
+    expanded: list[str] = []
+    for tk in (type_keys or []):
+        if tk == "navigation":
+            for nav_tk in NAVIGATION_TYPE_KEYS:
+                if nav_tk not in expanded:
+                    expanded.append(nav_tk)
+        elif tk and tk not in expanded:
+            expanded.append(tk)
+    return expanded
 
 
 def _encode_cursor(epoch: int, offset: int) -> str:
@@ -102,12 +127,13 @@ class ContentQuery:
             context = AccessContext(mode=AccessMode.PUBLIC)
 
         page_size = max(1, min(spec.page_size, 50))
+        effective_type_keys = _expand_type_keys(spec.type_keys)
         query_fp = compute_query_fingerprint(
             q=spec.q,
             search_fields=spec.search_fields,
             root_page_id=spec.root_page_id,
             tree_scope=spec.tree_scope,
-            type_keys=spec.type_keys,
+            type_keys=effective_type_keys,
             date_from=spec.date_from,
             date_to=spec.date_to,
             sort=spec.sort,
@@ -133,7 +159,7 @@ class ContentQuery:
 
         # 决定是否需要在本层开启事务与设置只读隔离级别
         should_manage_atomic = not connection.in_atomic_block
-        atomic_ctx = transaction.atomic() if should_manage_atomic else transaction.atomic(savepoint=False)
+        atomic_ctx = transaction.atomic() if should_manage_atomic else transaction.atomic(savepoint=is_outer_testcase)
 
         with atomic_ctx:
             prev_snapshot_flag = getattr(connection, "_in_discovery_snapshot", False)
@@ -147,7 +173,7 @@ class ContentQuery:
                         logger.warning("Failed to set REPEATABLE READ isolation level: %s", exc)
                         raise
 
-                return cls._execute_snapshot(spec, context, page_size, query_fp)
+                return cls._execute_snapshot(spec, context, page_size, query_fp, effective_type_keys)
             finally:
                 connection._in_discovery_snapshot = prev_snapshot_flag
 
@@ -158,9 +184,12 @@ class ContentQuery:
         context: AccessContext,
         page_size: int,
         query_fp: str,
+        effective_type_keys: list[str] | None = None,
     ) -> QueryResult:
         """在已确立的快照环境中执行真正的过滤、检索、排序与统计"""
         current_epoch = ContentDiscoveryEpoch.get_current_epoch_readonly()
+        if effective_type_keys is None:
+            effective_type_keys = _expand_type_keys(spec.type_keys)
 
         # 游标解析：双轨支持 v2 Keyset 游标与旧 Base64 Offset 游标
         is_keyset = spec.cursor is not None and spec.cursor.startswith("v2:")
@@ -288,39 +317,167 @@ class ContentQuery:
 
         if not raw_q:
             # 无关键词：纯 FILTER 模式 (先计算跨类型分桶统计，再按 type_keys 切片，BLK-03 / R04)
-            facets_data = compute_facets(candidates, spec.facets)
-            archive_data = compute_archive_groups(candidates)
+            facets_data = compute_facets(candidates, spec.facets) if (spec.compute_facets_flag and spec.facets) else {}
+            archive_data = compute_archive_groups(candidates) if (not spec.include_listing_scope and spec.count_mode == "exact") else []
 
             # 应用当前选中的类型过滤
             filtered_candidates = candidates
-            if spec.type_keys:
-                filtered_candidates = filtered_candidates.filter(type_key__in=spec.type_keys)
+            if effective_type_keys:
+                filtered_candidates = filtered_candidates.filter(type_key__in=effective_type_keys)
 
             match_mode = "FILTER"
-            total_count = filtered_candidates.count()
+            if spec.count_mode == "bounded":
+                probe_count = filtered_candidates.order_by().values_list("id", flat=True)[: COUNT_PROBE_LIMIT + 1].count()
+                if probe_count <= COUNT_PROBE_LIMIT:
+                    total_count = probe_count
+                    count_kind = "exact"
+                else:
+                    can_use_summary = (
+                        not spec.tag_ids
+                        and not spec.root_page_id
+                        and not spec.page_id
+                        and not spec.year
+                        and not spec.month
+                        and not spec.extra_filters
+                    )
+                    summary_val = (
+                        try_summary_count_from_archive_daily(
+                            site_id=spec.site_id,
+                            type_keys=effective_type_keys,
+                            date_from=spec.date_from,
+                            date_to=spec.date_to,
+                        )
+                        if can_use_summary
+                        else None
+                    )
+                    if summary_val is not None:
+                        total_count = summary_val
+                        count_kind = "summary"
+                    else:
+                        total_count = COUNT_PROBE_LIMIT
+                        count_kind = "lower_bound"
+            else:
+                total_count = filtered_candidates.count()
+                count_kind = "exact"
+
             if spec.sort == "authored_asc":
                 ordered_qs = filtered_candidates.order_by("authored_on", "page_id").prefetch_related("search_tags")
+                reverse_qs = filtered_candidates.order_by("-authored_on", "-page_id").prefetch_related("search_tags")
             else:
                 ordered_qs = filtered_candidates.order_by("-authored_on", "-page_id").prefetch_related("search_tags")
+                reverse_qs = filtered_candidates.order_by("authored_on", "page_id").prefetch_related("search_tags")
 
-            # Keyset 或 Offset 分页
+            # 双向 Keyset / 日期定位 / 浅页直跳分页
+            page_mode = "shallow_page"
+            current_page: int | None = 1
+            has_more = False
+            has_prev = False
+
             if is_keyset and keyset_payload:
+                page_mode = "cursor"
+                current_page = None
                 bound_ao = date.fromisoformat(keyset_payload["ao"])
                 bound_pid = keyset_payload["pid"]
-                if spec.sort == "authored_asc":
-                    ordered_qs = ordered_qs.filter(
-                        Q(authored_on__gt=bound_ao) | Q(authored_on=bound_ao, page_id__gt=bound_pid)
-                    )
-                else:
-                    ordered_qs = ordered_qs.filter(
-                        Q(authored_on__lt=bound_ao) | Q(authored_on=bound_ao, page_id__lt=bound_pid)
-                    )
-                paged_docs = list(ordered_qs[: page_size + 1])
-            else:
-                paged_docs = list(ordered_qs[offset : offset + page_size + 1])
+                ks_dir = keyset_payload.get("dir", "next")
 
-            has_more = len(paged_docs) > page_size
-            items_to_render = paged_docs[:page_size]
+                if spec.sort == "authored_asc":
+                    if ks_dir == "prev":
+                        back_qs = reverse_qs.filter(
+                            Q(authored_on__lt=bound_ao) | Q(authored_on=bound_ao, page_id__lt=bound_pid)
+                        )
+                        paged_docs = list(back_qs[: page_size + 1])
+                        has_prev = len(paged_docs) > page_size
+                        items_to_render = list(reversed(paged_docs[:page_size]))
+                        has_more = bool(items_to_render) and ordered_qs.filter(
+                            Q(authored_on__gt=items_to_render[-1].authored_on)
+                            | Q(authored_on=items_to_render[-1].authored_on, page_id__gt=items_to_render[-1].page_id)
+                        ).exists()
+                    else:
+                        fwd_qs = ordered_qs.filter(
+                            Q(authored_on__gt=bound_ao) | Q(authored_on=bound_ao, page_id__gt=bound_pid)
+                        )
+                        paged_docs = list(fwd_qs[: page_size + 1])
+                        has_more = len(paged_docs) > page_size
+                        items_to_render = paged_docs[:page_size]
+                        has_prev = bool(items_to_render) and reverse_qs.filter(
+                            Q(authored_on__lt=items_to_render[0].authored_on)
+                            | Q(authored_on=items_to_render[0].authored_on, page_id__lt=items_to_render[0].page_id)
+                        ).exists()
+                else:
+                    if ks_dir == "prev":
+                        back_qs = reverse_qs.filter(
+                            Q(authored_on__gt=bound_ao) | Q(authored_on=bound_ao, page_id__gt=bound_pid)
+                        )
+                        paged_docs = list(back_qs[: page_size + 1])
+                        has_prev = len(paged_docs) > page_size
+                        items_to_render = list(reversed(paged_docs[:page_size]))
+                        has_more = bool(items_to_render) and ordered_qs.filter(
+                            Q(authored_on__lt=items_to_render[-1].authored_on)
+                            | Q(authored_on=items_to_render[-1].authored_on, page_id__lt=items_to_render[-1].page_id)
+                        ).exists()
+                    else:
+                        fwd_qs = ordered_qs.filter(
+                            Q(authored_on__lt=bound_ao) | Q(authored_on=bound_ao, page_id__lt=bound_pid)
+                        )
+                        paged_docs = list(fwd_qs[: page_size + 1])
+                        has_more = len(paged_docs) > page_size
+                        items_to_render = paged_docs[:page_size]
+                        has_prev = bool(items_to_render) and reverse_qs.filter(
+                            Q(authored_on__gt=items_to_render[0].authored_on)
+                            | Q(authored_on=items_to_render[0].authored_on, page_id__gt=items_to_render[0].page_id)
+                        ).exists()
+            elif not cursor_reset and spec.seek_direction == "oldest":
+                page_mode = "oldest"
+                current_page = None
+                paged_docs = list(reverse_qs[: page_size + 1])
+                has_prev = len(paged_docs) > page_size
+                items_to_render = list(reversed(paged_docs[:page_size]))
+                has_more = False
+            elif not cursor_reset and spec.seek_date is not None:
+                page_mode = "seek_date"
+                current_page = None
+                if spec.sort == "authored_asc":
+                    seek_qs = ordered_qs.filter(authored_on__gte=spec.seek_date)
+                    paged_docs = list(seek_qs[: page_size + 1])
+                    has_more = len(paged_docs) > page_size
+                    items_to_render = paged_docs[:page_size]
+                    has_prev = bool(items_to_render) and reverse_qs.filter(
+                        Q(authored_on__lt=items_to_render[0].authored_on)
+                        | Q(authored_on=items_to_render[0].authored_on, page_id__lt=items_to_render[0].page_id)
+                    ).exists()
+                else:
+                    seek_qs = ordered_qs.filter(authored_on__lte=spec.seek_date)
+                    paged_docs = list(seek_qs[: page_size + 1])
+                    has_more = len(paged_docs) > page_size
+                    items_to_render = paged_docs[:page_size]
+                    has_prev = bool(items_to_render) and reverse_qs.filter(
+                        Q(authored_on__gt=items_to_render[0].authored_on)
+                        | Q(authored_on=items_to_render[0].authored_on, page_id__gt=items_to_render[0].page_id)
+                    ).exists()
+            elif not cursor_reset and spec.page is not None:
+                max_jump_page = compute_max_jump_page(page_size)
+                if spec.page > max_jump_page:
+                    raise PageWindowExceededError(spec.page, max_jump_page)
+                page_mode = "shallow_page"
+                current_page = max(1, spec.page)
+                shallow_offset = (current_page - 1) * page_size
+                paged_docs = list(ordered_qs[shallow_offset : shallow_offset + page_size + 1])
+                has_more = len(paged_docs) > page_size
+                items_to_render = paged_docs[:page_size]
+                has_prev = current_page > 1
+            else:
+                if offset > 0 and spec.count_mode == "bounded":
+                    max_jump_page = compute_max_jump_page(page_size)
+                    derived_page = (offset // page_size) + 1
+                    if derived_page > max_jump_page:
+                        raise PageWindowExceededError(derived_page, max_jump_page)
+                    current_page = derived_page
+                else:
+                    current_page = (offset // page_size) + 1 if offset >= 0 else 1
+                paged_docs = list(ordered_qs[offset : offset + page_size + 1])
+                has_more = len(paged_docs) > page_size
+                items_to_render = paged_docs[:page_size]
+                has_prev = offset > 0
 
             items = [
                 SearchResultItem(
@@ -346,7 +503,7 @@ class ContentQuery:
             previous_cursor = None
             if has_more and items_to_render:
                 last_doc = items_to_render[-1]
-                if is_keyset or spec.include_listing_scope:
+                if is_keyset or spec.include_listing_scope or spec.count_mode == "bounded":
                     next_cursor = encode_keyset_cursor(
                         epoch=current_epoch,
                         direction="next",
@@ -360,9 +517,11 @@ class ContentQuery:
                     next_cursor = _encode_cursor(current_epoch, offset + page_size)
 
             if (is_keyset and keyset_payload) or offset > 0:
+                pass
+            if has_prev:
                 if items_to_render:
                     first_doc = items_to_render[0]
-                    if is_keyset or spec.include_listing_scope:
+                    if is_keyset or spec.include_listing_scope or spec.count_mode == "bounded":
                         previous_cursor = encode_keyset_cursor(
                             epoch=current_epoch,
                             direction="prev",
@@ -374,6 +533,19 @@ class ContentQuery:
                         )
                     else:
                         previous_cursor = _encode_cursor(current_epoch, max(0, offset - page_size))
+
+            pagination_payload = build_pagination_payload(
+                mode=page_mode,
+                current_page=current_page,
+                page_size=page_size,
+                total_count=total_count,
+                count_kind=count_kind,
+                has_next=has_more,
+                has_previous=has_prev,
+                next_cursor=next_cursor,
+                previous_cursor=previous_cursor,
+            )
+            count_meta = build_count_meta(value=total_count, kind=count_kind)
 
             return QueryResult(
                 items=items,
@@ -389,6 +561,8 @@ class ContentQuery:
                 secondary_used=False,
                 corpus_epoch=current_epoch,
                 cursor_reset=cursor_reset,
+                pagination=pagination_payload,
+                count_meta=count_meta,
             )
 
         # 有关键词检索：落实 SEARCH-MODE-02 规则
@@ -466,14 +640,14 @@ class ContentQuery:
 
         # 先在跨类型全集上计算 facets 与归档统计
         final_hit_qs = PublishedSearchDocument.objects.filter(id__in=matched_doc_ids)
-        facets_data = compute_facets(final_hit_qs, spec.facets)
-        archive_data = compute_archive_groups(final_hit_qs)
+        facets_data = compute_facets(final_hit_qs, spec.facets) if (spec.compute_facets_flag and spec.facets) else {}
+        archive_data = compute_archive_groups(final_hit_qs) if (not spec.include_listing_scope and spec.count_mode == "exact") else []
 
         # 过滤当前选中的类型
-        if spec.type_keys:
+        if effective_type_keys:
             matched_doc_ids = [
                 did for did in matched_doc_ids
-                if doc_dict.get(did) and doc_dict[did].type_key in spec.type_keys
+                if doc_dict.get(did) and doc_dict[did].type_key in effective_type_keys
             ]
 
         # 严格等级优先排序：match_tier ASC -> authored_on DESC -> page_id DESC
@@ -484,19 +658,26 @@ class ContentQuery:
             doc = doc_dict.get(doc_id)
             if not doc:
                 return (tier, 0, 0)
-            date_num = doc.authored_on.toordinal() * sort_direction
-            pid = doc.page_id * sort_direction
-            return (tier, -date_num, -pid)
+            return (tier, doc.authored_on.toordinal() * sort_direction, doc.page_id * sort_direction)
 
         sorted_doc_ids = sorted(matched_doc_ids, key=sort_key)
         total_count = len(sorted_doc_ids)
+        count_kind = "exact"
 
-        # Keyset 游标定位 (使用 compare_keyset_order 全序比较，修复 authored_asc 排序逆序，BLK-03)
+        # 双向 Keyset / 浅页直跳 / 日期定位
+        kw_mode = "shallow_page"
+        kw_page: int | None = 1
+        has_more = False
+        has_prev = False
+
         if is_keyset and keyset_payload:
+            kw_mode = "cursor"
+            kw_page = None
             bound_tr = keyset_payload["tr"]
             bound_sk = keyset_payload["sk"]
             bound_ao = date.fromisoformat(keyset_payload["ao"])
             bound_pid = keyset_payload["pid"]
+            ks_dir = keyset_payload.get("dir", "next")
             filtered_ids = []
             for did in sorted_doc_ids:
                 doc = doc_dict.get(did)
@@ -506,14 +687,56 @@ class ContentQuery:
                 s_key = 100 - doc_tier_map.get(did, 0) * 20
                 row_tuple = (t_rank, s_key, doc.authored_on, doc.page_id)
                 bound_tuple = (bound_tr, bound_sk, bound_ao, bound_pid)
-                if compare_keyset_order(row_tuple, bound_tuple, sort=spec.sort, direction=keyset_payload.get("dir", "next")):
+                if compare_keyset_order(row_tuple, bound_tuple, sort=spec.sort, direction=ks_dir):
                     filtered_ids.append(did)
-            paged_ids = filtered_ids[: page_size + 1]
+            if ks_dir == "prev":
+                has_prev = len(filtered_ids) > page_size
+                items_ids = filtered_ids[-page_size:]
+                has_more = len(sorted_doc_ids) > len(filtered_ids)
+            else:
+                has_more = len(filtered_ids) > page_size
+                items_ids = filtered_ids[:page_size]
+                has_prev = len(sorted_doc_ids) > len(filtered_ids)
+        elif not cursor_reset and spec.seek_direction == "oldest":
+            kw_mode = "oldest"
+            kw_page = None
+            items_ids = sorted_doc_ids[-page_size:] if sorted_doc_ids else []
+            has_prev = len(sorted_doc_ids) > len(items_ids)
+            has_more = False
+        elif not cursor_reset and spec.seek_date is not None:
+            kw_mode = "seek_date"
+            kw_page = None
+            seek_ids = []
+            for did in sorted_doc_ids:
+                doc = doc_dict.get(did)
+                if not doc:
+                    continue
+                if spec.sort == "authored_asc":
+                    if doc.authored_on >= spec.seek_date:
+                        seek_ids.append(did)
+                else:
+                    if doc.authored_on <= spec.seek_date:
+                        seek_ids.append(did)
+            items_ids = seek_ids[:page_size]
+            has_more = len(seek_ids) > page_size
+            has_prev = bool(items_ids) and sorted_doc_ids.index(items_ids[0]) > 0
+        elif not cursor_reset and spec.page is not None:
+            max_jump_page = compute_max_jump_page(page_size)
+            if spec.page > max_jump_page:
+                raise PageWindowExceededError(spec.page, max_jump_page)
+            kw_mode = "shallow_page"
+            kw_page = max(1, spec.page)
+            kw_offset = (kw_page - 1) * page_size
+            paged_ids = sorted_doc_ids[kw_offset : kw_offset + page_size + 1]
+            has_more = len(paged_ids) > page_size
+            items_ids = paged_ids[:page_size]
+            has_prev = kw_page > 1
         else:
+            kw_page = (offset // page_size) + 1 if offset >= 0 else 1
             paged_ids = sorted_doc_ids[offset : offset + page_size + 1]
-
-        has_more = len(paged_ids) > page_size
-        items_ids = paged_ids[:page_size]
+            has_more = len(paged_ids) > page_size
+            items_ids = paged_ids[:page_size]
+            has_prev = offset > 0
         paged_docs = [doc_dict[did] for did in items_ids if did in doc_dict]
 
         # 4. 生成展示项与高亮
@@ -553,7 +776,7 @@ class ContentQuery:
             last_item = items[-1]
             last_mode = last_item.match_mode
             t_rank = MATCH_MODE_TO_TIER_RANK.get(last_mode, 3)
-            if is_keyset or spec.include_listing_scope:
+            if is_keyset or spec.include_listing_scope or spec.count_mode == "bounded":
                 next_cursor = encode_keyset_cursor(
                     epoch=current_epoch,
                     direction="next",
@@ -567,11 +790,13 @@ class ContentQuery:
                 next_cursor = _encode_cursor(current_epoch, offset + page_size)
 
         if (is_keyset and keyset_payload) or offset > 0:
+            pass
+        if has_prev:
             if items:
                 first_item = items[0]
                 first_mode = first_item.match_mode
                 f_tr = MATCH_MODE_TO_TIER_RANK.get(first_mode, 3)
-                if is_keyset or spec.include_listing_scope:
+                if is_keyset or spec.include_listing_scope or spec.count_mode == "bounded":
                     previous_cursor = encode_keyset_cursor(
                         epoch=current_epoch,
                         direction="prev",
@@ -583,6 +808,19 @@ class ContentQuery:
                     )
                 else:
                     previous_cursor = _encode_cursor(current_epoch, max(0, offset - page_size))
+
+        kw_pagination = build_pagination_payload(
+            mode=kw_mode,
+            current_page=kw_page,
+            page_size=page_size,
+            total_count=total_count,
+            count_kind=count_kind,
+            has_next=has_more,
+            has_previous=has_prev,
+            next_cursor=next_cursor,
+            previous_cursor=previous_cursor,
+        )
+        kw_count_meta = build_count_meta(value=total_count, kind=count_kind)
 
         return QueryResult(
             items=items,
@@ -598,6 +836,8 @@ class ContentQuery:
             secondary_used=secondary_used,
             corpus_epoch=current_epoch,
             cursor_reset=cursor_reset,
+            pagination=kw_pagination,
+            count_meta=kw_count_meta,
         )
 
     @classmethod

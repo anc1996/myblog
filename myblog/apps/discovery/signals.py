@@ -15,7 +15,31 @@ from wagtail.signals import page_published, page_unpublished, post_page_move, pa
 from wagtail.models import PageViewRestriction, Site
 from taggit.models import Tag
 from discovery.projection import project_page_to_discovery, unpublish_page_discovery, sync_subtree_tree_metadata
-from discovery.models import ContentDiscoveryEpoch
+from discovery.models import ContentDiscoveryEpoch, PublishedSearchDocument
+
+
+def _sync_restriction_affected_archives(restriction_instance) -> None:
+    """PageViewRestriction 增删改时同步受影响页面的归档日历计数；大子树自动转入 Outbox。"""
+    from discovery.archive_counts import (
+        enqueue_subtree_archive_reconcile,
+        sync_page_archive_contribution,
+    )
+    page = getattr(restriction_instance, "page", None)
+    if not page or not getattr(page, "path", None):
+        enqueue_subtree_archive_reconcile()
+        return
+    affected_ids = list(
+        PublishedSearchDocument.objects.filter(
+            root_path__startswith=page.path,
+            is_live=True,
+            is_recycled=False,
+        ).values_list("page_id", flat=True)[:201]
+    )
+    if len(affected_ids) > 200:
+        enqueue_subtree_archive_reconcile(root_path=page.path, page_id=page.id)
+    else:
+        for pid in affected_ids:
+            sync_page_archive_contribution(pid)
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +85,7 @@ def on_view_restriction_changed(sender, instance, **kwargs):
     """页面访问权限增删：递增 epoch 触发前台缓存失效"""
     try:
         ContentDiscoveryEpoch.increment_epoch()
+        _sync_restriction_affected_archives(instance)
     except Exception as exc:
         logger.exception("Failed to increment epoch on PageViewRestriction mutation: %s", exc)
 
@@ -71,8 +96,19 @@ def on_view_restriction_groups_changed(sender, instance, action, **kwargs):
     if action in ("post_add", "post_remove", "post_clear"):
         try:
             ContentDiscoveryEpoch.increment_epoch()
+            _sync_restriction_affected_archives(instance)
         except Exception as exc:
             logger.exception("Failed to increment epoch on PageViewRestriction groups change: %s", exc)
+
+
+@receiver(post_delete, sender=PublishedSearchDocument)
+def on_search_doc_deleted(sender, instance, **kwargs):
+    """搜索副本被物理清理时同步回退归档日桶计数"""
+    try:
+        from discovery.archive_counts import sync_page_archive_contribution
+        sync_page_archive_contribution(instance.page_id)
+    except Exception as exc:
+        logger.exception("Failed to sync archive contribution on doc delete %s: %s", getattr(instance, "page_id", None), exc)
 
 
 @receiver([post_save, post_delete], sender=Site)

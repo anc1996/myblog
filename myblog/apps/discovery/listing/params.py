@@ -68,6 +68,30 @@ def parse_listing_filters(request: Any, policy: ListingPolicy) -> ListingFilters
     # 5. 分页游标与每页数量
     cursor = (get_params.get("cursor") or "").strip() or None
     navigation_cursor = (get_params.get("navigation_cursor") or "").strip() or None
+    page_num: int | None = None
+    seek_date: date | None = None
+    seek_direction = "date"
+
+    if cursor is None:
+        raw_dir = (get_params.get("seek_direction") or "").strip().lower()
+        if raw_dir == "oldest":
+            seek_direction = "oldest"
+        else:
+            sd_str = get_params.get("seek_date")
+            if sd_str:
+                try:
+                    seek_date = date.fromisoformat(sd_str.strip())
+                except (ValueError, TypeError):
+                    seek_date = None
+
+        if seek_direction != "oldest" and seek_date is None:
+            raw_page = get_params.get("page")
+            if raw_page is not None and str(raw_page).strip():
+                try:
+                    parsed_p = int(str(raw_page).strip())
+                    page_num = parsed_p if parsed_p >= 1 else 1
+                except (ValueError, TypeError):
+                    page_num = None
 
     try:
         page_size_val = int(get_params.get("page_size", policy.page_size))
@@ -93,6 +117,9 @@ def parse_listing_filters(request: Any, policy: ListingPolicy) -> ListingFilters
         sort=effective_sort,
         cursor=cursor,
         navigation_cursor=navigation_cursor,
+        page=page_num,
+        seek_date=seek_date,
+        seek_direction=seek_direction,
         page_size=page_size,
         extra_filters=extra_filters,
     )

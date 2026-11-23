@@ -15,6 +15,43 @@ from wagtail.images.forms import BaseImageForm
 from media_library.models import Audio, MediaReferenceRecord, Video
 
 
+def validate_document_upload(file_obj):
+    """
+    服务端统一文档校验（供 Wagtail 后台文档表单与 Markdown 导入上传共用）：
+    1. 强校验扩展名是否在 WAGTAILDOCS_EXTENSIONS 白名单（大小写无关）；
+    2. 强校验非空文件与单文件字节数上限 WAGTAILDOCS_MAX_UPLOAD_SIZE。
+    """
+    if not file_obj:
+        return file_obj
+
+    name = getattr(file_obj, "name", "") or ""
+    ext = Path(name).suffix.lower().lstrip(".")
+    allowed_exts = {
+        str(item).strip().lower().lstrip(".")
+        for item in getattr(
+            settings,
+            "WAGTAILDOCS_EXTENSIONS",
+            ["csv", "docx", "key", "md", "markdown", "odt", "pdf", "pptx", "rtf", "txt", "xlsx", "zip"],
+        )
+        if str(item).strip()
+    }
+    if not ext or ext not in allowed_exts:
+        raise forms.ValidationError(
+            f"不支持的文档格式（允许: {', '.join(sorted(allowed_exts))}）"
+        )
+
+    size = getattr(file_obj, "size", None)
+    if size is not None:
+        if size <= 0:
+            raise forms.ValidationError("上传文档不能为空文件（0 字节）。")
+        max_size = int(getattr(settings, "WAGTAILDOCS_MAX_UPLOAD_SIZE", 50 * 1024 * 1024))
+        if size > max_size:
+            raise forms.ValidationError(
+                f"文档大小超过允许上限（最大 {max_size // (1024 * 1024)} MiB）。"
+            )
+    return file_obj
+
+
 class ProtectedImageForm(BaseImageForm):
     """防止替换正在被页面版本引用的图片原文件。"""
 
@@ -38,6 +75,8 @@ class ProtectedDocumentForm(BaseDocumentForm):
                 raise forms.ValidationError(
                     "该文档正被页面版本引用，禁止直接覆盖替换原文件内容；请上传新文档后再替换页面引用。"
                 )
+        if not self.instance or not self.instance.pk or "file" in self.changed_data:
+            validate_document_upload(file_val)
         return file_val
 
 

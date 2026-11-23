@@ -192,19 +192,36 @@ class BlogPage(CustomBasePage):
             page._hydrated_from_revision = True
         return page
 
-    def save(self, *args, **kwargs):
+    def save(self, clean=True, *args, **kwargs):
         """
-        保存页面模型物理行时的脱水守卫：
-        即使 Wagtail PublishRevisionAction 将水合后的正文写回，也在此拦截将 PostgreSQL 物理列清空为 []，
-        同时保留内存中的 self.intro 与 self.body 供信号监听器与搜索投影直接使用。
+        保存页面模型物理行时的写前脱水守卫：
+        先在完整内存正文上执行校验（full_clean / minimal_clean），再于写入 PostgreSQL 前临时清空
+        intro / body 为 []，避免 10 万字超长文产生无效 TOAST 写入，并在 finally 中恢复内存正文。
         """
         raw_intro = self.intro
         raw_body = self.body
-        super().save(*args, **kwargs)
-        if self.pk:
-            BlogPage.objects.filter(pk=self.pk).update(intro=[], body=[])
-        self.intro = raw_intro
-        self.body = raw_body
+        if clean:
+            if getattr(self, "live", False):
+                self.full_clean()
+            else:
+                self.minimal_clean()
+        try:
+            self.intro = []
+            self.body = []
+            return super().save(clean=False, *args, **kwargs)
+        finally:
+            self.intro = raw_intro
+            self.body = raw_body
+
+    def serializable_data(self):
+        """Revision 序列化前即执行脱水，防止大正文进入 wagtailcore_revision.content 首次写入。"""
+        data = super().serializable_data()
+        data["intro"] = []
+        data["body"] = []
+        pending = getattr(self, "_pending_external_pointers", None)
+        if pending:
+            data["_external_field_pointers"] = pending
+        return data
 
     def with_content_json(self, content):
         """
@@ -299,31 +316,38 @@ class BlogPage(CustomBasePage):
                 store = MongoContentStore()
                 doc_uuid = self.document_uuid
                 pointers = []
-                op_id = f"op_rev_{revision.id}_{uuid.uuid4().hex[:8]}"
+                prepared = getattr(self, "_prepared_external_pointers", None)
+                if prepared:
+                    for ptr in prepared:
+                        if str(ptr.document_uuid) != str(doc_uuid):
+                            raise ValueError("Prepared pointer document_uuid mismatch for BlogPage")
+                        pointers.append(ptr)
+                else:
+                    op_id = f"op_rev_{revision.id}_{uuid.uuid4().hex[:8]}"
 
-                # 1. 将 intro 积木流全量外置保存到 MongoDB
-                if raw_intro:
-                    intro_val = raw_intro.get_prep_value() if hasattr(raw_intro, "get_prep_value") else list(raw_intro)
-                    ptr_intro = store.save_field_version(
-                        document_uuid=doc_uuid,
-                        field_name="intro",
-                        payload=intro_val,
-                        model_label="blog.BlogPage",
-                        operation_id=f"{op_id}_intro",
-                    )
-                    pointers.append(ptr_intro)
+                    # 1. 将 intro 积木流全量外置保存到 MongoDB
+                    if raw_intro:
+                        intro_val = raw_intro.get_prep_value() if hasattr(raw_intro, "get_prep_value") else list(raw_intro)
+                        ptr_intro = store.save_field_version(
+                            document_uuid=doc_uuid,
+                            field_name="intro",
+                            payload=intro_val,
+                            model_label="blog.BlogPage",
+                            operation_id=f"{op_id}_intro",
+                        )
+                        pointers.append(ptr_intro)
 
-                # 2. 将 body 积木流全量外置保存到 MongoDB
-                if raw_body:
-                    body_val = raw_body.get_prep_value() if hasattr(raw_body, "get_prep_value") else list(raw_body)
-                    ptr_body = store.save_field_version(
-                        document_uuid=doc_uuid,
-                        field_name="body",
-                        payload=body_val,
-                        model_label="blog.BlogPage",
-                        operation_id=f"{op_id}_body",
-                    )
-                    pointers.append(ptr_body)
+                    # 2. 将 body 积木流全量外置保存到 MongoDB
+                    if raw_body:
+                        body_val = raw_body.get_prep_value() if hasattr(raw_body, "get_prep_value") else list(raw_body)
+                        ptr_body = store.save_field_version(
+                            document_uuid=doc_uuid,
+                            field_name="body",
+                            payload=body_val,
+                            model_label="blog.BlogPage",
+                            operation_id=f"{op_id}_body",
+                        )
+                        pointers.append(ptr_body)
 
                 # 3. 在 Revision 中无条件记录外置版本指针，并彻底清空 Revision 字典中的正文大文本
                 content_dict = revision.content if isinstance(revision.content, dict) else json.loads(revision.content)
@@ -392,4 +416,8 @@ class BlogPage(CustomBasePage):
         # 5. 草稿预览与版本判定
         in_preview = getattr(request, "is_preview", False) or getattr(request, "in_preview_panel", False)
         context["is_preview"] = in_preview
+
+        # 6. 全站共享详情壳层与单次服务端 TOC 数据
+        from content_blocks.rendering.detail import build_detail_presentation
+        context["detail"] = build_detail_presentation(self, request)
         return context

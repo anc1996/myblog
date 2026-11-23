@@ -4,24 +4,24 @@
 {% block title %}{{ page.title }}{% endblock %}
 
 {% block content %}
-<div class="portfolio-index-container" style="max-width:960px;margin:30px auto;padding:0 20px;">
+<div class="listing-shell portfolio-index-container">
     {# 面包屑导航 #}
     {% if breadcrumbs %}
-    <nav class="portfolio-breadcrumbs mb-3" aria-label="面包屑导航">
-        <a href="/" class="text-muted text-decoration-none small">首页</a>
+    <nav class="detail-breadcrumbs portfolio-breadcrumbs" aria-label="面包屑导航">
+        <a href="/">首页</a>
         {% for ancestor in breadcrumbs %}
-            <span class="text-muted small">/</span>
-            <a href="{{ ancestor.url }}" class="text-muted text-decoration-none small">{{ ancestor.title }}</a>
+            <span>/</span>
+            <a href="{{ ancestor.url }}">{{ ancestor.title }}</a>
         {% endfor %}
-        <span class="text-muted small">/</span>
-        <span class="text-dark small fw-bold" aria-current="page">{{ page.title }}</span>
+        <span>/</span>
+        <span class="fw-semibold text-dark" aria-current="page">{{ page.title }}</span>
     </nav>
     {% endif %}
 
-    <header class="portfolio-header mb-4">
-        <h1 class="portfolio-title fw-bold text-dark">{{ page.title }}</h1>
+    <header class="listing-page-header portfolio-header">
+        <h1 class="portfolio-title">{{ page.title }}</h1>
         {% if page.intro %}
-            <p class="text-muted lead fs-6">{{ page.intro }}</p>
+            <p class="listing-page-intro">{{ page.intro }}</p>
         {% endif %}
     </header>
 
@@ -30,5 +30,5 @@
         {% include "discovery/listing/_listing_results.html" %}
     </section>
 </div>
-<script src="{% static 'discovery/js/listing_controller.js' %}"></script>
+<script src="{% static 'discovery/js/listing_controller.js' %}?v=20261122e"></script>
 {% endblock %}

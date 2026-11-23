@@ -1,0 +1,29 @@
+{% for node in nodes %}
+<li class="detail-toc-item" data-depth="{{ node.depth }}" data-toc-node>
+    <div class="detail-toc-row">
+        {% if node.children %}
+        <button
+            type="button"
+            class="detail-toc-branch-toggle"
+            data-toc-branch-toggle
+            aria-expanded="true"
+            aria-label="展开或收起「{{ node.text }}」子目录"
+            title="展开或收起子目录"
+        >▾</button>
+        {% else %}
+        <span class="detail-toc-branch-spacer" aria-hidden="true"></span>
+        {% endif %}
+        <a
+            href="#{{ node.id }}"
+            class="detail-toc-link"
+            data-toc-link
+            {% if is_preview or request.in_preview_panel %} target="_self"{% endif %}
+        >{{ node.text }}</a>
+    </div>
+    {% if node.children %}
+    <ul class="detail-toc-sublist" data-toc-sublist>
+        {% include "detail/_detail_toc_branch.html" with nodes=node.children is_preview=is_preview %}
+    </ul>
+    {% endif %}
+</li>
+{% endfor %}

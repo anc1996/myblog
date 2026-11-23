@@ -48,6 +48,7 @@ def promote_owner_restricted_media_on_publish(sender, instance, revision=None, *
     """
     通用页面发布媒体自动公开监听器 (P0-2)：
     当任意 CustomBasePage 子类正式发布且具备 live_revision_id 时（排除未来排期未上线情况），
+    且页面及其祖先节点均未设置访问限制（view_restrictions）时，
     将本发布版本引用到的、属于该页面 owner 本人上传的 RESTRICTED 图片/文档自动提升为 PUBLIC。
     绝不越权公开非本页面作者上传的他人受限资产。
     """
@@ -60,6 +61,11 @@ def promote_owner_restricted_media_on_publish(sender, instance, revision=None, *
     rev_id = getattr(instance, "live_revision_id", None) or getattr(revision, "id", None)
     owner_id = getattr(instance, "owner_id", None)
     if not rev_id or not owner_id:
+        return
+    try:
+        if instance.get_view_restrictions().exists():
+            return
+    except Exception:
         return
 
     refs = list(

@@ -1,125 +1,49 @@
-{% extends "base.html" %}
-{% load static wagtailcore_tags wagtailimages_tags %}
+{% extends "detail/detail_shell.html" %}
+{% load static %}
 
-{% block title %}{{ page.title }}{% endblock %}
-
-{% block extra_css %}
-{% include "content_blocks/includes/_block_assets_css.html" %}
-<style>
-/* 侧边 TOC 浮动目录 */
-.guide-layout { display:flex; gap:36px; max-width:1100px; margin:30px auto; padding:0 20px; }
-.guide-main { flex:3; min-width:0; }
-.guide-sidebar { flex:1; min-width:220px; position:sticky; top:20px; height:fit-content; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:18px; }
-.toc-title { margin:0 0 12px 0; font-size:15px; color:#0f172a; border-bottom:1px solid #e2e8f0; padding-bottom:8px; }
-.toc-list { list-style:none; padding:0; margin:0; }
-.toc-list li { margin-bottom:8px; font-size:13px; }
-.toc-list a { color:#64748b; text-decoration:none; }
-.toc-list a:hover { color:#0284c7; }
-
-@media (max-width: 768px) {
-    .guide-layout { flex-direction: column-reverse; gap: 20px; }
-    .guide-sidebar { min-width: 0; width: 100%; position: static; }
-}
-</style>
+{% block detail_extra_css %}
+<link rel="stylesheet" type="text/css" href="{% static 'blog/css/article.css' %}">
 {% endblock %}
 
-{% block content %}
-<div class="guide-layout">
-    <article class="guide-main">
-        {% if is_outdated %}
-        <div class="alert alert-warning" style="background:#fffbeb;border:1px solid #fde68a;border-left:5px solid #d97706;padding:14px 18px;border-radius:6px;margin-bottom:24px;color:#92400e;font-size:14px;">
-            {{ outdated_warning }}
-        </div>
-        {% endif %}
+{% block detail_alerts %}
+{% if is_outdated %}
+<div class="detail-outdated-alert" role="note">
+    {{ outdated_warning }}
+</div>
+{% endif %}
+{% endblock %}
 
-        <header style="margin-bottom:32px;border-bottom:1px solid #e2e8f0;padding-bottom:20px;">
-            {% if page.topic %}
-                <div style="margin-bottom:10px;">
-                    <span style="background:#e0f2fe;color:#0369a1;padding:4px 10px;border-radius:4px;font-size:12px;font-weight:600;">
-                        专栏：{{ page.topic.name }}
-                    </span>
-                    <span style="background:#f1f5f9;color:#475569;padding:4px 10px;border-radius:4px;font-size:12px;margin-left:8px;">
-                        {{ page.get_difficulty_display }}
-                    </span>
-                    <span style="color:#64748b;font-size:13px;margin-left:12px;">
-                        ⏱️ 预计实操: {{ page.estimated_minutes }} 分钟
-                    </span>
-                </div>
-            {% endif %}
-
-            <h1 style="color:#0f172a;font-size:32px;line-height:1.3;margin:12px 0;">{{ page.title }}</h1>
-
-            <div style="color:#64748b;font-size:13px;display:flex;flex-wrap:wrap;gap:16px;align-items:center;">
-                <span>初次成文：{{ page.authored_on|date:"Y-m-d" }}</span>
-                <span>最后技术复核：<strong style="color:#334155;">{{ page.last_reviewed_at|date:"Y-m-d" }}</strong></span>
-                {% if page.authors.all %}
-                    <span>
-                        作者/审校：
-                        {% for a in page.authors.all %}
-                            <span style="color:#0284c7;font-weight:500;">{{ a.person.name }}</span>{% if not forloop.last %}、{% endif %}
-                        {% endfor %}
-                    </span>
-                {% endif %}
-            </div>
-
-            {% if page.featured_image %}
-                <div style="margin-top:20px;text-align:center;">
-                    <img src="/media-gateway/image/{{ page.featured_image.public_id }}/" alt="{{ page.title }}" style="max-width:100%;border-radius:8px;border:1px solid #e2e8f0;" />
-                </div>
-            {% endif %}
-
-            {% if page.summary %}
-                <p style="background:#f8fafc;padding:16px;border-radius:6px;color:#475569;font-size:15px;margin-top:20px;border-left:4px solid #cbd5e1;">
-                    {{ page.summary }}
-                </p>
-            {% endif %}
-        </header>
-
-        <div class="guide-body">
-            {{ page.body }}
-        </div>
-
-        {% if page.tags.all %}
-            <div style="margin-top:40px;padding-top:20px;border-top:1px solid #e2e8f0;">
-                <strong style="color:#64748b;font-size:13px;">技术标签：</strong>
-                {% for tag in page.tags.all %}
-                    <a href="/search/?tag={{ tag.id }}" style="background:#f1f5f9;color:#0284c7;padding:3px 8px;border-radius:4px;font-size:12px;text-decoration:none;margin-right:6px;">#{{ tag.name }}</a>
-                {% endfor %}
-            </div>
-        {% endif %}
-
-        {% if active_related_guides %}
-            <div style="margin-top:32px;background:#f8fafc;padding:20px;border-radius:8px;border:1px solid #e2e8f0;">
-                <h4 style="margin:0 0 12px 0;color:#0f172a;">📚 相关/前后篇指南</h4>
-                <ul style="margin:0;padding-left:20px;">
-                    {% for r in active_related_guides %}
-                        <li style="margin-bottom:8px;">
-                            <a href="{{ r.related_page.url }}" style="color:#0284c7;text-decoration:none;font-weight:500;">{{ r.related_page.title }}</a>
-                        </li>
-                    {% endfor %}
-                </ul>
-            </div>
-        {% endif %}
-    </article>
-
-    {% if steps_toc %}
-    <aside class="guide-sidebar">
-        <h4 class="toc-title">📑 步骤目录大纲</h4>
-        <ul class="toc-list">
-            {% for s in steps_toc %}
-                <li><a href="#{{ s.anchor }}">第 {{ s.step_number }} 步: {{ s.title }}</a></li>
-            {% endfor %}
-        </ul>
-    </aside>
+{% block detail_header %}
+<div class="detail-badges">
+    {% if page.topic %}
+        <span class="detail-badge is-topic">专栏：{{ page.topic.name }}</span>
     {% endif %}
+    <span class="detail-badge">{{ page.get_difficulty_display }}</span>
+    <span class="detail-badge">⏱️ 预计实操: {{ page.estimated_minutes }} 分钟</span>
 </div>
 
-{# 读者评论互动组件 (决策三 A) #}
-<div style="max-width:960px;margin:0 auto 40px auto;padding:0 20px;">
-    {% include "comments/partials/_comment_section.html" %}
+<h1 class="detail-title">{{ page.title }}</h1>
+
+<div class="detail-meta">
+    <time datetime="{{ page.authored_on|date:'Y-m-d' }}">初次成文：{{ page.authored_on|date:"Y-m-d" }}</time>
+    <span>最后技术复核：<strong>{{ page.last_reviewed_at|date:"Y-m-d" }}</strong></span>
+    {% include "detail/_detail_meta.html" %}
 </div>
+
+{% if page.summary %}
+<p class="detail-summary-box">{{ page.summary }}</p>
+{% endif %}
 {% endblock %}
 
-{% block extra_js %}
-{% include "content_blocks/includes/_block_assets_js.html" %}
+{% block detail_after_body %}
+{% if active_related_guides %}
+<section class="detail-related-card" aria-label="相关与前后篇指南">
+    <h4>📚 相关/前后篇指南</h4>
+    <ul>
+        {% for r in active_related_guides %}
+            <li><a href="{{ r.related_page.url }}">{{ r.related_page.title }}</a></li>
+        {% endfor %}
+    </ul>
+</section>
+{% endif %}
 {% endblock %}

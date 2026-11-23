@@ -93,26 +93,33 @@ class ExternalStreamPageMixin:
             if overwrite_revision.id == getattr(self, "live_revision_id", None) or getattr(overwrite_revision, "approved_go_live_at", None) is not None:
                 overwrite_revision = None
 
-        store = None
         pointers = []
-        try:
-            store = MongoContentStore()
-            doc_uuid = getattr(self, "document_uuid", None) or uuid.uuid4()
-            op_id = f"op_proj_{uuid.uuid4().hex[:8]}"
+        doc_uuid = getattr(self, "document_uuid", None) or uuid.uuid4()
+        prepared = getattr(self, "_prepared_external_pointers", None)
+        if prepared:
+            for ptr in prepared:
+                if str(ptr.document_uuid) != str(doc_uuid):
+                    raise ValueError("Prepared pointer document_uuid mismatch for ProjectPage")
+                pointers.append(ptr)
+        else:
+            store = None
+            try:
+                store = MongoContentStore()
+                op_id = f"op_proj_{uuid.uuid4().hex[:8]}"
 
-            if raw_body:
-                body_val = raw_body.get_prep_value() if hasattr(raw_body, "get_prep_value") else list(raw_body)
-                ptr_body = store.save_field_version(
-                    document_uuid=doc_uuid,
-                    field_name="body",
-                    payload=body_val,
-                    model_label="portfolio.ProjectPage",
-                    operation_id=f"{op_id}_body",
-                )
-                pointers.append(ptr_body)
-        finally:
-            if store:
-                store.close()
+                if raw_body:
+                    body_val = raw_body.get_prep_value() if hasattr(raw_body, "get_prep_value") else list(raw_body)
+                    ptr_body = store.save_field_version(
+                        document_uuid=doc_uuid,
+                        field_name="body",
+                        payload=body_val,
+                        model_label="portfolio.ProjectPage",
+                        operation_id=f"{op_id}_body",
+                    )
+                    pointers.append(ptr_body)
+            finally:
+                if store:
+                    store.close()
 
         pointers_dict_list = [
             {
@@ -352,4 +359,6 @@ class ProjectPage(ExternalStreamPageMixin, CustomBasePage):
         ]
         context["authors"] = self.authors.select_related("person").all()
         context["tags"] = self.tags.all()
+        from content_blocks.rendering.detail import build_detail_presentation
+        context["detail"] = build_detail_presentation(self, request)
         return context

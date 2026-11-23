@@ -509,8 +509,10 @@ def timeline_archives_api(request):
     if year_param.isdigit():
         year_val = int(year_param)
 
+    from django.utils import timezone
     epoch = ContentDiscoveryEpoch.get_current_epoch_readonly()
-    weak_etag = f'W/"archives:v1:s{site_id or 0}:e{epoch}:t{type_slug or "all"}:tag{tag_slug or "all"}:top{topic_slug or "all"}:y{year_val or "all"}"'
+    site_today = timezone.localdate().isoformat()
+    weak_etag = f'W/"archives:v1:s{site_id or 0}:e{epoch}:d{site_today}:t{type_slug or "all"}:tag{tag_slug or "all"}:top{topic_slug or "all"}:y{year_val or "all"}"'
 
     conditional_response = get_conditional_response(request, etag=weak_etag)
     if conditional_response is not None:
@@ -533,6 +535,83 @@ def timeline_archives_api(request):
         "data": data,
     }
     resp = _cors_json_response(payload, extra_headers={"ETag": weak_etag, "X-Epoch": str(epoch)})
+    resp["Cache-Control"] = "public, max-age=60"
+    return resp
+
+
+def archive_calendar_api(request):
+    """
+    按月日历归档统计接口 (GET /api/v1/archives/calendar/?month=YYYY-MM&type=blog)。
+    仅读取 ArchiveDailyCount（最多 31 行日桶），并绑定代次/权限版本/站点日期的弱 ETag 与 Redis 短缓存。
+    """
+    from django.core.cache import cache
+    from django.utils import timezone
+    from django.utils.cache import get_conditional_response
+    from wagtail.models import Site
+    from discovery.archive_counts import get_archive_calendar_data
+    from discovery.models import ArchiveCountState
+
+    site = Site.find_for_request(request)
+    site_id = site.id if site else None
+    site_today = timezone.localdate()
+
+    raw_month = (request.GET.get("month") or "").strip()
+    target_year = site_today.year
+    target_month = site_today.month
+    if raw_month and "-" in raw_month:
+        parts = raw_month.split("-", 1)
+        if parts[0].isdigit() and parts[1].isdigit():
+            y_v, m_v = int(parts[0]), int(parts[1])
+            if 1970 <= y_v <= 2100 and 1 <= m_v <= 12:
+                target_year, target_month = y_v, m_v
+    else:
+        if (request.GET.get("year") or "").isdigit():
+            target_year = int(request.GET.get("year"))
+        if (request.GET.get("month") or "").isdigit():
+            m_v = int(request.GET.get("month"))
+            if 1 <= m_v <= 12:
+                target_month = m_v
+
+    type_slug = (request.GET.get("type") or "").strip().lower() or None
+    epoch = ContentDiscoveryEpoch.get_current_epoch_readonly()
+    active_gen, is_stale = ArchiveCountState.get_active_generation_readonly()
+    month_key = f"{target_year:04d}-{target_month:02d}"
+    weak_etag = (
+        f'W/"archcal:v1:s{site_id or 0}:e{epoch}:g{active_gen}:'
+        f'd{site_today.isoformat()}:m{month_key}:t{type_slug or "all"}"'
+    )
+
+    cond_resp = get_conditional_response(request, etag=weak_etag)
+    if cond_resp is not None:
+        cond_resp["ETag"] = weak_etag
+        cond_resp["X-Epoch"] = str(epoch)
+        cond_resp["Cache-Control"] = "public, max-age=60"
+        return cond_resp
+
+    cache_key = f"myblog:archcal:v1:s{site_id or 0}:e{epoch}:g{active_gen}:d{site_today.isoformat()}:m{month_key}:t{type_slug or 'all'}"
+    cached_data = cache.get(cache_key)
+    if cached_data is not None:
+        resp = _cors_json_response(
+            {"status": "success", "epoch": epoch, "data": cached_data},
+            extra_headers={"ETag": weak_etag, "X-Epoch": str(epoch), "X-Cache": "HIT"},
+        )
+        resp["Cache-Control"] = "public, max-age=60"
+        return resp
+
+    cal_data = get_archive_calendar_data(
+        site_id=site_id,
+        year=target_year,
+        month=target_month,
+        type_slug=type_slug,
+        base_url="/timeline/",
+    )
+    if not is_stale:
+        cache.set(cache_key, cal_data, timeout=120)
+
+    resp = _cors_json_response(
+        {"status": "success", "epoch": epoch, "data": cal_data},
+        extra_headers={"ETag": weak_etag, "X-Epoch": str(epoch), "X-Cache": "MISS"},
+    )
     resp["Cache-Control"] = "public, max-age=60"
     return resp
 

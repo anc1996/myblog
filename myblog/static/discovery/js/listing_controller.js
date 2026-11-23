@@ -46,6 +46,9 @@
           resultsContainer.style.opacity = '1';
           resultsContainer.style.pointerEvents = 'auto';
           resultsContainer.innerHTML = data.html;
+          if (window.MyblogUI && typeof window.MyblogUI.mount === 'function') {
+            window.MyblogUI.mount(resultsContainer);
+          }
 
           if (pushState && data.canonical_url) {
             const targetUrl = new URL(url, window.location.origin);
@@ -60,12 +63,25 @@
         });
     }
 
-    function buildUrlFromForm(newCursor = null) {
+    function buildUrlFromForm(newCursor = null, extraOverrides = null) {
       const formData = new FormData(form);
+      const curPs = new URLSearchParams(window.location.search).get('page_size');
+      if (curPs && !formData.has('page_size')) {
+        formData.set('page_size', curPs);
+      }
       if (newCursor) {
         formData.set('cursor', newCursor);
       } else {
         formData.delete('cursor');
+      }
+      if (extraOverrides) {
+        Object.keys(extraOverrides).forEach(function (k) {
+          if (extraOverrides[k] === null || extraOverrides[k] === '') {
+            formData.delete(k);
+          } else {
+            formData.set(k, extraOverrides[k]);
+          }
+        });
       }
 
       const params = new URLSearchParams();
@@ -100,7 +116,7 @@
     }
 
     // 3. 复选框与下拉筛选变动立即触发刷新
-    form.querySelectorAll('input[type="checkbox"], select, input[type="date"]').forEach(function (el) {
+    form.querySelectorAll('input[type="checkbox"], select, input[type="date"], input[data-ui-date]').forEach(function (el) {
       el.addEventListener('change', function () {
         if (cursorInput) cursorInput.value = '';
         const url = buildUrlFromForm(null);
@@ -108,10 +124,12 @@
       });
     });
 
-    // 4. 事件委托处理分页上一页 / 下一页按钮
+    // 4. 事件委托处理分页上一页 / 下一页 / 页码 / 最早一批
     document.addEventListener('click', function (e) {
       const nextBtn = e.target.closest('.listing-page-next-btn');
       const prevBtn = e.target.closest('.listing-page-prev-btn');
+      const pageNumBtn = e.target.closest('.listing-page-num-btn');
+      const oldestBtn = e.target.closest('.listing-oldest-btn');
 
       if (nextBtn) {
         e.preventDefault();
@@ -125,6 +143,40 @@
         const cursorVal = prevBtn.getAttribute('data-cursor');
         if (cursorVal) {
           const url = buildUrlFromForm(cursorVal);
+          fetchListing(url, true);
+        }
+      } else if (pageNumBtn) {
+        e.preventDefault();
+        const pageVal = pageNumBtn.getAttribute('data-page');
+        if (pageVal) {
+          const url = buildUrlFromForm(null, { page: pageVal, seek_date: null, seek_direction: null });
+          fetchListing(url, true);
+        }
+      } else if (oldestBtn) {
+        e.preventDefault();
+        const url = buildUrlFromForm(null, { seek_direction: 'oldest', page: null, seek_date: null });
+        fetchListing(url, true);
+      }
+    });
+
+    // 4.5 分页区跳页与日期定位表单委托提交
+    document.addEventListener('submit', function (e) {
+      const jumpForm = e.target.closest('.listing-jump-page-form');
+      const seekForm = e.target.closest('.listing-seek-date-form');
+      if (jumpForm && resultsContainer.contains(jumpForm)) {
+        e.preventDefault();
+        const pInput = jumpForm.querySelector('input[name="page"]');
+        const pVal = pInput ? pInput.value.trim() : '';
+        if (pVal) {
+          const url = buildUrlFromForm(null, { page: pVal, seek_date: null, seek_direction: null });
+          fetchListing(url, true);
+        }
+      } else if (seekForm && resultsContainer.contains(seekForm)) {
+        e.preventDefault();
+        const dInput = seekForm.querySelector('input[name="seek_date"]');
+        const dVal = dInput ? dInput.value.trim() : '';
+        if (dVal) {
+          const url = buildUrlFromForm(null, { seek_date: dVal, page: null, seek_direction: null });
           fetchListing(url, true);
         }
       }

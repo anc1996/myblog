@@ -1,0 +1,13 @@
+{% if detail.authors %}
+<div class="detail-authors blog-authors">
+    {% for author_rel in detail.authors %}
+    <span class="author-badge" itemprop="author" itemscope itemtype="https://schema.org/Person">
+        {% if author_rel.person.avatar %}
+            <img src="/media-gateway/image/{{ author_rel.person.avatar.public_id }}/" alt="{{ author_rel.person.name }}" class="author-avatar" loading="lazy">
+        {% endif %}
+        <span itemprop="name">{{ author_rel.person.name }}</span>
+        <span class="author-role">({% if author_rel.get_role_display %}{{ author_rel.get_role_display }}{% else %}{{ author_rel.role }}{% endif %})</span>
+    </span>
+    {% endfor %}
+</div>
+{% endif %}

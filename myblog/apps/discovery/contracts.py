@@ -83,6 +83,11 @@ class QuerySpec:
     facets: list[str] = field(default_factory=list)
     page_size: int = 20
     cursor: str | None = None
+    page: int | None = None
+    seek_date: date | None = None
+    seek_direction: str = "date"  # 'date' | 'oldest'
+    count_mode: str = "exact"  # 'exact' | 'bounded'
+    compute_facets_flag: bool = True
     extra_filters: dict[str, Any] = field(default_factory=dict)
 
 
@@ -121,6 +126,8 @@ class QueryResult:
     secondary_used: bool = False
     corpus_epoch: int = 1
     cursor_reset: bool = False  # RECYCLE-DISCOVERY-02: 游标失效自动重置首页轻提示
+    pagination: dict[str, Any] = field(default_factory=dict)
+    count_meta: dict[str, Any] = field(default_factory=dict)
 
 
 @runtime_checkable

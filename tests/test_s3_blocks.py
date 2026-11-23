@@ -366,8 +366,74 @@ class S3BlocksTests(unittest.TestCase):
 
         blocks_list = get_common_stream_blocks()
         block_keys = [b[0] for b in blocks_list]
-        expected_keys = ["rich_text", "markdown", "code", "mermaid", "table", "image", "document", "audio", "video", "embed"]
+        expected_keys = ["rich_text", "markdown", "code", "mermaid", "table", "image", "document", "attachment_list", "audio", "video", "embed"]
         self.assertEqual(block_keys, expected_keys)
+
+    def test_document_badge_size_and_attachment_list_block(self):
+        from content_blocks.blocks import CustomAttachmentListBlock, CustomDocumentBlock
+        from media_library.models import CustomDocument
+
+        md_uuid = uuid4()
+        zip_uuid = uuid4()
+        doc_md = CustomDocument(
+            id=31,
+            collection_id=1,
+            public_id=md_uuid,
+            title="实验说明",
+            file="documents/readme.md",
+            file_size=2048,
+        )
+        doc_zip = CustomDocument(
+            id=32,
+            collection_id=1,
+            public_id=zip_uuid,
+            title="课件源码包",
+            file="documents/courseware.zip",
+            file_size=None,
+        )
+
+        doc_block = CustomDocumentBlock()
+        res_md = doc_block.render_clean({"document": doc_md, "title_override": "讲义.md", "description": "Markdown 讲义"})
+        self.assertIn("doc-ext-badge", res_md.html)
+        self.assertIn(">MD<", res_md.html)
+        self.assertIn("2.0 KB", res_md.html)
+        self.assertIn("download", res_md.html)
+
+        res_zip = doc_block.render_clean({"document": doc_zip, "title_override": "", "description": ""})
+        self.assertIn(">ZIP<", res_zip.html)
+        self.assertIn("大小未知", res_zip.html)
+
+        list_block = CustomAttachmentListBlock()
+        self.assertFalse(list_block.validate_value({"heading": "空", "items": []}).is_valid)
+
+        val = {
+            "heading": "本节配套课件",
+            "items": [
+                {"document": doc_md, "title_override": "实验说明.md", "description": "第一步阅读"},
+                {"document": doc_zip, "title_override": "完整源码.zip", "description": "课后练习"},
+                {"document": doc_md, "title_override": "镜像引用.md", "description": "重复引用"},
+            ],
+        }
+        self.assertTrue(list_block.validate_value(val).is_valid)
+        res_list = list_block.render_clean(val)
+        self.assertTrue(res_list.is_safe)
+        self.assertIn("media-attachment-list", res_list.html)
+        self.assertIn("本节配套课件", res_list.html)
+        self.assertIn(">MD<", res_list.html)
+        self.assertIn(">ZIP<", res_list.html)
+        self.assertIn(f"/media-gateway/document/{md_uuid}/", res_list.html)
+        self.assertIn(f"/media-gateway/document/{zip_uuid}/", res_list.html)
+
+        text_ext = list_block.extract_text(val)
+        self.assertIn("本节配套课件", text_ext.plain_text)
+        self.assertIn("完整源码.zip", text_ext.plain_text)
+
+        refs = list_block.extract_media_refs(val, path="body.4")
+        self.assertEqual(len(refs), 3)
+        self.assertEqual(refs[0].block_path, "body.4.items.0.document")
+        self.assertEqual(refs[1].block_path, "body.4.items.1.document")
+        self.assertEqual(refs[2].block_path, "body.4.items.2.document")
+        self.assertEqual(refs[2].asset_id, str(md_uuid))
 
 
 if __name__ == "__main__":

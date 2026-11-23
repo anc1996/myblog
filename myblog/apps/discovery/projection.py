@@ -144,6 +144,8 @@ def project_page_to_discovery(page: Any, index_generation: int = 1) -> Published
             )
 
         ContentDiscoveryEpoch.increment_epoch()
+        from discovery.archive_counts import sync_page_archive_contribution
+        sync_page_archive_contribution(specific_page.id)
         return doc
 
 
@@ -152,6 +154,8 @@ def unpublish_page_discovery(page_id: int) -> None:
     updated = PublishedSearchDocument.objects.filter(page_id=page_id, is_live=True).update(is_live=False)
     if updated:
         ContentDiscoveryEpoch.increment_epoch()
+    from discovery.archive_counts import sync_page_archive_contribution
+    sync_page_archive_contribution(page_id)
 
 
 def recycle_page_discovery(page_id: int) -> None:
@@ -159,6 +163,8 @@ def recycle_page_discovery(page_id: int) -> None:
     updated = PublishedSearchDocument.objects.filter(page_id=page_id).update(is_recycled=True, is_live=False)
     if updated:
         ContentDiscoveryEpoch.increment_epoch()
+    from discovery.archive_counts import sync_page_archive_contribution
+    sync_page_archive_contribution(page_id)
 
 
 def sync_subtree_tree_metadata(root_page: Any) -> int:
@@ -204,6 +210,17 @@ def sync_subtree_tree_metadata(root_page: Any) -> int:
             updated_count += cnt
 
         ContentDiscoveryEpoch.increment_epoch()
+
+    from discovery.archive_counts import (
+        enqueue_subtree_archive_reconcile,
+        sync_page_archive_contribution,
+    )
+    desc_ids = [d["id"] for d in descendants]
+    if len(desc_ids) > 50:
+        enqueue_subtree_archive_reconcile(root_path=db_root.path, page_id=root_id)
+    else:
+        for did in desc_ids:
+            sync_page_archive_contribution(did)
 
     logger.info("sync_subtree_tree_metadata completed for root=%s, updated %d descendants", root_id, updated_count)
     return updated_count

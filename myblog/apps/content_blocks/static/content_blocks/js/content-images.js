@@ -11,7 +11,7 @@
         var galleryCards = Array.from(document.querySelectorAll(".gallery-card"));
         var bodyImages = Array.from(
             document.querySelectorAll(
-                ".media-image-wrapper img, .blog-body-section img, .guide-main img, .project-body-section img"
+                ".media-image-wrapper img, .detail-body-section img, .blog-body-section img, .guide-main img, .project-body-section img"
             )
         ).filter(function (img) {
             if (img.closest(".gallery-card")) return false;

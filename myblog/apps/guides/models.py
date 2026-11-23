@@ -341,13 +341,28 @@ class GuidePage(CustomBasePage):
             page._hydrated_from_revision = True
         return page
 
-    def save(self, *args, **kwargs):
-        """落库物理脱水拦截：PostgreSQL 主表列始终清空为 []"""
+    def save(self, clean=True, *args, **kwargs):
+        """写前脱水拦截：先用完整内存正文执行校验，再于入库前将 body 清空为 []"""
         raw_body = self.body
-        super().save(*args, **kwargs)
-        if self.pk:
-            GuidePage.objects.filter(pk=self.pk).update(body=[])
-        self.body = raw_body
+        if clean:
+            if getattr(self, "live", False):
+                self.full_clean()
+            else:
+                self.minimal_clean()
+        try:
+            self.body = []
+            return super().save(clean=False, *args, **kwargs)
+        finally:
+            self.body = raw_body
+
+    def serializable_data(self):
+        """Revision 序列化前即脱水"""
+        data = super().serializable_data()
+        data["body"] = []
+        pending = getattr(self, "_pending_external_pointers", None)
+        if pending:
+            data["_external_field_pointers"] = pending
+        return data
 
     def with_content_json(self, content):
         """Wagtail 8.1 官方反序列化入口：按指针精准从 MongoDB 还原正文（严格抛出哈希错误）"""
@@ -418,21 +433,28 @@ class GuidePage(CustomBasePage):
                 )
 
                 import uuid
-                store = MongoContentStore()
                 doc_uuid = self.document_uuid
                 pointers = []
-                op_id = f"op_guide_rev_{revision.id}_{uuid.uuid4().hex[:8]}"
+                prepared = getattr(self, "_prepared_external_pointers", None)
+                if prepared:
+                    for ptr in prepared:
+                        if str(ptr.document_uuid) != str(doc_uuid):
+                            raise ValueError("Prepared pointer document_uuid mismatch for GuidePage")
+                        pointers.append(ptr)
+                else:
+                    store = MongoContentStore()
+                    op_id = f"op_guide_rev_{revision.id}_{uuid.uuid4().hex[:8]}"
 
-                if raw_body:
-                    body_val = raw_body.get_prep_value() if hasattr(raw_body, "get_prep_value") else list(raw_body)
-                    ptr_body = store.save_field_version(
-                        document_uuid=doc_uuid,
-                        field_name="body",
-                        payload=body_val,
-                        model_label="guides.GuidePage",
-                        operation_id=f"{op_id}_body",
-                    )
-                    pointers.append(ptr_body)
+                    if raw_body:
+                        body_val = raw_body.get_prep_value() if hasattr(raw_body, "get_prep_value") else list(raw_body)
+                        ptr_body = store.save_field_version(
+                            document_uuid=doc_uuid,
+                            field_name="body",
+                            payload=body_val,
+                            model_label="guides.GuidePage",
+                            operation_id=f"{op_id}_body",
+                        )
+                        pointers.append(ptr_body)
 
                 content_dict = revision.content if isinstance(revision.content, dict) else json.loads(revision.content)
                 bind_pointers_to_revision_content(content_dict, pointers)
@@ -479,4 +501,6 @@ class GuidePage(CustomBasePage):
             r for r in self.related_guides.select_related("related_page").all()
             if r.related_page.live and not getattr(r.related_page.specific, "is_recycled", False)
         ]
+        from content_blocks.rendering.detail import build_detail_presentation
+        context["detail"] = build_detail_presentation(self, request)
         return context

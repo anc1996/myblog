@@ -249,6 +249,24 @@ class TagDetailService:
                 date_to = None
 
         cursor = (request.GET.get("cursor") or "").strip() or None
+        page_num = None
+        seek_date = None
+        seek_direction = "date"
+        if cursor is None:
+            if (request.GET.get("seek_direction") or "").strip().lower() == "oldest":
+                seek_direction = "oldest"
+            elif request.GET.get("seek_date"):
+                try:
+                    seek_date = date.fromisoformat(request.GET.get("seek_date").strip())
+                except (ValueError, TypeError):
+                    seek_date = None
+            if seek_direction != "oldest" and seek_date is None and request.GET.get("page"):
+                try:
+                    p_val = int(str(request.GET.get("page")).strip())
+                    if p_val >= 1:
+                        page_num = p_val
+                except (ValueError, TypeError):
+                    page_num = None
 
         spec = QuerySpec(
             q=q_term or None,
@@ -262,15 +280,38 @@ class TagDetailService:
             facets=["types"],
             page_size=15,
             cursor=cursor,
+            page=page_num,
+            seek_date=seek_date,
+            seek_direction=seek_direction,
+            count_mode="bounded",
             include_listing_scope=False,
         )
 
         # 单快照调用全站检索核心 (0 MongoDB 网络调用)
-        query_result: QueryResult = ContentQuery.execute(spec, AccessContext(mode=AccessMode.PUBLIC))
+        from discovery.pagination import PageWindowExceededError
+        try:
+            query_result: QueryResult = ContentQuery.execute(spec, AccessContext(mode=AccessMode.PUBLIC))
+        except PageWindowExceededError:
+            spec_fallback = QuerySpec(
+                q=spec.q,
+                search_fields=spec.search_fields,
+                tag_ids=spec.tag_ids,
+                type_keys=spec.type_keys,
+                site_id=spec.site_id,
+                date_from=spec.date_from,
+                date_to=spec.date_to,
+                sort=spec.sort,
+                facets=spec.facets,
+                page_size=spec.page_size,
+                page=1,
+                count_mode="bounded",
+                include_listing_scope=False,
+            )
+            query_result = ContentQuery.execute(spec_fallback, AccessContext(mode=AccessMode.PUBLIC))
 
         # 组装类型分栏 Tab 计数 (BLK-03 / 决策二-A)
         types_facet = {item["key"]: item["count"] for item in query_result.facets.get("types", [])}
-        all_count = sum(types_facet.values()) if not q_term else len(query_result.items)
+        all_count = sum(v for k, v in types_facet.items() if k != "navigation") if not q_term else len(query_result.items)
         blog_count = types_facet.get("blog_page", 0)
         guide_count = types_facet.get("guide", 0)
         project_count = types_facet.get("project", 0)

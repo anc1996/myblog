@@ -18,6 +18,9 @@
         <meta name="description" content="{{ page.search_description }}" />
         {% endif %}
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <script>
+            (function(){try{var t=localStorage.getItem("myblog_theme_preference");if(t!=="light"&&t!=="dark"){t=window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";}document.documentElement.setAttribute("data-theme",t);}catch(_e){}})();
+        </script>
         <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>" />
 
         {# Force all links in the live preview panel to be opened in a new tab #}
@@ -26,7 +29,8 @@
         {% endif %}
 
         {# Global stylesheets #}
-        <link rel="stylesheet" type="text/css" href="{% static 'css/myblog.css' %}">
+        <link rel="stylesheet" type="text/css" href="{% static 'css/myblog.css' %}?v=20261122g">
+        {% include "includes/_ui_assets_css.html" %}
 
         {% block extra_css %}
         {# Override this in templates to add extra stylesheets #}
@@ -65,13 +69,14 @@
                     {% endif %}
                     <a href="/search/" class="nav-link nav-search-btn">🔍 搜索</a>
                     <a href="/feeds/" class="nav-link" title="RSS / Atom 订阅">📡 订阅</a>
+                    <button type="button" class="theme-toggle-btn" data-theme-toggle aria-label="切换到深色主题" title="切换到深色主题">🌙</button>
                     {% if request.user.is_authenticated %}
                         <a href="{% url 'identity:profile' %}" class="nav-link">
                             {{ request.user.display_name }}
                         </a>
-                        <form method="post" action="{% url 'identity:logout' %}" style="display:inline-flex;align-items:center;margin:0;">
+                        <form method="post" action="{% url 'identity:logout' %}" class="nav-logout-form">
                             {% csrf_token %}
-                            <button type="submit" class="nav-link" style="background:none;border:none;cursor:pointer;font:inherit;padding:0 6px;">退出</button>
+                            <button type="submit" class="nav-link nav-logout-btn">退出</button>
                         </form>
                     {% else %}
                         <a href="{% url 'identity:login' %}" class="nav-link">登录</a>
@@ -146,7 +151,8 @@
         </footer>
 
         {# Global javascript #}
-        <script type="text/javascript" src="{% static 'js/myblog.js' %}"></script>
+        <script type="text/javascript" src="{% static 'js/myblog.js' %}?v=20261122c"></script>
+        {% include "includes/_ui_assets_js.html" %}
 
         {% block extra_js %}
         {# Override this in templates to add extra javascript #}

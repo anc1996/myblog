@@ -11,6 +11,7 @@ portfolio.blocks
 
 import html
 from typing import Any
+from django.utils.safestring import mark_safe
 from wagtail import blocks
 from wagtail.images.blocks import ImageChooserBlock
 
@@ -21,7 +22,11 @@ from content_blocks.blocks import (
     CustomTableBlock,
     CustomMermaidBlock,
     CustomImageBlock,
+    CustomDocumentBlock,
+    CustomAttachmentListBlock,
+    CustomAudioBlock,
     CustomVideoBlock,
+    CustomEmbedBlock,
     CustomLeadBlock,
     CustomStepBlock,
     CustomTipBlock,
@@ -29,7 +34,8 @@ from content_blocks.blocks import (
     CustomReferenceBlock,
 )
 from content_blocks.blocks.media import _resolve_asset_id
-from content_blocks.contracts import MediaReference
+from content_blocks.contracts import BlockRenderResult, MediaReference
+from content_blocks.sanitizer import sanitize_html
 
 TECH_CATEGORIES = [
     ("frontend", "前端技术 (Frontend)"),
@@ -59,6 +65,31 @@ class TechStackBlock(blocks.StructBlock):
         icon = "cogs"
         label = "技术栈组件"
 
+    def render_clean(self, value: Any, context: Any = None) -> BlockRenderResult:
+        if not value:
+            return BlockRenderResult(html="", is_safe=True)
+        cat_key = str(value.get("category") or "backend")
+        cat_label = html.escape(dict(TECH_CATEGORIES).get(cat_key, cat_key))
+        name = html.escape(str(value.get("name") or ""))
+        version = html.escape(str(value.get("version") or "").strip())
+        desc = html.escape(str(value.get("description") or "").strip())
+        version_html = f'<span class="portfolio-tech-version">v{version}</span>' if version else ""
+        desc_html = f'<p class="portfolio-tech-desc">{desc}</p>' if desc else ""
+        html_out = (
+            f'<div class="portfolio-tech-item">'
+            f'<div class="portfolio-tech-top">'
+            f'<span class="portfolio-tech-cat">{cat_label}</span>'
+            f'{version_html}'
+            f'</div>'
+            f'<div class="portfolio-tech-name">{name}</div>'
+            f'{desc_html}'
+            f'</div>'
+        )
+        return BlockRenderResult(html=sanitize_html(html_out), is_safe=True)
+
+    def render_basic(self, value: Any, context: Any = None):
+        return mark_safe(self.render_clean(value, context).html)
+
 
 class RepositoryBlock(blocks.StructBlock):
     """开源仓库与演示链接组件"""
@@ -71,6 +102,46 @@ class RepositoryBlock(blocks.StructBlock):
     class Meta:
         icon = "site"
         label = "代码仓库与演示"
+
+    def render_clean(self, value: Any, context: Any = None) -> BlockRenderResult:
+        if not value:
+            return BlockRenderResult(html="", is_safe=True)
+        plat_key = str(value.get("platform") or "github")
+        plat_label = html.escape(dict(REPO_PLATFORMS).get(plat_key, plat_key))
+        repo_url = str(value.get("repo_url") or "").strip()
+        demo_url = str(value.get("demo_url") or "").strip()
+        license_type = html.escape(str(value.get("license_type") or "").strip())
+        star_count = value.get("star_count")
+
+        badges = [f'<span class="detail-badge">{plat_label}</span>']
+        if license_type:
+            badges.append(f'<span class="detail-badge">📄 {license_type}</span>')
+        if star_count is not None and str(star_count) != "":
+            badges.append(f'<span class="detail-badge">⭐ {int(star_count)}</span>')
+
+        links: list[str] = []
+        if repo_url:
+            safe_repo = html.escape(repo_url, quote=True)
+            links.append(
+                f'<a href="{safe_repo}" target="_blank" rel="noopener noreferrer">🔗 访问代码仓库</a>'
+            )
+        if demo_url:
+            safe_demo = html.escape(demo_url, quote=True)
+            links.append(
+                f'<a href="{safe_demo}" target="_blank" rel="noopener noreferrer">🚀 在线演示</a>'
+            )
+
+        html_out = (
+            f'<div class="portfolio-repo-card">'
+            f'<h4 class="portfolio-repo-title">开源仓库与构建信息</h4>'
+            f'<div class="detail-badges">{"".join(badges)}</div>'
+            f'<div class="portfolio-repo-links">{"".join(links)}</div>'
+            f'</div>'
+        )
+        return BlockRenderResult(html=sanitize_html(html_out), is_safe=True)
+
+    def render_basic(self, value: Any, context: Any = None):
+        return mark_safe(self.render_clean(value, context).html)
 
 
 class ScreenshotItemBlock(blocks.StructBlock):
@@ -92,6 +163,41 @@ class ScreenshotGalleryBlock(blocks.StructBlock):
     class Meta:
         icon = "image"
         label = "界面截图画廊"
+
+    def render_clean(self, value: Any, context: Any = None) -> BlockRenderResult:
+        if not value:
+            return BlockRenderResult(html="", is_safe=True)
+        heading = html.escape(str(value.get("heading") or "系统界面与功能演示"))
+        cards: list[str] = []
+        for item in value.get("screenshots") or []:
+            img = item.get("image")
+            asset_id = _resolve_asset_id(img)
+            if not asset_id:
+                continue
+            src = f"/media-gateway/image/{asset_id}/"
+            caption = html.escape(str(item.get("caption") or "").strip())
+            alt_text = caption or html.escape(str(getattr(img, "title", "") or heading))
+            is_cover = bool(item.get("is_cover"))
+            cover_badge = '<span class="portfolio-cover-tag">主推截图</span>' if is_cover else ""
+            cap_html = f'<div class="gallery-caption">{cover_badge}{caption}</div>' if (caption or is_cover) else ""
+            cards.append(
+                f'<div class="gallery-card" data-full-src="{src}" data-caption="{caption}">'
+                f'<img src="{src}" alt="{alt_text}" class="gallery-thumb" loading="lazy" data-asset-id="{asset_id}" />'
+                f'{cap_html}'
+                f'</div>'
+            )
+        if not cards:
+            return BlockRenderResult(html="", is_safe=True)
+        html_out = (
+            f'<div class="portfolio-gallery-widget">'
+            f'<h4 class="portfolio-gallery-heading">{heading}</h4>'
+            f'<div class="gallery-grid">{"".join(cards)}</div>'
+            f'</div>'
+        )
+        return BlockRenderResult(html=sanitize_html(html_out), is_safe=True)
+
+    def render_basic(self, value: Any, context: Any = None):
+        return mark_safe(self.render_clean(value, context).html)
 
     def extract_media_refs(self, value: Any, path: str = "") -> list[MediaReference]:
         if not value or not value.get("screenshots"):
@@ -122,9 +228,6 @@ class FeaturedPostsBlock(blocks.StructBlock):
         label = "关联博客文章推荐"
 
     def render_clean(self, value: Any, context: Any = None):
-        from content_blocks.sanitizer import sanitize_html
-        from content_blocks.contracts import BlockRenderResult
-
         heading = html.escape(value.get("heading") or "相关技术文章与架构演进")
         desc = html.escape(value.get("description") or "")
         posts_html = []
@@ -148,6 +251,9 @@ class FeaturedPostsBlock(blocks.StructBlock):
             f'</div>'
         )
         return BlockRenderResult(html=sanitize_html(html_out), is_safe=True)
+
+    def render_basic(self, value: Any, context: Any = None):
+        return mark_safe(self.render_clean(value, context).html)
 
     def extract_text(self, value: Any):
         from content_blocks.contracts import BlockTextExtraction
@@ -173,7 +279,11 @@ class PortfolioStreamBlock(blocks.StreamBlock):
     table = CustomTableBlock(label="结构化对比表格", group="排版内容")
     mermaid = CustomMermaidBlock(label="架构流程图 (Mermaid)", group="排版内容")
     image = CustomImageBlock(label="单张配图", group="多媒体")
+    document = CustomDocumentBlock(label="文档附件", group="多媒体")
+    attachment_list = CustomAttachmentListBlock(label="课件/附件下载列表", group="多媒体")
+    audio = CustomAudioBlock(label="音频", group="多媒体")
     video = CustomVideoBlock(label="演示视频", group="多媒体")
+    embed = CustomEmbedBlock(label="外部媒体", group="多媒体")
 
     # 教程积木
     lead = CustomLeadBlock(label="项目导读", group="结构化模块")

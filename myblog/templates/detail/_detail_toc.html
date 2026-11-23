@@ -1,0 +1,9 @@
+<nav aria-label="本页目录大纲">
+    <div class="detail-toc-quick-actions">
+        <a href="#page-top" class="detail-toc-quick-btn" data-toc-quick{% if detail.is_preview or request.in_preview_panel %} target="_self"{% endif %}>↑ 回到顶部</a>
+        <a href="#article-start" class="detail-toc-quick-btn" data-toc-quick{% if detail.is_preview or request.in_preview_panel %} target="_self"{% endif %}>↓ 正文开头</a>
+    </div>
+    <ul class="detail-toc-list detail-toc-tree" data-toc-tree>
+        {% include "detail/_detail_toc_branch.html" with nodes=detail.toc_tree is_preview=detail.is_preview %}
+    </ul>
+</nav>

@@ -142,29 +142,33 @@ def package_is_current(pkg_dir: Path, spec: dict[str, Any]) -> tuple[bool, str]:
 _SOURCEMAP_LINE_RE = re.compile(
     rb"(?m)^[ \t]*//[#@][ \t]*sourceMappingURL=([A-Za-z0-9._/\-]+\.map)[ \t]*\r?$(?:\n)?"
 )
+_CSS_SOURCEMAP_RE = re.compile(
+    rb"[ \t]*/\*[#@][ \t]*sourceMappingURL=([A-Za-z0-9._/\-]+\.map)[ \t]*\*/[ \t]*(?:\r?\n)?"
+)
 
 
 def _strip_missing_sourcemaps(pkg_root: Path) -> int:
-    """移除指向缺失 .map 文件的独立 sourceMappingURL 注释行，避免 ManifestStaticFilesStorage 报错。"""
+    """移除 JS/CSS 中指向缺失 .map 文件的 sourceMappingURL 注释，避免 ManifestStaticFilesStorage 报错。"""
     removed = 0
-    for js_path in pkg_root.rglob("*.js"):
-        if not js_path.is_file():
-            continue
-        raw = js_path.read_bytes()
-        if b"sourceMappingURL=" not in raw:
-            continue
+    for pattern, regex in (("*.js", _SOURCEMAP_LINE_RE), ("*.css", _CSS_SOURCEMAP_RE)):
+        for asset_path in pkg_root.rglob(pattern):
+            if not asset_path.is_file():
+                continue
+            raw = asset_path.read_bytes()
+            if b"sourceMappingURL=" not in raw:
+                continue
 
-        def _replace(match: re.Match[bytes]) -> bytes:
-            nonlocal removed
-            rel_map = match.group(1).decode("ascii", errors="ignore")
-            if (js_path.parent / rel_map).is_file():
-                return match.group(0)
-            removed += 1
-            return b""
+            def _replace(match: re.Match[bytes], *, current_path: Path = asset_path) -> bytes:
+                nonlocal removed
+                rel_map = match.group(1).decode("ascii", errors="ignore")
+                if (current_path.parent / rel_map).is_file():
+                    return match.group(0)
+                removed += 1
+                return b""
 
-        updated = _SOURCEMAP_LINE_RE.sub(_replace, raw)
-        if updated != raw:
-            js_path.write_bytes(updated)
+            updated = regex.sub(_replace, raw)
+            if updated != raw:
+                asset_path.write_bytes(updated)
     return removed
 
 

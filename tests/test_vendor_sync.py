@@ -41,6 +41,28 @@ class VendorSyncTests(unittest.TestCase):
         self.assertEqual(vjs.get("license"), "Apache-2.0")
         self.assertTrue(vjs.get("strip_missing_sourcemaps"))
 
+    def test_frontend_ui_packages_in_vendor_lock(self):
+        lock = sync_vendor_assets.load_lock(sync_vendor_assets.DEFAULT_LOCK_FILE)
+        packages = lock.get("packages", {})
+        expected = {
+            "alpinejs": ("alpinejs", "3.17.5", "MIT"),
+            "htmx": ("htmx.org", "2.0.11", "0BSD"),
+            "tomselect": ("tom-select", "2.7.0", "Apache-2.0"),
+            "flatpickr": ("flatpickr", "4.6.13", "MIT"),
+            "splide": ("@splidejs/splide", "4.1.4", "MIT"),
+        }
+        for key, (npm_pkg, version, lic) in expected.items():
+            self.assertIn(key, packages, f"缺少前端公共包 {key}")
+            entry = packages[key]
+            self.assertEqual(entry.get("npm_package"), npm_pkg)
+            self.assertEqual(entry.get("version"), version)
+            self.assertEqual(entry.get("license"), lic)
+            self.assertTrue(entry.get("integrity_sha512"))
+            self.assertTrue(entry.get("extract"))
+
+        # 校验本地 vendor/ 目录与锁文件完全一致
+        self.assertEqual(sync_vendor_assets.cmd_check(sync_vendor_assets.DEFAULT_LOCK_FILE), 0)
+
     def test_sync_strips_missing_sourcemaps_excludes_dev_files_and_fixes_vditor_fonts(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -72,6 +94,7 @@ class VendorSyncTests(unittest.TestCase):
                     "package/audio.js": b"import './chunk-1.js';\n//# sourceMappingURL=audio.js.map\n",
                     "package/chunk-1.js": b"export const ok = 1;\n",
                     "package/global.css": b"video-player{display:contents}",
+                    "package/skin.css": b"body{}\n/*# sourceMappingURL=skin.css.map */\n",
                     "package/locales/zh-CN.js": b"export default {};\n",
                 },
             )
@@ -145,6 +168,7 @@ class VendorSyncTests(unittest.TestCase):
             self.assertFalse((vjs_dir / "video.dev.js").exists())
             self.assertFalse((vjs_dir / "video.d.ts").exists())
             self.assertNotIn("sourceMappingURL=", (vjs_dir / "video.js").read_text())
+            self.assertNotIn("sourceMappingURL=", (vjs_dir / "skin.css").read_text())
 
             # 3. check 校验通过
             self.assertEqual(sync_vendor_assets.cmd_check(lock_file), 0)

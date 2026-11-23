@@ -41,6 +41,48 @@ def is_purge_authorized() -> bool:
     return _PURGE_AUTHORIZED.get()
 
 
+def bind_linked_person_for_page_owner(page) -> bool:
+    """
+    为已绑定 linked_user 的页面所有者预填第一署名人物（供后台表单与编程式导入共用）：
+    - 严禁按用户名/邮箱自动认领或新建 Person；
+    - 兼容各页面作者中间表 role 字段是否带有 choices（如 ProjectPagePerson 无 choices）。
+    """
+    owner = getattr(page, "owner", None)
+    if not owner or not getattr(owner, "is_authenticated", False):
+        return False
+    if not hasattr(page, "authors"):
+        return False
+    try:
+        if list(page.authors.all()):
+            return False
+    except Exception:
+        pass
+
+    from people.models import Person
+
+    person = Person.objects.filter(linked_user_id=owner.pk).first()
+    if not person:
+        return False
+    rel_descriptor = getattr(type(page), "authors", None)
+    rel_model = getattr(getattr(rel_descriptor, "rel", None), "related_model", None)
+    if rel_model is None:
+        return False
+    role_kwargs = {}
+    try:
+        role_field = rel_model._meta.get_field("role")
+        if role_field.choices:
+            role_kwargs["role"] = "primary_author"
+    except Exception:
+        pass
+    page.authors.add(rel_model(person=person, sort_order=0, **role_kwargs))
+    if getattr(page, "pk", None):
+        # 已落库的 ClusterableModel 在仅调 add() 时只写入内存；补一次持久化确保查询与 Revision 均可见
+        fk_name = rel_descriptor.rel.field.name
+        if not rel_model.objects.filter(**{fk_name: page, "person": person}).exists():
+            rel_model.objects.create(**{fk_name: page, "person": person, "sort_order": 0, **role_kwargs})
+    return True
+
+
 class CustomBasePage(Page):
     """
     全站统一抽象页面基类 (CustomBasePage)。
@@ -345,6 +387,11 @@ class CustomBasePage(Page):
         try:
             from media_library.models import MediaReferenceRecord
             MediaReferenceRecord.objects.filter(page_id=self.id).delete()
+        except Exception:
+            pass
+        try:
+            from discovery.models import PublishedSearchDocument
+            PublishedSearchDocument.objects.filter(page_id=self.id).delete()
         except Exception:
             pass
         return super().delete(*args, **kwargs)

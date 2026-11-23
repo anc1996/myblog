@@ -20,7 +20,7 @@ from wagtail.images.blocks import ImageChooserBlock
 from wagtail.documents.blocks import DocumentChooserBlock
 from wagtail.snippets.blocks import SnippetChooserBlock
 
-from media_library.models import Audio, Video, CustomImage
+from media_library.models import Audio, Video, CustomImage, CustomDocument
 from content_blocks.contracts import (
     BlockContract,
     BlockValidationResult,
@@ -56,6 +56,61 @@ def _resolve_asset_id(instance_or_id: Any, expected_model: Any = None) -> str:
         except Exception:
             pass
     return val_str
+
+
+def _format_file_size(num_bytes: Any) -> str:
+    """
+    格式化文件大小为易读字符串（如 500 B, 1.5 KB, 2.0 MB）。
+    若数值缺失、非正数或类型非法，统一返回 '大小未知'。
+    直接使用数据库中已有的元数据，严禁在页面渲染时发起对象存储网络 I/O。
+    """
+    if num_bytes is None or isinstance(num_bytes, bool):
+        return "大小未知"
+    try:
+        val = float(num_bytes)
+    except (TypeError, ValueError):
+        return "大小未知"
+
+    if val <= 0:
+        return "大小未知"
+
+    if val < 1024:
+        return f"{int(val)} B"
+    elif val < 1024 * 1024:
+        return f"{val / 1024:.1f} KB"
+    elif val < 1024 * 1024 * 1024:
+        return f"{val / (1024 * 1024):.1f} MB"
+    else:
+        return f"{val / (1024 * 1024 * 1024):.1f} GB"
+
+
+def _resolve_doc_extension(doc_instance: Any) -> str:
+    """
+    提取文档大写扩展名（如 MD, ZIP, PDF）。
+    优先读取 doc_instance.file_extension，其次从 doc_instance.filename 截取后缀；
+    若缺失或无扩展名，兜底返回 'FILE'。
+    """
+    if not doc_instance:
+        return "FILE"
+    try:
+        ext = getattr(doc_instance, "file_extension", "") or ""
+    except Exception:
+        ext = ""
+    if isinstance(ext, str) and ext.strip():
+        clean_ext = ext.strip().lstrip(".").upper()
+        if clean_ext:
+            return clean_ext
+
+    try:
+        filename = getattr(doc_instance, "filename", "") or ""
+    except Exception:
+        filename = ""
+    if isinstance(filename, str) and "." in filename:
+        clean_ext = filename.rsplit(".", 1)[-1].strip().upper()
+        if clean_ext:
+            return clean_ext
+
+    return "FILE"
 
 
 def _build_gateway_url(asset_type: str, asset_id: str) -> str:
@@ -152,16 +207,22 @@ class CustomDocumentBlock(blocks.StructBlock):
         doc_instance = value.get("document")
         title = value.get("title_override") or (getattr(doc_instance, "title", "下载文档") if doc_instance else "下载文档")
         desc = value.get("description") or ""
-        asset_id = _resolve_asset_id(doc_instance)
+        asset_id = _resolve_asset_id(doc_instance, expected_model=CustomDocument)
 
         safe_title = html.escape(title)
         safe_desc = html.escape(desc)
+        safe_ext = html.escape(_resolve_doc_extension(doc_instance))
+        safe_size = html.escape(_format_file_size(getattr(doc_instance, "file_size", None)))
 
         html_output = f"""
         <div class="media-document-card" data-asset-id="{asset_id}">
             <div class="doc-icon">📄</div>
             <div class="doc-info">
                 <a href="/media-gateway/document/{asset_id}/" class="doc-download-link" download>{safe_title}</a>
+                <div class="doc-meta">
+                    <span class="doc-ext-badge">{safe_ext}</span>
+                    <span class="doc-file-size">{safe_size}</span>
+                </div>
                 {f'<p class="doc-desc">{safe_desc}</p>' if desc else ''}
             </div>
         </div>
@@ -184,10 +245,169 @@ class CustomDocumentBlock(blocks.StructBlock):
     def extract_media_refs(self, value: Any, path: str = "") -> list[MediaReference]:
         if not value or not value.get("document"):
             return []
-        asset_id = _resolve_asset_id(value.get("document"))
+        asset_id = _resolve_asset_id(value.get("document"), expected_model=CustomDocument)
         if not asset_id:
             return []
         return [MediaReference(asset_id=asset_id, asset_type="document", block_path=path)]
+
+
+class CustomAttachmentListBlock(blocks.StructBlock):
+    """
+    配套课件与附件下载列表积木 (CustomAttachmentListBlock)。
+    用于文章、教程底部展示批量课件材料（如 Markdown 讲义、ZIP 示例代码包、PDF 文档等）。
+    严格保持每个附件的独立 MediaReference 引用追踪，避免多附件或重复附件时垃圾回收保护失效。
+    """
+    type_name = "attachment_list"
+    schema_version = 1
+
+    heading = blocks.CharBlock(required=False, max_length=120, default="配套课件与附件下载", label="附件区标题")
+    items = blocks.ListBlock(CustomDocumentBlock(), label="附件列表")
+
+    class Meta:
+        icon = "folder-open-inverse"
+        label = "课件/附件下载列表"
+
+    def validate_value(self, value: Any, context: Any = None) -> BlockValidationResult:
+        if not value:
+            return BlockValidationResult(is_valid=False, errors=["附件列表不能为空"])
+        items = value.get("items")
+        if not items:
+            return BlockValidationResult(is_valid=False, errors=["附件列表不能为空"])
+
+        doc_block = CustomDocumentBlock()
+        errors: list[str] = []
+        for idx, item in enumerate(items):
+            res = doc_block.validate_value(item, context=context)
+            if not res.is_valid:
+                for err in res.errors:
+                    errors.append(f"第 {idx + 1} 项附件无效: {err}")
+
+        if errors:
+            return BlockValidationResult(is_valid=False, errors=errors)
+        return BlockValidationResult(is_valid=True)
+
+    def render_clean(self, value: Any, context: Any = None) -> BlockRenderResult:
+        if not value:
+            return BlockRenderResult(html="", is_safe=True)
+
+        items = value.get("items") or []
+        if not items:
+            return BlockRenderResult(html="", is_safe=True)
+
+        raw_heading = value.get("heading")
+        heading = "配套课件与附件下载" if raw_heading is None else str(raw_heading).strip()
+        safe_heading = html.escape(heading)
+
+        li_items: list[str] = []
+        for item in items:
+            if not item:
+                continue
+            doc_instance = item.get("document") if isinstance(item, dict) else getattr(item, "get", lambda k: None)("document")
+            if not doc_instance:
+                continue
+
+            title = (
+                item.get("title_override")
+                if isinstance(item, dict)
+                else getattr(item, "get", lambda k: "")("title_override")
+            ) or (getattr(doc_instance, "title", "下载文档") if doc_instance else "下载文档")
+            desc = (
+                item.get("description")
+                if isinstance(item, dict)
+                else getattr(item, "get", lambda k: "")("description")
+            ) or ""
+            asset_id = _resolve_asset_id(doc_instance, expected_model=CustomDocument)
+
+            safe_title = html.escape(title)
+            safe_desc = html.escape(desc)
+            safe_ext = html.escape(_resolve_doc_extension(doc_instance))
+            safe_size = html.escape(_format_file_size(getattr(doc_instance, "file_size", None)))
+
+            li_html = f"""
+            <li>
+                <div class="doc-info">
+                    <a href="/media-gateway/document/{asset_id}/" class="doc-download-link" download>{safe_title}</a>
+                    <div class="doc-meta">
+                        <span class="doc-ext-badge">{safe_ext}</span>
+                        <span class="doc-file-size">{safe_size}</span>
+                    </div>
+                    {f'<p class="doc-desc">{safe_desc}</p>' if desc else ''}
+                </div>
+            </li>
+            """
+            li_items.append(li_html)
+
+        if not li_items:
+            return BlockRenderResult(html="", is_safe=True)
+
+        heading_html = f'<div class="attachment-list-heading">{safe_heading}</div>' if safe_heading else ""
+        html_output = f"""
+        <div class="media-attachment-list">
+            {heading_html}
+            <ul>
+                {"".join(li_items)}
+            </ul>
+        </div>
+        """
+        return BlockRenderResult(html=sanitize_html(html_output), is_safe=True)
+
+    def render_basic(self, value: Any, context: Any = None):
+        """Wagtail 模板原生渲染集成入口"""
+        res = self.render_clean(value, context)
+        return mark_safe(res.html)
+
+    def extract_text(self, value: Any) -> BlockTextExtraction:
+        if not value:
+            return BlockTextExtraction(plain_text="", logical_segments=[])
+        raw_heading = value.get("heading")
+        heading = "" if raw_heading is None else str(raw_heading).strip()
+        segments: list[str] = []
+        if heading:
+            segments.append(heading)
+
+        items = value.get("items") or []
+        for item in items:
+            if not item:
+                continue
+            title = (
+                item.get("title_override")
+                if isinstance(item, dict)
+                else getattr(item, "get", lambda k: "")("title_override")
+            ) or ""
+            desc = (
+                item.get("description")
+                if isinstance(item, dict)
+                else getattr(item, "get", lambda k: "")("description")
+            ) or ""
+            item_text = f"{title} {desc}".strip()
+            if item_text:
+                segments.append(item_text)
+
+        plain_text = " ".join(segments).strip()
+        return BlockTextExtraction(plain_text=plain_text, logical_segments=segments)
+
+    def extract_media_refs(self, value: Any, path: str = "") -> list[MediaReference]:
+        if not value:
+            return []
+        items = value.get("items") or []
+        refs: list[MediaReference] = []
+        for idx, item in enumerate(items):
+            if not item:
+                continue
+            doc_instance = item.get("document") if isinstance(item, dict) else getattr(item, "get", lambda k: None)("document")
+            if not doc_instance:
+                continue
+            asset_id = _resolve_asset_id(doc_instance, expected_model=CustomDocument)
+            if not asset_id:
+                continue
+            refs.append(
+                MediaReference(
+                    asset_id=asset_id,
+                    asset_type="document",
+                    block_path=f"{path}.items.{idx}.document",
+                )
+            )
+        return refs
 
 
 class CustomAudioBlock(blocks.StructBlock):

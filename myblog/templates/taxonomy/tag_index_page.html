@@ -12,20 +12,20 @@
 {% endblock %}
 
 {% block content %}
-<div class="tag-page-container" style="max-width: 960px; margin: 30px auto; padding: 0 20px;">
+<div class="tag-page-container">
   {# 面包屑导航 #}
-  <nav class="tag-breadcrumbs mb-4" aria-label="面包屑导航">
-    <a href="/" class="text-muted text-decoration-none small">首页</a>
-    <span class="text-muted small">/</span>
+  <nav class="detail-breadcrumbs tag-breadcrumbs" aria-label="面包屑导航">
+    <a href="/">首页</a>
+    <span>/</span>
     {% if mode == "directory" %}
-      <span class="text-dark small fw-bold" aria-current="page">{{ page.title }}</span>
+      <span class="fw-semibold text-dark" aria-current="page">{{ page.title }}</span>
     {% else %}
-      <a href="{{ page.url }}" class="text-muted text-decoration-none small">{{ page.title }}</a>
-      <span class="text-muted small">/</span>
+      <a href="{{ page.url }}">{{ page.title }}</a>
+      <span>/</span>
       {% if mode == "detail" and data.tag %}
-        <span class="text-dark small fw-bold" aria-current="page">#{{ data.tag.name }}</span>
+        <span class="fw-semibold text-dark" aria-current="page">#{{ data.tag.name }}</span>
       {% else %}
-        <span class="text-dark small fw-bold" aria-current="page">#{{ data.tag_slug }}</span>
+        <span class="fw-semibold text-dark" aria-current="page">#{{ data.tag_slug }}</span>
       {% endif %}
     {% endif %}
   </nav>
@@ -41,5 +41,5 @@
   </div>
 </div>
 
-<script src="{% static 'taxonomy/js/tag_controller.js' %}"></script>
+<script src="{% static 'taxonomy/js/tag_controller.js' %}?v=20261122e"></script>
 {% endblock %}

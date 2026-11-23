@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     "guides.apps.GuidesConfig",
     "comments.apps.CommentsConfig",
     "portfolio.apps.PortfolioConfig",
+    "markdown_import.apps.MarkdownImportConfig",
     "site_settings.apps.SiteSettingsConfig",
     "home",
     "search",
@@ -293,6 +294,7 @@ else:
 
 # 提高单表单最大字段数上限：Django 默认限制为 1000，复杂的 Wagtail 积木流页面极易超限，调整为 10000
 DATA_UPLOAD_MAX_NUMBER_FIELDS = 10_000
+DATA_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024  # 显式放宽到 20 MiB，避免超长 Markdown 预检请求被 Django 默认 2.5 MiB 拦截
 
 
 # ==============================================================================
@@ -327,10 +329,10 @@ WAGTAILSEARCH_BACKENDS = {
 WAGTAILADMIN_BASE_URL = "http://example.com"
 
 # 文档库允许上传的文件扩展名白名单（防范任意文件上传安全风险）
-WAGTAILDOCS_EXTENSIONS = ['csv', 'docx', 'key', 'odt', 'pdf', 'pptx', 'rtf', 'txt', 'xlsx', 'zip']
+WAGTAILDOCS_EXTENSIONS = ['csv', 'docx', 'key', 'md', 'markdown', 'odt', 'pdf', 'pptx', 'rtf', 'txt', 'xlsx', 'zip']
 
-# 单个文档最大上传大小限制（10MB）
-WAGTAILDOCS_MAX_UPLOAD_SIZE = 10 * 1024 * 1024
+# 单个文档最大上传大小限制（50MiB，覆盖大型 ZIP 课件与资料包）
+WAGTAILDOCS_MAX_UPLOAD_SIZE = 50 * 1024 * 1024
 
 # 音视频受控上传安全限制（扩展名白名单与单文件体积上限）
 MEDIA_AUDIO_ALLOWED_EXTENSIONS = (".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac")

@@ -36,6 +36,9 @@ class ListingFilters:
     sort: str = "authored_desc"                  # "authored_desc" | "authored_asc" | "relevance"
     cursor: str | None = None
     navigation_cursor: str | None = None
+    page: int | None = None
+    seek_date: date | None = None
+    seek_direction: str = "date"
     page_size: int = 15
     extra_filters: dict[str, Any] = field(default_factory=dict)
 
@@ -59,3 +62,5 @@ class ListingViewModel:
     cursor_reset: bool = False
     is_preview: bool = False
     corpus_epoch: int = 1
+    pagination: dict[str, Any] = field(default_factory=dict)
+    count_meta: dict[str, Any] = field(default_factory=dict)

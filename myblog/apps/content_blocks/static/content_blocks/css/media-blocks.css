@@ -141,3 +141,147 @@
     font-size: 13px;
     color: #64748b;
 }
+
+/* 文档元信息（扩展名徽标与文件大小） */
+.doc-meta {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 4px;
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.doc-ext-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    line-height: 1.4;
+    border-radius: 4px;
+    background: #e0f2fe;
+    color: #0369a1;
+    border: 1px solid #bae6fd;
+    text-transform: uppercase;
+}
+
+.doc-file-size {
+    font-size: 12px;
+    color: #64748b;
+}
+
+/* 课件与附件下载列表积木 (CustomAttachmentListBlock) 容器及响应式布局 */
+.media-attachment-list {
+    margin: 1.5rem 0;
+    padding: 16px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+}
+
+.media-attachment-list .attachment-list-heading {
+    font-size: 15px;
+    font-weight: 600;
+    color: #0f172a;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #e2e8f0;
+    overflow-wrap: anywhere;
+}
+
+.media-attachment-list ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.media-attachment-list ul li {
+    padding: 10px 12px;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.media-attachment-list ul li:hover {
+    border-color: #cbd5e1;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.media-attachment-list .doc-info {
+    min-width: 0;
+}
+
+.media-attachment-list .doc-download-link {
+    display: inline-block;
+    font-weight: 600;
+    color: #0284c7;
+    text-decoration: none;
+    word-break: break-word;
+}
+
+.media-attachment-list .doc-download-link:hover {
+    text-decoration: underline;
+}
+
+.media-attachment-list .doc-desc {
+    margin: 4px 0 0;
+    font-size: 13px;
+    color: #64748b;
+}
+
+/* 深色模式适配 (Dark Mode) */
+:root[data-theme="dark"] .media-attachment-list,
+.w-theme-dark .media-attachment-list {
+    background: #1e293b;
+    border-color: #334155;
+    color: #e2e8f0;
+}
+
+:root[data-theme="dark"] .media-attachment-list .attachment-list-heading,
+.w-theme-dark .media-attachment-list .attachment-list-heading {
+    color: #f8fafc;
+    border-bottom-color: #334155;
+}
+
+:root[data-theme="dark"] .media-attachment-list ul li,
+.w-theme-dark .media-attachment-list ul li {
+    background: #0f172a;
+    border-color: #334155;
+}
+
+:root[data-theme="dark"] .media-attachment-list ul li:hover,
+.w-theme-dark .media-attachment-list ul li:hover {
+    border-color: #475569;
+}
+
+:root[data-theme="dark"] .doc-ext-badge,
+.w-theme-dark .doc-ext-badge {
+    background: #0c4a6e;
+    color: #7dd3fc;
+    border-color: #0369a1;
+}
+
+:root[data-theme="dark"] .doc-file-size,
+.w-theme-dark .doc-file-size {
+    color: #94a3b8;
+}
+
+:root[data-theme="dark"] .media-document-card .doc-desc,
+:root[data-theme="dark"] .media-attachment-list .doc-desc,
+.w-theme-dark .media-document-card .doc-desc,
+.w-theme-dark .media-attachment-list .doc-desc {
+    color: #94a3b8;
+}
+
+:root[data-theme="dark"] .media-document-card .doc-download-link,
+:root[data-theme="dark"] .media-attachment-list .doc-download-link,
+.w-theme-dark .media-document-card .doc-download-link,
+.w-theme-dark .media-attachment-list .doc-download-link {
+    color: #38bdf8;
+}

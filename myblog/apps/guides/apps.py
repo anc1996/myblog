@@ -11,6 +11,9 @@ class GuidesConfig(AppConfig):
         from discovery.registry import register_type_adapter
         from .adapters import GuidePageAdapter, GuideIndexPageAdapter
         from .listing import register_guide_listing_filters
+        from markdown_import.registry import register_import_adapter
+        from .import_adapter import GuidePageImportAdapter
         register_type_adapter(GuidePageAdapter())
         register_type_adapter(GuideIndexPageAdapter())
         register_guide_listing_filters()
+        register_import_adapter(GuidePageImportAdapter())

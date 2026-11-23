@@ -2,14 +2,14 @@
 {% load static wagtailcore_tags %}
 
 {% block extra_css %}
-<link rel="stylesheet" type="text/css" href="{% static 'blog/css/article.css' %}">
+<link rel="stylesheet" type="text/css" href="{% static 'css/detail-layout.css' %}?v=20261122c">
 {% endblock %}
 
 {% block content %}
-<div class="blog-article-container">
+<div class="listing-shell">
     {# 面包屑导航 #}
     {% if breadcrumbs %}
-    <nav class="blog-breadcrumbs" aria-label="面包屑导航">
+    <nav class="detail-breadcrumbs" aria-label="面包屑导航">
         <a href="/">首页</a>
         {% for ancestor in breadcrumbs %}
             <span class="breadcrumb-separator">/</span>
@@ -20,21 +20,17 @@
     </nav>
     {% endif %}
 
-    <header class="blog-header">
-        <h1 class="blog-title">{{ page.title }}</h1>
+    <header class="listing-page-header">
+        <h1>{{ page.title }}</h1>
         {% if page.intro %}
-        <div class="blog-intro-card">
-            <div class="intro-content">
-                <p style="margin: 0; color: #475569;">{{ page.intro }}</p>
-            </div>
-        </div>
+        <p class="listing-page-intro">{{ page.intro }}</p>
         {% endif %}
     </header>
 
-    <section class="blog-listing-section mt-4">
+    <section class="blog-listing-section">
         {% include "discovery/listing/_listing_filters.html" %}
         {% include "discovery/listing/_listing_results.html" %}
     </section>
 </div>
-<script src="{% static 'discovery/js/listing_controller.js' %}"></script>
+<script src="{% static 'discovery/js/listing_controller.js' %}?v=20261122e"></script>
 {% endblock %}

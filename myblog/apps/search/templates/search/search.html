@@ -7,117 +7,106 @@
 
 {% block content %}
 <div class="search-container">
-    <h1>全站搜索与内容发现</h1>
+    <header class="search-page-header">
+        <h1>全站搜索与内容发现</h1>
+        <p class="text-muted mb-0">支持中文原句、分词与同义词检索，并可与内容类型、多标签及成文日期自由组合筛选。</p>
+    </header>
 
-    {% if cursor_reset %}
-    <div class="alert alert-info" style="background:#eef6fc;border-left:4px solid #3273dc;padding:12px;margin-bottom:16px;">
-        <strong>提示：</strong> 内容刚刚有更新，已为您自动刷新回最新结果第 1 页。
-    </div>
-    {% endif %}
+    <form id="search-filter-form" action="{{ canonical_url }}" method="get" class="search-filter-card">
+        <div id="search-preserved-params" hidden>
+            {% if selected_type %}
+            <input type="hidden" name="type" value="{{ selected_type }}">
+            {% endif %}
+            {% if selected_year %}
+            <input type="hidden" name="year" value="{{ selected_year }}">
+            {% endif %}
+            {% if selected_days %}
+            <input type="hidden" name="days" value="{{ selected_days }}">
+            {% endif %}
+            {% for tg_tok in selected_tag_tokens %}
+            <input type="hidden" name="tag" value="{{ tg_tok }}">
+            {% endfor %}
+        </div>
 
-    <form action="{% url 'search' %}" method="get" class="search-form" style="margin-bottom:24px;">
-        <input type="text" name="query"{% if search_query %} value="{{ search_query }}"{% endif %} placeholder="输入关键词、原句或技术词 (如 C++、PostgreSQL 18)..." style="width:360px;padding:8px;">
-        <input type="submit" value="搜索" class="button" style="padding:8px 16px;">
+        <div class="search-form-top">
+            <div class="listing-search-group">
+                <input
+                    type="text"
+                    id="search-query-input"
+                    name="query"
+                    class="ui-input form-control"
+                    value="{{ search_query }}"
+                    placeholder="输入关键词、原句或技术词 (如 C++、PostgreSQL 18)..."
+                >
+                <button type="submit" id="search-submit-btn" class="ui-btn ui-btn-primary">搜索</button>
+            </div>
+
+            <div class="search-sort-wrap">
+                <select
+                    name="sort"
+                    id="search-sort-select"
+                    class="ui-select form-select"
+                    data-ui-select
+                    data-placeholder="选择排序方式"
+                    aria-label="排序方式"
+                >
+                    <option value="relevance"{% if effective_sort == "relevance" %} selected{% endif %}>按匹配相关度优先</option>
+                    <option value="authored_desc"{% if effective_sort == "authored_desc" %} selected{% endif %}>成文日期：新 &rarr; 旧</option>
+                    <option value="authored_asc"{% if effective_sort == "authored_asc" %} selected{% endif %}>成文日期：旧 &rarr; 新</option>
+                </select>
+            </div>
+
+            <div class="search-form-actions">
+                <a href="{{ reset_url }}" id="search-reset-btn" class="ui-btn ui-btn-outline">重置</a>
+            </div>
+        </div>
+
+        <div class="search-form-advanced">
+            <div class="search-advanced-checks">
+                <label class="ui-check-label" for="search-title-only-check">
+                    <input
+                        type="checkbox"
+                        class="form-check-input"
+                        id="search-title-only-check"
+                        name="title_only"
+                        value="1"
+                        {% if title_only %}checked{% endif %}
+                    >
+                    <span>仅搜标题</span>
+                </label>
+            </div>
+
+            <div class="listing-date-range">
+                <span class="small text-muted">成文日期：</span>
+                <input
+                    type="date"
+                    id="search-date-from"
+                    name="date_from"
+                    class="ui-input ui-date-input"
+                    data-ui-date="single"
+                    placeholder="开始日期"
+                    value="{{ date_from }}"
+                >
+                <span class="small text-muted">至</span>
+                <input
+                    type="date"
+                    id="search-date-to"
+                    name="date_to"
+                    class="ui-input ui-date-input"
+                    data-ui-date="single"
+                    placeholder="结束日期"
+                    value="{{ date_to }}"
+                >
+            </div>
+        </div>
     </form>
 
-    <div class="search-layout" style="display:flex;gap:32px;">
-        <div class="search-results-pane" style="flex:3;">
-            {% if search_query %}
-                <p style="color:#666;">
-                    搜索 “<strong>{{ search_query }}</strong>” 共找到 <strong>{{ total_count }}</strong> 条结果
-                    {% if query_result.expansion_used %}
-                        <span style="color:#e67e22;margin-left:8px;">(已自动扩展同义词)</span>
-                    {% endif %}
-                </p>
-            {% else %}
-                <p style="color:#666;">浏览全站内容，共 <strong>{{ total_count }}</strong> 条已发布记录</p>
-            {% endif %}
-
-            {% if items %}
-                <ul class="result-list" style="list-style:none;padding:0;">
-                    {% for item in items %}
-                    <li style="margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid #eee;">
-                        <h3 style="margin-bottom:6px;">
-                            <a href="{{ item.url }}">{{ item.title }}</a>
-                            <span style="font-size:12px;padding:2px 6px;border-radius:4px;background:#f0f0f0;margin-left:8px;">
-                                {% if item.match_mode == "A" %}原句命中{% elif item.match_mode == "B" %}分词匹配{% elif item.match_mode == "C" %}同义扩展{% else %}已发布{% endif %}
-                            </span>
-                        </h3>
-                        <p style="color:#888;font-size:13px;margin:4px 0;">成文日期：{{ item.authored_on|date:"Y-m-d" }} | 类型：{{ item.type_key }}</p>
-                        {% if item.highlights %}
-                            <p style="margin:6px 0;color:#444;font-size:14px;">
-                                {% for h in item.highlights %}
-                                    {{ h.snippet|safe }}
-                                {% endfor %}
-                            </p>
-                        {% elif item.summary %}
-                            <p style="margin:6px 0;color:#555;font-size:14px;">{{ item.summary }}</p>
-                        {% endif %}
-                        {% if item.tags %}
-                            <div style="margin-top:4px;">
-                                {% for tag in item.tags %}
-                                    <a href="{% url 'search' %}?tag={{ tag.id }}" style="font-size:12px;color:#2980b9;margin-right:8px;">#{{ tag.name }}</a>
-                                {% endfor %}
-                            </div>
-                        {% endif %}
-                    </li>
-                    {% endfor %}
-                </ul>
-
-                {% if show_expand_button %}
-                <div class="expand-b-box" style="background:#f9f9f9;padding:16px;border:1px dashed #ccc;text-align:center;margin-top:20px;">
-                    <p style="margin:0 0 8px 0;color:#666;">当前仅显示完整原句匹配（共 {{ items|length }} 条），未达到 5 条。</p>
-                    <a href="{% url 'search' %}?query={{ search_query|urlencode }}&amp;secondary=words" class="button" style="display:inline-block;padding:8px 16px;background:#3498db;color:#fff;text-decoration:none;border-radius:4px;">
-                        点击继续查看包含相关分词的更多结果（模式 B）
-                    </a>
-                </div>
-                {% endif %}
-
-                {% if next_cursor %}
-                <div style="margin-top:20px;">
-                    <a href="{% url 'search' %}?query={{ search_query|urlencode }}&amp;cursor={{ next_cursor }}" class="button" style="padding:8px 16px;">加载更多</a>
-                </div>
-                {% endif %}
-            {% elif search_query %}
-                <p>未找到匹配 “{{ search_query }}” 的内容。</p>
-            {% endif %}
-        </div>
-
-        <div class="search-facets-pane" style="flex:1;background:#fafafa;padding:16px;border-radius:6px;height:fit-content;">
-            <h4>组合筛选</h4>
-            {% if facets.types %}
-            <div style="margin-bottom:16px;">
-                <strong>内容类型</strong>
-                <ul style="list-style:none;padding-left:0;margin:6px 0;">
-                    {% for t in facets.types %}
-                    <li><a href="{% url 'search' %}?query={{ search_query|urlencode }}&amp;type={{ t.key }}">{{ t.key }} ({{ t.count }})</a></li>
-                    {% endfor %}
-                </ul>
-            </div>
-            {% endif %}
-
-            {% if facets.tags %}
-            <div style="margin-bottom:16px;">
-                <strong>标签</strong>
-                <ul style="list-style:none;padding-left:0;margin:6px 0;">
-                    {% for tg in facets.tags %}
-                    <li><a href="{% url 'search' %}?query={{ search_query|urlencode }}&amp;tag={{ tg.id }}">{{ tg.name }} ({{ tg.count }})</a></li>
-                    {% endfor %}
-                </ul>
-            </div>
-            {% endif %}
-
-            {% if facets.years %}
-            <div>
-                <strong>年份归档</strong>
-                <ul style="list-style:none;padding-left:0;margin:6px 0;">
-                    {% for yr in facets.years %}
-                    <li><a href="{% url 'search' %}?query={{ search_query|urlencode }}&amp;year={{ yr.year }}">{{ yr.year }} 年 ({{ yr.count }})</a></li>
-                    {% endfor %}
-                </ul>
-            </div>
-            {% endif %}
-        </div>
+    <div id="search-dynamic-container">
+        {% include "search/partials/_search_content.html" %}
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'search/js/search_controller.js' %}?v=20261122a" defer></script>
 {% endblock %}

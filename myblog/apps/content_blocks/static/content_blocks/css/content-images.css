@@ -109,6 +109,7 @@
     color: #64748b;
 }
 
+.detail-body-section::after,
 .blog-body-section::after,
 .guide-main::after,
 .project-body-section::after {

@@ -9,6 +9,9 @@ class BlogConfig(AppConfig):
     def ready(self):
         from discovery.registry import register_type_adapter
         from blog.adapters import BlogPageAdapter, BlogIndexPageAdapter
+        from markdown_import.registry import register_import_adapter
+        from blog.import_adapter import BlogPageImportAdapter
 
         register_type_adapter(BlogPageAdapter())
         register_type_adapter(BlogIndexPageAdapter())
+        register_import_adapter(BlogPageImportAdapter())
