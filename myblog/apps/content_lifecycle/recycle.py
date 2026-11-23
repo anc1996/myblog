@@ -590,6 +590,10 @@ class RecycleService:
             purged_ids = [n["page_id"] for n in purged_summaries]
             RecycleBatch.objects.filter(root_page_id__in=purged_ids, status="recycled").update(status="purged")
 
+            if purged_ids:
+                from analytics.settlement import on_pages_purged
+                transaction.on_commit(lambda ids=list(purged_ids): on_pages_purged(ids))
+
             return {
                 "status": "success",
                 "purged_count": len(purged_summaries),

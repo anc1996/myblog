@@ -940,6 +940,25 @@ def search(request):
     except NoReverseMatch:
         author_lookup_url = "/authors/lookup/"
 
+    # 仅在真正执行了搜索查询且查询成功时提供搜索统计上下文，避免参数报错请求或空浏览污染搜索词统计
+    has_search_scope_filters = bool(
+        title_only
+        or type_key
+        or tag_ids
+        or has_unmatched_tag
+        or selected_author_slugs
+        or selected_author_role
+        or year
+        or month
+        or days
+        or parsed_date_from
+        or parsed_date_to
+    )
+    analytics_search_executed = bool(result is not None and http_status == 200 and search_query)
+    analytics_search_query = search_query if analytics_search_executed else ""
+    analytics_search_total = total_count if analytics_search_executed else None
+    analytics_search_scoped = has_search_scope_filters if analytics_search_executed else False
+
     context = {
         "search_query": search_query,
         "title_only": title_only,
@@ -981,6 +1000,9 @@ def search(request):
         "pagination_vm": pagination_vm,
         "error_message": error_message,
         "http_status": http_status,
+        "analytics_search_query": analytics_search_query,
+        "analytics_search_total": analytics_search_total,
+        "analytics_search_scoped": analytics_search_scoped,
     }
 
     is_ajax = bool(

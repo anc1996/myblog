@@ -10,6 +10,7 @@ import re
 from datetime import date
 from typing import Any
 from discovery.contracts import (
+    AnalyticsCapabilities,
     PublishedAuthorRef,
     PublishedPayload,
     PublicListingCapabilities,
@@ -35,6 +36,15 @@ class GuidePageAdapter:
         feed_enabled=True,
         archive_enabled=True,
         supported_dimensions=("type", "tag", "author", "topic"),
+    )
+    analytics_capabilities = AnalyticsCapabilities(
+        kind="detail",
+        metric_keys=("pv", "uv", "read_depth"),
+        conversion_keys=("step_complete", "doc_download"),
+        rating_enabled=True,
+        rank_eligible=True,
+        curation_eligible=True,
+        body_markers=("article-start", "article-end"),
     )
 
     def extract(self, page: Any) -> PublishedPayload:
@@ -153,6 +163,11 @@ class GuideIndexPageAdapter:
         feed_enabled=False,
         archive_enabled=False,
         supported_dimensions=(),
+    )
+    analytics_capabilities = AnalyticsCapabilities(
+        kind="entry",
+        entry_kind="guide_index",
+        metric_keys=("pv", "uv", "card_exposure", "entry_click"),
     )
 
     def extract(self, page: Any) -> PublishedPayload:

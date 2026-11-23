@@ -199,6 +199,7 @@ class AnalyticsCapabilities:
 ### 8.1 权限与隐私
 - **权限分级**：新增 `analytics.view_site_analytics`（主编/超管）、`analytics.view_page_analytics`（受限作者）、`analytics.approve_curatedrecommendation`、`analytics.resolve_analyticsalert`。受限作者的所有单页/汇总/导出接口一律在服务端复用 `OwnershipPagePermissionTester`，绝不靠 `is_staff` 或 `Person` 同名授权；回收站历史数据还须同时具备既有回收查看权限。
 - **数据留存（D6-A）**：Redis 会话与日 UV 去重键 `≤ 48 小时`；评价幂等收据 `≤ 24 小时`；批次收据与无身份运维日志 `≤ 7 天`；榜单快照 `30 天`；`PageAnalyticsDaily` 保留 `13 个月`；`PageAnalyticsTotal` 保留至 Purge。绝不存储原始 IP、UA、Cookie、`session_key` 到分析或评价业务表。
+- **千万级（1,000 万篇）容量与分页红线**：大盘 KPI 与趋势全部下推至 PostgreSQL `aggregate()` / `annotate()`，严禁把全站页面 ID 或日明细拉入 Python 内存或构造超大 `IN (...)`；授权页面明细列表复用 `discovery.pagination` 千万级混合分页协议（`COUNT_PROBE_LIMIT = 5,000` 有界计数、浅页直跳上限 `100` 页、超限拒绝深 `OFFSET` 并改用双向 Keyset 游标或关键词搜索定位），每次最多回查当前页 `<= 20` 条明细。
 
 ### 8.2 分期落地与验收矩阵
 

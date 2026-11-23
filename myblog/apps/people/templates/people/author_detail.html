@@ -1,8 +1,9 @@
 {% extends "base.html" %}
-{% load static %}
+{% load static analytics_tags %}
 
 {% block body_class %}template-author-detail{% endblock %}
 {% block title %}{{ person.name }} - 作者专栏{% endblock %}
+{% block analytics_meta %}{% analytics_entry_meta entry_kind="author_detail" entry_key=person.slug %}{% endblock %}
 
 {% block extra_css %}
 <link rel="canonical" href="{{ request.scheme }}://{{ request.get_host }}{{ canonical_url }}">

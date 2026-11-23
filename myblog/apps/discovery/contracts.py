@@ -26,6 +26,52 @@ class PublicListingCapabilities:
 
 
 @dataclass(frozen=True)
+class AnalyticsCapabilities:
+    """页面类型或聚合入口接入全站数据分析、四档评价与精选排行体系的能力声明（纯数据结构，无 IO）"""
+    kind: str  # "detail"（内容详情）或 "entry"（聚合入口）
+    metric_keys: tuple[str, ...] = ()
+    conversion_keys: tuple[str, ...] = ()
+    rating_enabled: bool = False
+    rank_eligible: bool = False
+    curation_eligible: bool = False
+    entry_kind: str = ""
+    body_markers: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.kind not in ("detail", "entry"):
+            raise ValueError(
+                f"AnalyticsCapabilities.kind must be 'detail' or 'entry', got {self.kind!r}"
+            )
+        # 聚合入口不参与文章评价、榜单竞争与精选推荐
+        if self.kind == "entry" and (
+            self.rating_enabled or self.rank_eligible or self.curation_eligible
+        ):
+            raise ValueError(
+                "AnalyticsCapabilities with kind='entry' cannot enable "
+                "rating_enabled, rank_eligible, or curation_eligible"
+            )
+
+
+@dataclass(frozen=True)
+class EntryAnalyticsSpec:
+    """非 TypeAdapter 聚合入口（首页、作者专栏、站内搜索等）的独立分析能力注册声明"""
+    entry_kind: str
+    model_label: str = ""
+    analytics_capabilities: AnalyticsCapabilities = field(
+        default_factory=lambda: AnalyticsCapabilities(kind="entry")
+    )
+
+    def __post_init__(self) -> None:
+        if not self.entry_kind:
+            raise ValueError("EntryAnalyticsSpec.entry_kind must be non-empty")
+        if self.analytics_capabilities.kind != "entry":
+            raise ValueError(
+                "EntryAnalyticsSpec.analytics_capabilities.kind must be 'entry', "
+                f"got {self.analytics_capabilities.kind!r}"
+            )
+
+
+@dataclass(frozen=True)
 class PublishedListingTerm:
     """发布列表中的分类项数据结构（用于维度检索与订阅）"""
     dimension: str       # "type" | "tag" | "author" | "topic"

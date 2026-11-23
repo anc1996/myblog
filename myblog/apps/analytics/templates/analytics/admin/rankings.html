@@ -1,0 +1,207 @@
+{% extends "wagtailadmin/base.html" %}
+{% load static %}
+
+{% block titletag %}榜单预览工作台 - 数据分析{% endblock %}
+
+{% block extra_css %}
+{{ block.super }}
+<link rel="stylesheet" href="{% static 'css/admin-workbench.css' %}?v=20261123c">
+<link rel="stylesheet" href="{% static 'analytics/css/analytics-admin.css' %}?v=20261123b">
+<style>
+.analytics-wb-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 14px;
+    padding: 8px 12px;
+    background: var(--wb-surface-subtle, #f6f8fa);
+    border: 1px solid var(--wb-border, #d9e1ea);
+    border-radius: 8px;
+}
+.analytics-wb-tab {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 14px;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+    color: var(--wb-text, #111827);
+    background: transparent;
+}
+.analytics-wb-tab:hover {
+    background: var(--wb-surface-elevated, #ffffff);
+    border-color: var(--wb-border, #d9e1ea);
+    color: var(--wb-text, #111827);
+}
+.analytics-wb-tab.is-active {
+    background: var(--wb-accent-bg, rgba(0, 125, 126, 0.1));
+    border-color: var(--wb-accent, #007d7e);
+    color: var(--wb-accent, #007d7e);
+}
+</style>
+{% endblock %}
+
+{% block content %}
+{% include "wagtailadmin/shared/header.html" with title="全站榜单快照与降权预览" icon="site" %}
+
+<div class="nice-padding admin-wb-shell analytics-shell">
+    <p class="admin-wb-note" style="margin:0 0 12px;">按站点、榜种与内容类型预览最新 RankingSnapshot（原分、降权系数与最终分对照）</p>
+    {% if wb_nav %}
+    <nav class="analytics-wb-tabs" aria-label="数据分析工作台导航">
+        {% if wb_nav.can_site %}
+        <a href="{% url 'analytics_admin_dashboard' %}{% if site %}?site_id={{ site.id }}{% endif %}" class="analytics-wb-tab {% if active_tab == 'dashboard' %}is-active{% endif %}">全站大盘</a>
+        {% endif %}
+        {% if wb_nav.can_curation %}
+        <a href="{% url 'analytics_admin_curation' %}{% if site %}?site_id={{ site.id }}{% endif %}" class="analytics-wb-tab {% if active_tab == 'curation' %}is-active{% endif %}">精选工作台</a>
+        {% endif %}
+        {% if wb_nav.can_alerts %}
+        <a href="{% url 'analytics_admin_alerts' %}{% if site %}?site_id={{ site.id }}{% endif %}" class="analytics-wb-tab {% if active_tab == 'alerts' %}is-active{% endif %}">降噪预警</a>
+        {% endif %}
+        {% if wb_nav.can_rankings %}
+        <a href="{% url 'analytics_admin_rankings' %}{% if site %}?site_id={{ site.id }}{% endif %}" class="analytics-wb-tab {% if active_tab == 'rankings' %}is-active{% endif %}">榜单预览</a>
+        {% endif %}
+    </nav>
+    {% endif %}
+
+    <div class="admin-wb-toolbar">
+        <form method="get" class="admin-wb-filter-form">
+            {% if sites|length > 1 %}
+            <div class="admin-wb-field">
+                <label for="rk-site">站点</label>
+                <select id="rk-site" name="site_id">
+                    {% for s in sites %}
+                    <option value="{{ s.id }}" {% if site and s.id == site.id %}selected{% endif %}>{{ s.site_name|default:s.hostname }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% elif site %}
+            <input type="hidden" name="site_id" value="{{ site.id }}">
+            {% endif %}
+
+            <div class="admin-wb-field">
+                <label for="rk-board">榜单类型</label>
+                <select id="rk-board" name="board_kind">
+                    {% for b_code, b_label in board_choices %}
+                    <option value="{{ b_code }}" {% if filters.board_kind == b_code %}selected{% endif %}>{{ b_label }} ({{ b_code }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="admin-wb-field">
+                <label for="rk-type">内容类型</label>
+                <select id="rk-type" name="type_key">
+                    {% if filters.board_kind != "reputation" %}
+                    <option value="all" {% if filters.type_key == "all" %}selected{% endif %}>全站综合 (all)</option>
+                    {% endif %}
+                    {% for t in available_types %}
+                    <option value="{{ t.type_key }}" {% if filters.type_key == t.type_key %}selected{% endif %}>{{ t.label }} ({{ t.type_key }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            {% if recent_dates %}
+            <div class="admin-wb-field">
+                <label for="rk-date">快照日期</label>
+                <select id="rk-date" name="stat_date">
+                    {% for d in recent_dates %}
+                    <option value="{{ d|date:'Y-m-d' }}" {% if filters.stat_date == d|date:'Y-m-d' %}selected{% endif %}>{{ d|date:"Y-m-d" }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
+
+            <button type="submit" class="button button-primary">切换榜单</button>
+        </form>
+
+        <div class="admin-wb-pills">
+            {% if snapshot %}
+            <span class="admin-wb-badge admin-wb-badge--ok">快照日期：{{ snapshot.stat_date|date:"Y-m-d" }}</span>
+            <span class="admin-wb-badge admin-wb-badge--info">规则版本：{{ snapshot.rule_version }}</span>
+            <span class="admin-wb-badge admin-wb-badge--muted">共 {{ items|length }} 条</span>
+            {% else %}
+            <span class="admin-wb-badge admin-wb-badge--warn">暂无匹配的榜单快照</span>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="admin-wb-panel">
+        <div class="admin-wb-panel-head">
+            <h2>
+                榜单快照明细
+                {% if filters.board_kind == "reputation" %}
+                    <span class="admin-wb-note" style="font-weight:500;">（口碑榜按内容类型分组展示，不跨类型混排）</span>
+                {% endif %}
+            </h2>
+            <span class="admin-wb-note">降权系数：正常 1.00 · 低口碑 0.60 · 高PV低口碑且低完读 0.35</span>
+        </div>
+
+        {% if snapshot and items %}
+        <div class="admin-wb-table-wrap">
+            <table class="admin-wb-table">
+                <thead>
+                    <tr>
+                        <th class="num">排名</th>
+                        <th>页面标题</th>
+                        <th>类型</th>
+                        <th class="num">原分 (raw_score)</th>
+                        <th class="num">降权系数 (factor)</th>
+                        <th class="num">最终分 (final_score)</th>
+                        <th class="num">有效阅读 / PV</th>
+                        <th class="num">完读率</th>
+                        <th class="num">可信口碑</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in items %}
+                    <tr>
+                        <td class="num"><strong>#{{ item.rank }}</strong></td>
+                        <td>
+                            <div>
+                                <strong>{{ item.title }}</strong>
+                                <span class="admin-wb-note">#{{ item.page_id }} · Rev #{{ item.live_revision_id }}</span>
+                                {% if item.observing %}
+                                    <span class="admin-wb-badge admin-wb-badge--warn">样本观察中</span>
+                                {% endif %}
+                            </div>
+                            <div class="admin-wb-note" style="margin-top:2px;">
+                                <a href="{% url 'analytics_admin_page_drawer' item.page_id %}">查看单篇漏斗</a>
+                                {% if item.active_alerts %}
+                                · 触发告警：{% for ak in item.active_alerts %}<code>{{ ak }}</code>{% if not forloop.last %}, {% endif %}{% endfor %}
+                                {% endif %}
+                            </div>
+                        </td>
+                        <td><span class="admin-wb-badge admin-wb-badge--info">{{ item.type_label }}</span></td>
+                        <td class="num">{{ item.raw_score|floatformat:2 }}</td>
+                        <td class="num">
+                            {% if item.is_penalized %}
+                                <span class="admin-wb-badge {% if item.factor_rounded <= 0.4 %}admin-wb-badge--danger{% else %}admin-wb-badge--warn{% endif %}">
+                                    ×{{ item.factor_rounded|floatformat:2 }}
+                                </span>
+                            {% else %}
+                                <span class="admin-wb-badge admin-wb-badge--ok">×1.00</span>
+                            {% endif %}
+                        </td>
+                        <td class="num"><strong>{{ item.final_score|floatformat:2 }}</strong></td>
+                        <td class="num">{{ item.valid_views|default:0 }} / {{ item.pv|default:0 }}</td>
+                        <td class="num">{% if item.completion_rate_pct is not None %}{{ item.completion_rate_pct }}%{% else %}—{% endif %}</td>
+                        <td class="num">
+                            {% if item.reputation_score is not None %}
+                                {{ item.reputation_score|floatformat:3 }} ({{ item.trusted_votes|default:0 }}票)
+                            {% else %}
+                                —
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="admin-wb-note">当前站点、榜种与类型下暂无 RankingSnapshot 数据，请先运行分析结算任务。</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     "site_settings.apps.SiteSettingsConfig",
     "home",
     "search",
+    "analytics.apps.AnalyticsConfig",
 
     # 2. Wagtail 8.1 核心与扩展组件
     "wagtail.contrib.forms",
@@ -393,4 +394,22 @@ IDENTITY_CHALLENGE_VERIFIER = "captcha.providers.PillowRedisCaptchaVerifier"
 IDENTITY_CAPTCHA_ALLOWLIST_URL_NAMES = (
     "api_v1:captcha_challenge_issue",
     "api_v1:captcha_challenge_image",
+)
+
+# 全站数据分析 D5 安全技术搜索词白名单（未命中词汇仅记总数，不落库）
+ANALYTICS_SAFE_SEARCH_TERMS = (
+    "Python",
+    "Django",
+    "Wagtail",
+    "PostgreSQL",
+    "Redis",
+    "MongoDB",
+    "Docker",
+    "Linux",
+    "Mermaid",
+    "Markdown",
+    "JavaScript",
+    "Nginx",
+    "Git",
+    "SQL",
 )

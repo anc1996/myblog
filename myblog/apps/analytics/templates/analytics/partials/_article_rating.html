@@ -1,0 +1,55 @@
+<section
+    class="article-rating-card"
+    id="article-rating-widget"
+    aria-label="文章内容评价"
+    data-analytics-rating-widget
+    data-page-id="{{ page_id }}"
+    data-live-revision-id="{{ live_revision_id }}"
+    data-rating-url="{{ rating_api_url }}"
+    data-reading-proof-url="{{ reading_proof_api_url }}"
+    data-login-url="{{ login_url }}"
+    data-authenticated="{{ is_authenticated|yesno:'true,false' }}"
+    data-is-author="{{ is_author|yesno:'true,false' }}"
+    data-initial-grade="{{ initial_grade|default:'' }}"
+    data-initial-version="{{ initial_version|default:0 }}"
+>
+    <div class="article-rating-csrf" hidden>{% csrf_token %}</div>
+    <div class="article-rating-head">
+        <div class="article-rating-title-wrap">
+            <h3 class="article-rating-title">这篇内容对你有帮助吗？</h3>
+            <p class="article-rating-subtitle">你的真实反馈仅用于内容质量改进与站点排行校准，不会公开显示总票数或个人评价。</p>
+        </div>
+    </div>
+
+    <div class="article-rating-options" role="group" aria-label="四档文章评价">
+        {% for grade_key, grade_emoji, grade_label in rating_options %}
+            <button
+                type="button"
+                class="article-rating-btn{% if initial_grade == grade_key %} is-selected{% endif %}"
+                data-rating-grade="{{ grade_key }}"
+                aria-pressed="{% if initial_grade == grade_key %}true{% else %}false{% endif %}"
+                {% if not can_rate_initial %}disabled aria-disabled="true"{% endif %}
+            >
+                <span class="article-rating-emoji" aria-hidden="true">{{ grade_emoji }}</span>
+                <span class="article-rating-label">{{ grade_label }}</span>
+            </button>
+        {% endfor %}
+    </div>
+
+    <div class="article-rating-notices">
+        {% if not is_authenticated %}
+            <p class="article-rating-notice article-rating-notice--guest" data-rating-guest-notice>
+                当前为游客浏览模式，请 <a href="{{ login_url }}">登录后参与文章评价</a>。
+            </p>
+        {% elif is_author %}
+            <p class="article-rating-notice article-rating-notice--author" data-rating-author-notice>
+                你是本文作者，系统已禁用作者自评，感谢你的创作。
+            </p>
+        {% else %}
+            <p class="article-rating-notice article-rating-notice--gate" data-rating-gate-notice>
+                阅读门槛：请在本页活跃停留 ≥ 15 秒且阅读正文 ≥ 50%（或滑至正文末尾）后提交评价；再次点击已选档位可取消评价。
+            </p>
+        {% endif %}
+        <p class="article-rating-status" data-rating-status role="status" aria-live="polite"></p>
+    </div>
+</section>

@@ -35,6 +35,7 @@
         {% block extra_css %}
         {# Override this in templates to add extra stylesheets #}
         {% endblock %}
+        {% block analytics_meta %}{% endblock %}
     </head>
 
     <body class="{% block body_class %}{% endblock %}">
@@ -158,6 +159,7 @@
 
         {# Global javascript #}
         <script type="text/javascript" src="{% static 'js/myblog.js' %}?v=20261122c"></script>
+        <script type="text/javascript" src="{% static 'analytics/js/analytics-tracker.js' %}?v=20261123a" defer></script>
         {% include "includes/_ui_assets_js.html" %}
 
         {% block extra_js %}

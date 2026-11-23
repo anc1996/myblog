@@ -1,9 +1,10 @@
 {% extends "base.html" %}
-{% load static wagtailcore_tags %}
+{% load static wagtailcore_tags analytics_tags %}
 
 {% block body_class %}template-homepage{% endblock %}
 
 {% block title %}{{ page.title }} - 首页与综合技术门户{% endblock %}
+{% block analytics_meta %}{% analytics_page_meta page %}{% endblock %}
 
 {% block extra_css %}
 <link rel="stylesheet" type="text/css" href="{% static 'blog/css/article.css' %}">
@@ -39,13 +40,13 @@
                             <div>
                                 <span class="ui-carousel-card-badge">{{ item.badge }}</span>
                                 <h3 class="ui-carousel-card-title">
-                                    <a href="{{ item.url }}">{{ item.title }}</a>
+                                    <a href="{{ item.url }}"{% if item.page_id %} data-analytics-card="{{ item.page_id }}"{% endif %}{% if item.type_key %} data-analytics-type="{{ item.type_key }}"{% endif %}>{{ item.title }}</a>
                                 </h3>
                                 <p class="small text-muted line-clamp-2 mb-2">{{ item.summary|truncatechars:90 }}</p>
                             </div>
                             <div class="ui-carousel-card-meta d-flex justify-content-between align-items-center">
                                 <span>{{ item.date_label }}</span>
-                                <a href="{{ item.url }}" class="home-section-more">阅读 &rarr;</a>
+                                <a href="{{ item.url }}" class="home-section-more"{% if item.page_id %} data-analytics-card="{{ item.page_id }}"{% endif %}{% if item.type_key %} data-analytics-type="{{ item.type_key }}"{% endif %}>阅读 &rarr;</a>
                             </div>
                         </article>
                     </li>
@@ -68,7 +69,7 @@
                 {% for article in latest_articles %}
                 <article class="home-article-card">
                     <h3 class="home-article-title">
-                        <a href="{% pageurl article %}">
+                        <a href="{% pageurl article %}" data-analytics-card="{{ article.id }}" data-analytics-type="blog_page">
                             {{ article.title }}
                         </a>
                     </h3>
@@ -87,7 +88,7 @@
                             {{ article.intro.raw_text|default:article.title|truncatechars:150 }}
                         </p>
                     {% endif %}
-                    <a href="{% pageurl article %}" class="home-section-more">阅读全文 &rarr;</a>
+                    <a href="{% pageurl article %}" class="home-section-more" data-analytics-card="{{ article.id }}" data-analytics-type="blog_page">阅读全文 &rarr;</a>
                 </article>
                 {% endfor %}
             {% else %}
@@ -139,18 +140,18 @@
             {% if featured_guides %}
             <div class="home-sidebar-widget">
                 <div class="home-widget-header">
-                    <h4>📚 技术专题专栏</h4>
+                    <h4>📚 精选专题指南</h4>
                     <a href="/guides/" class="home-section-more">查看专栏 &rarr;</a>
                 </div>
                 <ul class="home-widget-list">
                     {% for g in featured_guides %}
                     <li class="home-widget-item">
-                        <a href="{% pageurl g %}">
+                        <a href="{{ g.url }}" data-analytics-card="{{ g.page_id }}" data-analytics-type="{{ g.type_key|default:'guide' }}">
                             {{ g.title }}
                         </a>
                         <div class="small text-muted">
-                            {% if g.topic %}<span class="badge bg-info me-1">{{ g.topic.name }}</span>{% endif %}
-                            <span>{{ g.get_difficulty_display }}</span>
+                            {% if g.badge %}<span class="badge bg-info me-1">{{ g.badge }}</span>{% endif %}
+                            {% if g.page and g.page.get_difficulty_display %}<span>{{ g.page.get_difficulty_display }}</span>{% endif %}
                         </div>
                     </li>
                     {% endfor %}
@@ -162,18 +163,18 @@
             {% if featured_projects %}
             <div class="home-sidebar-widget">
                 <div class="home-widget-header">
-                    <h4>💻 开源实战项目</h4>
+                    <h4>💻 精选开源项目</h4>
                     <a href="/portfolio/" class="home-section-more">全部作品 &rarr;</a>
                 </div>
                 <ul class="home-widget-list">
                     {% for p in featured_projects %}
                     <li class="home-widget-item">
-                        <a href="{% pageurl p %}">
+                        <a href="{{ p.url }}" data-analytics-card="{{ p.page_id }}" data-analytics-type="{{ p.type_key|default:'project' }}">
                             {{ p.title }}
                         </a>
                         <div class="small text-muted">
-                            <span class="badge bg-success me-1">{{ p.get_project_status_display }}</span>
-                            {% if p.primary_language %}<span>{{ p.primary_language }}</span>{% endif %}
+                            {% if p.page and p.page.get_project_status_display %}<span class="badge bg-success me-1">{{ p.page.get_project_status_display }}</span>{% endif %}
+                            {% if p.badge %}<span>{{ p.badge }}</span>{% endif %}
                         </div>
                     </li>
                     {% endfor %}

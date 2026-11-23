@@ -5,7 +5,12 @@ taxonomy.adapters
 
 from datetime import date
 from typing import Any
-from discovery.contracts import PublicListingCapabilities, PublishedPayload, TextSegment
+from discovery.contracts import (
+    AnalyticsCapabilities,
+    PublicListingCapabilities,
+    PublishedPayload,
+    TextSegment,
+)
 
 
 class TagIndexPageAdapter:
@@ -20,6 +25,11 @@ class TagIndexPageAdapter:
         feed_enabled=False,
         archive_enabled=False,
         supported_dimensions=(),
+    )
+    analytics_capabilities = AnalyticsCapabilities(
+        kind="entry",
+        entry_kind="tag_index",
+        metric_keys=("pv", "uv", "card_exposure", "entry_click"),
     )
 
     def extract(self, page: Any) -> PublishedPayload:

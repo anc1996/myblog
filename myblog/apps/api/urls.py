@@ -27,6 +27,8 @@ urlpatterns = [
     path("archives/calendar/", views.archive_calendar_api, name="archive_calendar"),
     # 全站公共图片验证码挑战接口
     path("captcha/", include("captcha.urls")),
+    # 全站数据分析与上报接口
+    path("analytics/", include("analytics.urls")),
     # 全站通用评论互动
     path("", include("comments.api.urls")),
 ]

@@ -522,6 +522,7 @@ def build_detail_presentation(page: Any, request: Any = None, *, body_field: str
     used_ids: set[str] = {
         "page-top",
         "article-start",
+        "article-end",
         "detail-toc-aside",
         "detail-toc-dialog",
         "comments-section",

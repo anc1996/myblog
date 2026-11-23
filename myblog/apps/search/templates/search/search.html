@@ -1,9 +1,10 @@
 {% extends "base.html" %}
-{% load static wagtailcore_tags %}
+{% load static wagtailcore_tags analytics_tags %}
 
 {% block body_class %}template-searchresults{% endblock %}
 
 {% block title %}全站搜索与导览{% endblock %}
+{% block analytics_meta %}{% analytics_entry_meta entry_kind="search" entry_key="site_search" search_query=analytics_search_query search_total=analytics_search_total search_scoped=analytics_search_scoped %}{% endblock %}
 
 {% block content %}
 <div class="search-container">

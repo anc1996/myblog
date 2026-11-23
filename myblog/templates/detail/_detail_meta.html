@@ -1,3 +1,5 @@
+{% load analytics_tags %}
+{% analytics_public_stats page %}
 {% if detail.authors %}
 <div class="detail-authors blog-authors">
     {% for author in detail.authors %}

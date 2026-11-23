@@ -9,11 +9,12 @@
 
 import logging
 from typing import Any
-from discovery.contracts import TypeAdapterContract
+from discovery.contracts import AnalyticsCapabilities, EntryAnalyticsSpec, TypeAdapterContract
 
 logger = logging.getLogger(__name__)
 
 _ADAPTER_REGISTRY: dict[str, TypeAdapterContract] = {}
+_ENTRY_ANALYTICS_REGISTRY: dict[str, EntryAnalyticsSpec] = {}
 
 
 def register_type_adapter(adapter: Any) -> None:
@@ -103,6 +104,44 @@ def get_author_enabled_type_keys() -> list[str]:
     ]
 
 
+def get_analytics_capabilities(type_key: str) -> AnalyticsCapabilities | None:
+    """根据 type_key 获取页面类型适配器声明的数据分析能力"""
+    adapter = _ADAPTER_REGISTRY.get(type_key)
+    if adapter is None:
+        return None
+    caps = getattr(adapter, "analytics_capabilities", None)
+    return caps if isinstance(caps, AnalyticsCapabilities) else None
+
+
+def list_analytics_adapters() -> list[TypeAdapterContract]:
+    """获取所有声明了 analytics_capabilities 的页面类型适配器列表"""
+    return [
+        adapter
+        for adapter in _ADAPTER_REGISTRY.values()
+        if getattr(adapter, "analytics_capabilities", None) is not None
+    ]
+
+
+def register_entry_analytics(spec: EntryAnalyticsSpec) -> None:
+    """注册聚合入口（如首页、作者专栏、站内搜索）的数据分析能力声明"""
+    entry_kind = getattr(spec, "entry_kind", None)
+    if not entry_kind:
+        raise ValueError(f"EntryAnalyticsSpec must define a non-empty 'entry_kind': {spec}")
+    _ENTRY_ANALYTICS_REGISTRY[entry_kind] = spec
+    logger.debug("Registered EntryAnalyticsSpec for '%s' (%s)", entry_kind, getattr(spec, "model_label", ""))
+
+
+def get_entry_analytics(entry_kind: str) -> EntryAnalyticsSpec | None:
+    """根据 entry_kind 获取已注册的聚合入口分析声明"""
+    return _ENTRY_ANALYTICS_REGISTRY.get(entry_kind)
+
+
+def list_entry_analytics() -> list[EntryAnalyticsSpec]:
+    """获取所有已注册的聚合入口分析声明列表"""
+    return list(_ENTRY_ANALYTICS_REGISTRY.values())
+
+
 def clear_adapters() -> None:
     """清空适配器注册表（仅供测试套件重置使用）"""
     _ADAPTER_REGISTRY.clear()
+    _ENTRY_ANALYTICS_REGISTRY.clear()

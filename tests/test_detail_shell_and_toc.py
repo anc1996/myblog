@@ -6,11 +6,13 @@ from datetime import date
 from pathlib import Path
 from uuid import uuid4
 
+from django.contrib.auth import get_user_model
 from django.http import Http404
 from django.test import RequestFactory, TestCase
 from wagtail.models import Site
 from wagtail.rich_text import RichText
 
+from analytics.curation import nominate_recommendation
 from blog.models import BlogIndexPage, BlogPage
 from content_blocks.rendering.detail import build_detail_presentation
 from content_lifecycle.recycle import RecycleService
@@ -323,14 +325,30 @@ class DetailShellAndTocTests(TestCase):
         post = BlogPage(title="轮播展示文章", slug=f"car-{uuid4().hex[:6]}")
         blog_idx.add_child(instance=post)
         post.save_revision().publish()
+        post.refresh_from_db()
         self.created_pages.append(post)
 
+        # 未审批前，首页不得用普通最新文章冒充精选轮播
         home_req = self.factory.get("/")
         home_resp = self.home.serve(home_req)
         home_resp.render()
         home_html = home_resp.content.decode("utf-8")
-        self.assertIn("data-ui-carousel", home_html)
-        self.assertIn("splide__slide", home_html)
+        self.assertNotIn("data-ui-carousel", home_html)
+
+        # 经主编提名并批准进入 home_carousel 后，首页正式渲染 Splide 轮播容器
+        User = get_user_model()
+        editor = User.objects.create_superuser(
+            username=f"ed-{uuid4().hex[:6]}",
+            email="ed@example.com",
+            password="pw",
+        )
+        nominate_recommendation(self.site, post, "home_carousel", editor, auto_approve=True)
+        home_resp2 = self.home.serve(home_req)
+        home_resp2.render()
+        home_html2 = home_resp2.content.decode("utf-8")
+        self.assertIn("data-ui-carousel", home_html2)
+        self.assertIn("splide__slide", home_html2)
+        self.assertIn("轮播展示文章", home_html2)
 
         idx_req = self.factory.get(blog_idx.url_path)
         idx_resp = blog_idx.serve(idx_req)

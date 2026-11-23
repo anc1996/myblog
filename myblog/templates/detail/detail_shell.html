@@ -1,11 +1,13 @@
 {% extends "base.html" %}
-{% load static wagtailcore_tags %}
+{% load static wagtailcore_tags analytics_tags %}
 
 {% block title %}{{ page.title }}{% endblock %}
+{% block analytics_meta %}{% analytics_page_meta page %}{% endblock %}
 
 {% block extra_css %}
 {% include "content_blocks/includes/_block_assets_css.html" %}
-<link rel="stylesheet" type="text/css" href="{% static 'css/detail-layout.css' %}?v=20261122d">
+<link rel="stylesheet" type="text/css" href="{% static 'css/detail-layout.css' %}?v=20261123b">
+<link rel="stylesheet" type="text/css" href="{% static 'analytics/css/article-rating.css' %}?v=20261123a">
 {% block detail_extra_css %}{% endblock %}
 {% endblock %}
 
@@ -87,7 +89,10 @@
             {% block detail_body %}
                 {{ detail.rendered_body_html }}
             {% endblock %}
+            <div id="article-end" aria-hidden="true"></div>
         </section>
+
+        {% analytics_rating_widget page %}
 
         {% block detail_after_body %}{% endblock %}
 
@@ -103,5 +108,6 @@
 {% block extra_js %}
 {% include "content_blocks/includes/_block_assets_js.html" %}
 <script type="text/javascript" src="{% static 'js/detail-toc.js' %}?v=20261122d" defer></script>
+<script type="text/javascript" src="{% static 'analytics/js/article-rating.js' %}?v=20261123a" defer></script>
 {% block detail_extra_js %}{% endblock %}
 {% endblock %}

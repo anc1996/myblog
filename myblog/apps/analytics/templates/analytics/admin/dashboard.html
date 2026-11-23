@@ -1,0 +1,573 @@
+{% extends "wagtailadmin/base.html" %}
+{% load static %}
+
+{% block titletag %}
+{% if is_author_scope %}我的页面数据分析{% else %}全站数据分析大盘{% endif %}
+{% endblock %}
+
+{% block extra_css %}
+{{ block.super }}
+<link rel="stylesheet" href="{% static 'css/admin-workbench.css' %}?v=20261123c">
+<link rel="stylesheet" href="{% static 'analytics/css/analytics-admin.css' %}?v=20261123b">
+<style>
+.analytics-wb-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 14px;
+    padding: 8px 12px;
+    background: var(--wb-surface-subtle, #f6f8fa);
+    border: 1px solid var(--wb-border, #d9e1ea);
+    border-radius: 8px;
+}
+.analytics-wb-tab {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 14px;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+    color: var(--wb-text, #111827);
+    background: transparent;
+}
+.analytics-wb-tab:hover {
+    background: var(--wb-surface-elevated, #ffffff);
+    border-color: var(--wb-border, #d9e1ea);
+    color: var(--wb-text, #111827);
+}
+.analytics-wb-tab.is-active {
+    background: var(--wb-accent-bg, rgba(0, 125, 126, 0.1));
+    border-color: var(--wb-accent, #007d7e);
+    color: var(--wb-accent, #007d7e);
+}
+</style>
+{% endblock %}
+
+{% block content %}
+{% if is_author_scope %}
+    {% include "wagtailadmin/shared/header.html" with title="我的页面数据分析" icon="site" %}
+{% else %}
+    {% include "wagtailadmin/shared/header.html" with title="全站数据分析大盘" icon="site" %}
+{% endif %}
+
+<div class="nice-padding admin-wb-shell analytics-shell">
+    {% if not is_author_scope and wb_nav %}
+    <nav class="analytics-wb-tabs" aria-label="数据分析工作台导航">
+        {% if wb_nav.can_site %}
+        <a href="{% url 'analytics_admin_dashboard' %}{% if dashboard.site %}?site_id={{ dashboard.site.id }}{% endif %}" class="analytics-wb-tab {% if active_tab == 'dashboard' %}is-active{% endif %}">全站大盘</a>
+        {% endif %}
+        {% if wb_nav.can_curation %}
+        <a href="{% url 'analytics_admin_curation' %}{% if dashboard.site %}?site_id={{ dashboard.site.id }}{% endif %}" class="analytics-wb-tab {% if active_tab == 'curation' %}is-active{% endif %}">精选工作台</a>
+        {% endif %}
+        {% if wb_nav.can_alerts %}
+        <a href="{% url 'analytics_admin_alerts' %}{% if dashboard.site %}?site_id={{ dashboard.site.id }}{% endif %}" class="analytics-wb-tab {% if active_tab == 'alerts' %}is-active{% endif %}">降噪预警</a>
+        {% endif %}
+        {% if wb_nav.can_rankings %}
+        <a href="{% url 'analytics_admin_rankings' %}{% if dashboard.site %}?site_id={{ dashboard.site.id }}{% endif %}" class="analytics-wb-tab {% if active_tab == 'rankings' %}is-active{% endif %}">榜单预览</a>
+        {% endif %}
+    </nav>
+    {% endif %}
+
+    <div class="admin-wb-toolbar">
+        <form method="get" class="admin-wb-filter-form">
+            {% if not is_author_scope and dashboard.sites|length > 1 %}
+            <div class="admin-wb-field">
+                <label for="an-site">站点</label>
+                <select id="an-site" name="site_id">
+                    {% for s in dashboard.sites %}
+                        <option value="{{ s.id }}" {% if dashboard.site and s.id == dashboard.site.id %}selected{% endif %}>
+                            {{ s.site_name|default:s.hostname }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
+
+            <div class="admin-wb-field">
+                <label for="an-days">统计窗口</label>
+                <select id="an-days" name="days">
+                    <option value="7" {% if dashboard.filters.days == 7 %}selected{% endif %}>近 7 日</option>
+                    <option value="14" {% if dashboard.filters.days == 14 %}selected{% endif %}>近 14 日</option>
+                    <option value="30" {% if dashboard.filters.days == 30 %}selected{% endif %}>近 30 日</option>
+                    <option value="90" {% if dashboard.filters.days == 90 %}selected{% endif %}>近 90 日</option>
+                </select>
+            </div>
+
+            {% if not is_author_scope %}
+            <div class="admin-wb-field">
+                <label for="an-type">内容类型</label>
+                <select id="an-type" name="type_key">
+                    <option value="">全部详情类型</option>
+                    {% for t in dashboard.available_types %}
+                        <option value="{{ t.type_key }}" {% if dashboard.filters.type_key == t.type_key %}selected{% endif %}>
+                            {{ t.label }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
+
+            <div class="admin-wb-field">
+                <label for="an-today">今日口径</label>
+                <select id="an-today" name="include_today">
+                    <option value="1" {% if dashboard.filters.include_today %}selected{% endif %}>包含今日暂估</option>
+                    <option value="0" {% if not dashboard.filters.include_today %}selected{% endif %}>仅已完成自然日</option>
+                </select>
+            </div>
+
+            <div class="admin-wb-field">
+                <label for="an-q">定位文章</label>
+                <input id="an-q" type="search" name="q" value="{{ dashboard.filters.q|default:'' }}" placeholder="标题 / 网址 / Page ID" style="min-width:210px;">
+            </div>
+
+            {% if not is_author_scope %}
+            <div class="admin-wb-field">
+                <label for="an-sort">明细排序</label>
+                <select id="an-sort" name="sort">
+                    <option value="window_valid" {% if dashboard.filters.sort == "window_valid" %}selected{% endif %}>窗口有效阅读（仅活跃）</option>
+                    <option value="total_pv" {% if dashboard.filters.sort == "total_pv" %}selected{% endif %}>历史累计 PV（全站索引）</option>
+                    <option value="latest" {% if dashboard.filters.sort == "latest" %}selected{% endif %}>全部可访问页面（最新）</option>
+                </select>
+            </div>
+            {% endif %}
+
+            <button type="submit" class="button button-primary">应用筛选</button>
+            {% if dashboard.filters.q or dashboard.filters.type_key or dashboard.filters.sort != "window_valid" %}
+                <a href="{% if is_author_scope %}{% url 'analytics_admin_my_pages' %}{% else %}{% url 'analytics_admin_dashboard' %}{% endif %}" class="button button-secondary">重置</a>
+            {% endif %}
+        </form>
+
+        <div class="admin-wb-pills">
+            <span class="admin-wb-badge admin-wb-badge--info">
+                统计区间：{{ dashboard.filters.start_date|date:"Y-m-d" }} 至 {{ dashboard.filters.end_date|date:"Y-m-d" }}
+            </span>
+            {% if dashboard.filters.include_today %}
+            <span class="admin-wb-badge admin-wb-badge--warn">当日数据待结算 / 暂估</span>
+            {% endif %}
+            <span class="admin-wb-badge admin-wb-badge--muted" title="访客日为窗口内每日独立访客之和，不可直接等同跨日独立访客">
+                访客日 ≠ 独立访客
+            </span>
+            {% if not is_author_scope and dashboard.settings %}
+                <span class="admin-wb-badge {% if dashboard.settings.collection_enabled %}admin-wb-badge--ok{% else %}admin-wb-badge--danger{% endif %}">
+                    采集：{% if dashboard.settings.collection_enabled %}已启用{% else %}已关闭{% endif %}
+                </span>
+                <span class="admin-wb-badge {% if dashboard.settings.public_pv_display_enabled %}admin-wb-badge--ok{% else %}admin-wb-badge--muted{% endif %}">
+                    前台阅读数：{% if dashboard.settings.public_pv_display_enabled %}公开{% else %}默认隐藏{% endif %}
+                </span>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if not is_author_scope %}
+        {% if dashboard.coverage_warning.has_warning %}
+        <div class="admin-wb-alert" role="status">
+            <h3>
+                数据覆盖率与缺测提醒（窗口内健康日 {{ dashboard.coverage_warning.healthy_days }} / {{ dashboard.coverage_warning.total_window_days }} 天）
+            </h3>
+            <ul>
+                {% for msg in dashboard.coverage_warning.messages %}
+                <li>{{ msg }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+
+        <div class="admin-wb-kpi-grid">
+            <div class="admin-wb-kpi-card">
+                <div class="admin-wb-kpi-label">
+                    <span>今日 PV</span>
+                    <span class="admin-wb-badge admin-wb-badge--warn">待结算 / 暂估</span>
+                </div>
+                <div class="admin-wb-kpi-value">
+                    {% if dashboard.summary.today_pv is not None %}{{ dashboard.summary.today_pv }}{% else %}—{% endif %}
+                </div>
+                <div class="admin-wb-kpi-sub">
+                    昨日 PV：{% if dashboard.summary.yesterday_pv is not None %}{{ dashboard.summary.yesterday_pv }}{% else %}缺测/未覆盖{% endif %}
+                </div>
+            </div>
+
+            <div class="admin-wb-kpi-card">
+                <div class="admin-wb-kpi-label">
+                    <span>近 {{ dashboard.filters.days }} 日 PV</span>
+                </div>
+                <div class="admin-wb-kpi-value">
+                    {% if dashboard.summary.window_pv is not None %}{{ dashboard.summary.window_pv }}{% else %}—{% endif %}
+                </div>
+                <div class="admin-wb-kpi-sub">仅汇总已覆盖健康与部分健康日</div>
+            </div>
+
+            <div class="admin-wb-kpi-card">
+                <div class="admin-wb-kpi-label">
+                    <span>近 {{ dashboard.filters.days }} 日访客日</span>
+                    <span class="admin-wb-badge admin-wb-badge--muted">非跨日独立</span>
+                </div>
+                <div class="admin-wb-kpi-value">
+                    {% if dashboard.summary.visitor_days is not None %}{{ dashboard.summary.visitor_days }}{% else %}—{% endif %}
+                </div>
+                <div class="admin-wb-kpi-sub">站点每日 UV 之和（访客日 ≠ 独立访客）</div>
+            </div>
+
+            <div class="admin-wb-kpi-card">
+                <div class="admin-wb-kpi-label">
+                    <span>站点今日 / 昨日 UV</span>
+                    <span class="admin-wb-badge admin-wb-badge--info">单日去重</span>
+                </div>
+                <div class="admin-wb-kpi-value">
+                    {% if dashboard.summary.site_today_uv is not None %}{{ dashboard.summary.site_today_uv }}{% else %}—{% endif %}
+                    <span style="font-size:14px;color:var(--wb-muted);font-weight:500;">
+                        / {% if dashboard.summary.site_yesterday_uv is not None %}{{ dashboard.summary.site_yesterday_uv }}{% else %}—{% endif %}
+                    </span>
+                </div>
+                <div class="admin-wb-kpi-sub">当日 UV 为暂估，跨三页仍只计 1</div>
+            </div>
+
+            <div class="admin-wb-kpi-card">
+                <div class="admin-wb-kpi-label">
+                    <span>平均有效阅读率</span>
+                </div>
+                <div class="admin-wb-kpi-value">
+                    {% if dashboard.summary.valid_read_rate_pct is not None %}{{ dashboard.summary.valid_read_rate_pct }}%{% else %}—{% endif %}
+                </div>
+                <div class="admin-wb-kpi-sub">活跃 ≥15s 或滚动 ≥50%（可测样本 {{ dashboard.summary.measurable_views|default:0 }}）</div>
+            </div>
+
+            <div class="admin-wb-kpi-card">
+                <div class="admin-wb-kpi-label">
+                    <span>平均完读率</span>
+                </div>
+                <div class="admin-wb-kpi-value">
+                    {% if dashboard.summary.completion_rate_pct is not None %}{{ dashboard.summary.completion_rate_pct }}%{% else %}—{% endif %}
+                </div>
+                <div class="admin-wb-kpi-sub">触达正文末端且活跃 ≥10s</div>
+            </div>
+
+            <div class="admin-wb-kpi-card">
+                <div class="admin-wb-kpi-label">
+                    <span>平均活跃阅读时长</span>
+                </div>
+                <div class="admin-wb-kpi-value">
+                    {% if dashboard.summary.avg_active_seconds is not None %}{{ dashboard.summary.avg_active_seconds }}s{% else %}—{% endif %}
+                </div>
+                <div class="admin-wb-kpi-sub">单次会话上限 1800s，不含后台切出</div>
+            </div>
+
+            <div class="admin-wb-kpi-card">
+                <div class="admin-wb-kpi-label">
+                    <span>短读离开率</span>
+                </div>
+                <div class="admin-wb-kpi-value">
+                    {% if dashboard.summary.short_bounce_rate_pct is not None %}{{ dashboard.summary.short_bounce_rate_pct }}%{% else %}—{% endif %}
+                </div>
+                <div class="admin-wb-kpi-sub">不足 10s 且进度 &lt;25%，不含缺测/未回传</div>
+            </div>
+        </div>
+
+        <div class="admin-wb-panel">
+            <div class="admin-wb-panel-head">
+                <h2>按日趋势序列</h2>
+                <span class="admin-wb-note">区分“正常 / 当日暂估 / 部分缺测 / 缺测区间 / 未覆盖”与真实 0</span>
+            </div>
+            <div class="admin-wb-table-wrap">
+                <table class="admin-wb-table">
+                    <thead>
+                        <tr>
+                            <th>日期</th>
+                            <th class="num">PV</th>
+                            <th class="num">站点日 UV</th>
+                            <th>趋势柱状</th>
+                            <th>数据状态</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for day in dashboard.trend_series %}
+                        <tr>
+                            <td><code>{{ day.date }}</code></td>
+                            <td class="num">{% if day.pv is not None %}{{ day.pv }}{% else %}—{% endif %}</td>
+                            <td class="num">{% if day.daily_uv is not None %}{{ day.daily_uv }}{% else %}—{% endif %}</td>
+                            <td style="min-width:180px;">
+                                {% if day.pv is not None %}
+                                <div class="analytics-bar-track">
+                                    <div class="analytics-bar-fill" style="width: {{ day.pv_bar_pct }}%;"></div>
+                                </div>
+                                {% else %}
+                                <span class="admin-wb-note">不计入均值分母</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if day.health_status == "missing" %}
+                                    <span class="admin-wb-badge admin-wb-badge--danger">缺测区间</span>
+                                {% elif day.health_status == "uncovered" %}
+                                    <span class="admin-wb-badge admin-wb-badge--muted">未覆盖</span>
+                                {% elif day.health_status == "partial" or day.is_provisional %}
+                                    <span class="admin-wb-badge admin-wb-badge--warn">{{ day.status_label }}</span>
+                                {% else %}
+                                    <span class="admin-wb-badge admin-wb-badge--ok">{{ day.status_label }}</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="admin-wb-grid-2">
+            <div class="admin-wb-panel">
+                <div class="admin-wb-panel-head">
+                    <h2>按内容类型 PV 占比</h2>
+                    <span class="admin-wb-note">基于 TypeAdapter 动态能力注册</span>
+                </div>
+                {% if dashboard.type_breakdown %}
+                    {% for item in dashboard.type_breakdown %}
+                    <div class="analytics-bar-row">
+                        <span>{{ item.label }}</span>
+                        <div class="analytics-bar-track">
+                            <div class="analytics-bar-fill analytics-bar-fill--ok" style="width: {{ item.share_pct }}%;"></div>
+                        </div>
+                        <span class="num">{{ item.pv }} ({{ item.share_pct }}%)</span>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <p class="admin-wb-note">当前时间窗口内暂无内容类型汇总数据。</p>
+                {% endif %}
+            </div>
+
+            <div class="admin-wb-panel">
+                <div class="admin-wb-panel-head">
+                    <h2>聚合入口导流统计</h2>
+                    <span class="admin-wb-note">卡片点击率 = 导流点击 ÷ 入口 PV</span>
+                </div>
+                {% if dashboard.entry_stats %}
+                <div class="admin-wb-table-wrap">
+                    <table class="admin-wb-table">
+                        <thead>
+                            <tr>
+                                <th>入口页面</th>
+                                <th class="num">入口 PV</th>
+                                <th class="num">访客日</th>
+                                <th class="num">导流点击</th>
+                                <th class="num">点击比</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for entry in dashboard.entry_stats %}
+                            <tr>
+                                <td>{{ entry.label }} <code style="font-size:11px;">{{ entry.entry_kind }}</code></td>
+                                <td class="num">{{ entry.pv }}</td>
+                                <td class="num">{{ entry.visitor_days }}</td>
+                                <td class="num">{{ entry.entry_clicks }}</td>
+                                <td class="num">{% if entry.ctr_pct is not None %}{{ entry.ctr_pct }}%{% else %}—{% endif %}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                    <p class="admin-wb-note">当前时间窗口内暂无聚合入口导流记录。</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="admin-wb-panel">
+            <div class="admin-wb-panel-head">
+                <h2>D5 安全热门搜索词与无结果词</h2>
+                <span class="admin-wb-note">
+                    仅展示命中安全技术词表或已发布主题的词条；未命中白名单查询：{{ dashboard.safe_search_terms.unlisted_count }} 次 · 无结果搜索总计：{{ dashboard.safe_search_terms.zero_result_total|default:0 }} 次
+                </span>
+            </div>
+            <div class="admin-wb-grid-2" style="margin-bottom:0;">
+                <div>
+                    <h3 style="margin:0 0 8px;font-size:13px;color:var(--wb-muted);">热门安全搜索词</h3>
+                    {% if dashboard.safe_search_terms.hot_terms %}
+                    <div class="analytics-term-chips">
+                        {% for term in dashboard.safe_search_terms.hot_terms %}
+                        <span class="analytics-term-chip">
+                            <strong>{{ term.term }}</strong>
+                            <span>{{ term.pv }} 次</span>
+                        </span>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <p class="admin-wb-note">暂无命中的安全热门搜索词。</p>
+                    {% endif %}
+                </div>
+                <div>
+                    <h3 style="margin:0 0 8px;font-size:13px;color:var(--wb-muted);">安全无结果词</h3>
+                    {% if dashboard.safe_search_terms.zero_result_terms %}
+                    <div class="analytics-term-chips">
+                        {% for term in dashboard.safe_search_terms.zero_result_terms %}
+                        <span class="analytics-term-chip">
+                            <strong>{{ term.term }}</strong>
+                            <span>{{ term.pv }} 次</span>
+                        </span>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <p class="admin-wb-note">暂无命中的安全无结果词。</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    {% endif %}
+
+    <div class="admin-wb-panel">
+        <div class="admin-wb-panel-head">
+            <h2>
+                {% if is_author_scope %}我授权管理的页面统计{% else %}授权页面分析明细{% endif %}
+                {% if dashboard.count_meta %}
+                    <span class="admin-wb-note" style="font-weight:500;">（{{ dashboard.count_meta.label }}{% if dashboard.filters.q %}，搜索“{{ dashboard.filters.q }}”{% endif %}）</span>
+                {% endif %}
+            </h2>
+            <span class="admin-wb-note">千万级混合分页（浅页直跳 ≤100 页 + 双向游标深翻 + 5,000 有界计数）；支持「定位文章」秒级检索</span>
+        </div>
+        {% if dashboard.top_pages %}
+        <div class="admin-wb-table-wrap">
+            <table class="admin-wb-table">
+                <thead>
+                    <tr>
+                        <th>页面标题</th>
+                        <th>类型</th>
+                        <th class="num">今日 PV</th>
+                        <th class="num">窗口 PV</th>
+                        <th class="num">访客日</th>
+                        <th class="num">累计 PV</th>
+                        <th class="num">有效阅读率</th>
+                        <th class="num">完读率</th>
+                        <th class="num">均时长</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in dashboard.top_pages %}
+                    <tr>
+                        <td>
+                            <strong>{{ row.title }}</strong>
+                            <span class="admin-wb-note" style="margin-left:6px;">#{{ row.page_id }}</span>
+                            {% if row.is_recycled %}
+                                <span class="admin-wb-badge admin-wb-badge--warn">回收站</span>
+                            {% elif not row.live %}
+                                <span class="admin-wb-badge admin-wb-badge--muted">未发布</span>
+                            {% endif %}
+                        </td>
+                        <td><span class="admin-wb-badge admin-wb-badge--info">{{ row.type_label }}</span></td>
+                        <td class="num">{{ row.today_pv }}</td>
+                        <td class="num">{{ row.window_pv }}</td>
+                        <td class="num">{{ row.visitor_days }}</td>
+                        <td class="num">{{ row.total_pv }}</td>
+                        <td class="num">{% if row.valid_read_rate_pct is not None %}{{ row.valid_read_rate_pct }}%{% else %}—{% endif %}</td>
+                        <td class="num">{% if row.completion_rate_pct is not None %}{{ row.completion_rate_pct }}%{% else %}—{% endif %}</td>
+                        <td class="num">{% if row.avg_active_seconds is not None %}{{ row.avg_active_seconds }}s{% else %}—{% endif %}</td>
+                        <td>
+                            <a
+                                href="{% url 'analytics_admin_page_drawer' row.page_id %}"
+                                class="button button-small button-secondary js-analytics-drawer-trigger"
+                                data-drawer-url="{% url 'analytics_admin_page_drawer' row.page_id %}?partial=1"
+                                data-page-title="{{ row.title }}"
+                            >查看漏斗</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if dashboard.pages_pagination.has_previous or dashboard.pages_pagination.has_next or dashboard.pages_pagination.page_links|length > 1 %}
+        <div class="admin-wb-pagination">
+            <span class="admin-wb-note">
+                {% if dashboard.pages_pagination.mode == "keyset" %}
+                    游标深翻模式（{{ dashboard.count_meta.label }}）
+                {% else %}
+                    第 {{ dashboard.pages_pagination.page }} 页（{{ dashboard.count_meta.label }}{% if dashboard.pages_pagination.is_window_capped %} · 浅页直跳上限 {{ dashboard.pages_pagination.max_jump_page }} 页，更深请用「下一页」游标或搜索{% endif %}）
+                {% endif %}
+            </span>
+            <div class="admin-wb-pills">
+                {% if dashboard.pages_pagination.has_previous and dashboard.pages_pagination.previous_cursor %}
+                    <a class="button button-small button-secondary" href="?{% if not is_author_scope and dashboard.filters.site_id %}site_id={{ dashboard.filters.site_id }}&{% endif %}days={{ dashboard.filters.days }}&type_key={{ dashboard.filters.type_key|urlencode }}&include_today={% if dashboard.filters.include_today %}1{% else %}0{% endif %}&q={{ dashboard.filters.q|urlencode }}&sort={{ dashboard.filters.sort|default:'window_valid'|urlencode }}&cursor={{ dashboard.pages_pagination.previous_cursor|urlencode }}">← 上一页</a>
+                {% endif %}
+                {% for pl in dashboard.pages_pagination.page_links %}
+                    {% if pl.type == "ellipsis" %}
+                        <span class="admin-wb-note" style="padding:0 4px;">…</span>
+                    {% elif pl.is_current %}
+                        <span class="button button-small button-primary" aria-current="page">{{ pl.label }}</span>
+                    {% else %}
+                        <a class="button button-small button-secondary" href="?{% if not is_author_scope and dashboard.filters.site_id %}site_id={{ dashboard.filters.site_id }}&{% endif %}days={{ dashboard.filters.days }}&type_key={{ dashboard.filters.type_key|urlencode }}&include_today={% if dashboard.filters.include_today %}1{% else %}0{% endif %}&q={{ dashboard.filters.q|urlencode }}&sort={{ dashboard.filters.sort|default:'window_valid'|urlencode }}&p={{ pl.page }}">{{ pl.label }}</a>
+                    {% endif %}
+                {% endfor %}
+                {% if dashboard.pages_pagination.has_next and dashboard.pages_pagination.next_cursor %}
+                    <a class="button button-small button-secondary" href="?{% if not is_author_scope and dashboard.filters.site_id %}site_id={{ dashboard.filters.site_id }}&{% endif %}days={{ dashboard.filters.days }}&type_key={{ dashboard.filters.type_key|urlencode }}&include_today={% if dashboard.filters.include_today %}1{% else %}0{% endif %}&q={{ dashboard.filters.q|urlencode }}&sort={{ dashboard.filters.sort|default:'window_valid'|urlencode }}&cursor={{ dashboard.pages_pagination.next_cursor|urlencode }}">下一页 →</a>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+        {% else %}
+        <p class="admin-wb-note">当前筛选条件下暂无匹配的授权页面。</p>
+        {% endif %}
+    </div>
+</div>
+
+<div class="admin-wb-drawer-backdrop" id="analytics-drawer-backdrop" aria-hidden="true">
+    <div class="admin-wb-drawer-panel" role="dialog" aria-modal="true" aria-labelledby="analytics-drawer-title">
+        <div class="admin-wb-drawer-header">
+            <h3 id="analytics-drawer-title" style="margin:0;font-size:16px;">单篇数据分析</h3>
+            <button type="button" class="button button-small button-secondary" id="analytics-drawer-close">关闭</button>
+        </div>
+        <div class="admin-wb-drawer-content" id="analytics-drawer-content">
+            <p class="admin-wb-note">正在加载页面分析数据…</p>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    var backdrop = document.getElementById("analytics-drawer-backdrop");
+    var contentEl = document.getElementById("analytics-drawer-content");
+    var titleEl = document.getElementById("analytics-drawer-title");
+    var closeBtn = document.getElementById("analytics-drawer-close");
+    if (!backdrop || !contentEl) return;
+
+    function closeDrawer() {
+        backdrop.classList.remove("is-open");
+        backdrop.setAttribute("aria-hidden", "true");
+    }
+
+    if (closeBtn) {
+        closeBtn.addEventListener("click", closeDrawer);
+    }
+    backdrop.addEventListener("click", function (ev) {
+        if (ev.target === backdrop) closeDrawer();
+    });
+    document.addEventListener("keydown", function (ev) {
+        if (ev.key === "Escape" && backdrop.classList.contains("is-open")) {
+            closeDrawer();
+        }
+    });
+
+    document.addEventListener("click", function (ev) {
+        var trigger = ev.target && ev.target.closest ? ev.target.closest(".js-analytics-drawer-trigger") : null;
+        if (!trigger) return;
+        if (ev.metaKey || ev.ctrlKey || ev.shiftKey) return;
+        var partialUrl = trigger.getAttribute("data-drawer-url");
+        if (!partialUrl || typeof window.fetch !== "function") return;
+        ev.preventDefault();
+        titleEl.textContent = trigger.getAttribute("data-page-title") || "单篇数据分析";
+        contentEl.innerHTML = '<p class="admin-wb-note">正在加载单篇分析数据…</p>';
+        backdrop.classList.add("is-open");
+        backdrop.setAttribute("aria-hidden", "false");
+
+        window.fetch(partialUrl, {
+            credentials: "same-origin",
+            headers: { "X-Requested-With": "XMLHttpRequest" }
+        }).then(function (resp) {
+            if (!resp.ok) throw new Error("HTTP " + resp.status);
+            return resp.text();
+        }).then(function (html) {
+            contentEl.innerHTML = html;
+        }).catch(function () {
+            window.location.href = trigger.getAttribute("href");
+        });
+    });
+})();
+</script>
+{% endblock %}

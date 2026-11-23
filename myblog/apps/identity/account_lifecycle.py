@@ -295,6 +295,7 @@ class AccountLifecycleService:
         from media_library.models import CustomDocument, CustomImage
         from people.models import Person
         from wagtail.users.models import UserProfile
+        from analytics.rating_service import deduct_user_ratings_for_account_lifecycle
 
         lock_ids = sorted({int(actor.id), int(target_user_id)} | ({int(transfer_to_user_id)} if transfer_to_user_id is not None else set()))
 
@@ -408,6 +409,9 @@ class AccountLifecycleService:
                     likes, dislikes = counts_map.get(cid, (0, 0))
                     Comment.objects.filter(id=cid).update(like_count=likes, dislike_count=dislikes)
 
+            # 3.5 扣减并清理该用户的四档文章评价（按 page_id 升序锁聚合行，确保 User.delete() 通过 PROTECT 约束）
+            rating_cleanup_stats = deduct_user_ratings_for_account_lifecycle(target.id)
+
             # 4. 头像清理任务入队（不随 User 级联删除）
             queued_keys: list[str] = []
             for alias, ns, key, src in collected_avatars:
@@ -442,6 +446,9 @@ class AccountLifecycleService:
                     "unlinked_person_id": linked_person_id,
                     "recounted_comments": len(reaction_comment_ids),
                     "deleted_reactions": deleted_reactions_count,
+                    "deleted_ratings": rating_cleanup_stats.get("deleted_ratings", 0),
+                    "deleted_rating_receipts": rating_cleanup_stats.get("deleted_receipts", 0),
+                    "recounted_rating_aggregates": rating_cleanup_stats.get("recounted_aggregates", 0),
                     "queued_avatar_keys": queued_keys,
                 },
             )
@@ -463,5 +470,7 @@ class AccountLifecycleService:
             "transferred_batches": len(owned_batch_ids),
             "unlinked_person_id": linked_person_id,
             "recounted_comments": len(reaction_comment_ids),
+            "deleted_ratings": rating_cleanup_stats.get("deleted_ratings", 0),
+            "recounted_rating_aggregates": rating_cleanup_stats.get("recounted_aggregates", 0),
             "queued_avatar_keys": queued_keys,
         }

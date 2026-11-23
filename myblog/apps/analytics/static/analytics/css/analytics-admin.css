@@ -1,0 +1,65 @@
+/* analytics 专属图表、阅读漏斗与搜索词条样式（基于全站统一 css/admin-workbench.css） */
+
+.analytics-shell { }
+.analytics-toolbar { }
+.analytics-filter-form { }
+.analytics-filter-group { }
+.analytics-status-pills { }
+
+.analytics-bar-row {
+    display: grid;
+    grid-template-columns: 118px 1fr 96px;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+    font-size: 13px;
+}
+
+.analytics-bar-track {
+    height: 10px;
+    border-radius: 999px;
+    background: var(--wb-neutral-bg, #f1f5f9);
+    overflow: hidden;
+}
+
+.analytics-bar-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: var(--wb-accent, #007d7e);
+}
+
+.analytics-bar-fill--ok {
+    background: var(--wb-ok, #15803d);
+}
+
+.analytics-term-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.analytics-term-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--wb-border, #d9e1ea);
+    background: var(--wb-surface-subtle, #f6f8fa);
+    color: var(--wb-text, #111827);
+    font-size: 12px;
+}
+
+.analytics-funnel-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.analytics-funnel-item {
+    display: grid;
+    grid-template-columns: 120px 1fr 120px;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+}

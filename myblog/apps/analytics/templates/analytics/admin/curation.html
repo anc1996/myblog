@@ -1,0 +1,385 @@
+{% extends "wagtailadmin/base.html" %}
+{% load static %}
+
+{% block titletag %}精选工作台 - 数据分析{% endblock %}
+
+{% block extra_css %}
+{{ block.super }}
+<link rel="stylesheet" href="{% static 'css/admin-workbench.css' %}?v=20261123c">
+<link rel="stylesheet" href="{% static 'analytics/css/analytics-admin.css' %}?v=20261123b">
+<style>
+.analytics-wb-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 14px;
+    padding: 8px 12px;
+    background: var(--wb-surface-subtle, #f6f8fa);
+    border: 1px solid var(--wb-border, #d9e1ea);
+    border-radius: 8px;
+}
+.analytics-wb-tab {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 14px;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+    color: var(--wb-text, #111827);
+    background: transparent;
+}
+.analytics-wb-tab:hover {
+    background: var(--wb-surface-elevated, #ffffff);
+    border-color: var(--wb-border, #d9e1ea);
+    color: var(--wb-text, #111827);
+}
+.analytics-wb-tab.is-active {
+    background: var(--wb-accent-bg, rgba(0, 125, 126, 0.1));
+    border-color: var(--wb-accent, #007d7e);
+    color: var(--wb-accent, #007d7e);
+}
+.curation-action-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 240px;
+}
+.curation-inline-form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    border: 1px solid var(--wb-border, #d9e1ea);
+    border-radius: 6px;
+    background: var(--wb-surface-subtle, #f6f8fa);
+}
+.curation-inline-form input[type="text"],
+.curation-inline-form input[type="number"] {
+    height: 30px;
+    padding: 4px 8px;
+    border: 1px solid var(--wb-border, #d9e1ea);
+    border-radius: 4px;
+    background: var(--wb-surface-elevated, #ffffff);
+    color: var(--wb-text, #111827);
+    font-size: 12px;
+}
+.curation-inline-form input[type="number"] {
+    width: 68px;
+}
+.curation-inline-form input[type="text"] {
+    width: 128px;
+}
+.curation-inline-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--wb-text, #111827);
+}
+</style>
+{% endblock %}
+
+{% block content %}
+{% include "wagtailadmin/shared/header.html" with title="精选推荐审批工作台" icon="site" %}
+
+<div class="nice-padding admin-wb-shell analytics-shell">
+    <p class="admin-wb-note" style="margin:0 0 12px;">Quality Score 每日候选审批、置顶排序、14 天拒绝冷却与按 Page ID 手工提名</p>
+    {% if wb_nav %}
+    <nav class="analytics-wb-tabs" aria-label="数据分析工作台导航">
+        {% if wb_nav.can_site %}
+        <a href="{% url 'analytics_admin_dashboard' %}{% if site %}?site_id={{ site.id }}{% endif %}" class="analytics-wb-tab {% if active_tab == 'dashboard' %}is-active{% endif %}">全站大盘</a>
+        {% endif %}
+        {% if wb_nav.can_curation %}
+        <a href="{% url 'analytics_admin_curation' %}{% if site %}?site_id={{ site.id }}{% endif %}" class="analytics-wb-tab {% if active_tab == 'curation' %}is-active{% endif %}">精选工作台</a>
+        {% endif %}
+        {% if wb_nav.can_alerts %}
+        <a href="{% url 'analytics_admin_alerts' %}{% if site %}?site_id={{ site.id }}{% endif %}" class="analytics-wb-tab {% if active_tab == 'alerts' %}is-active{% endif %}">降噪预警</a>
+        {% endif %}
+        {% if wb_nav.can_rankings %}
+        <a href="{% url 'analytics_admin_rankings' %}{% if site %}?site_id={{ site.id }}{% endif %}" class="analytics-wb-tab {% if active_tab == 'rankings' %}is-active{% endif %}">榜单预览</a>
+        {% endif %}
+    </nav>
+    {% endif %}
+
+    <div class="admin-wb-toolbar">
+        <form method="get" class="admin-wb-filter-form">
+            {% if sites|length > 1 %}
+            <div class="admin-wb-field">
+                <label for="cur-site">站点</label>
+                <select id="cur-site" name="site_id">
+                    {% for s in sites %}
+                    <option value="{{ s.id }}" {% if site and s.id == site.id %}selected{% endif %}>{{ s.site_name|default:s.hostname }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% elif site %}
+            <input type="hidden" name="site_id" value="{{ site.id }}">
+            {% endif %}
+
+            <div class="admin-wb-field">
+                <label for="cur-status">审批状态</label>
+                <select id="cur-status" name="status">
+                    <option value="pending" {% if filters.status == "pending" %}selected{% endif %}>待审批 ({{ status_counts.pending }})</option>
+                    <option value="approved" {% if filters.status == "approved" %}selected{% endif %}>已批准 ({{ status_counts.approved }})</option>
+                    <option value="rejected" {% if filters.status == "rejected" %}selected{% endif %}>暂不入选 / 冷却中 ({{ status_counts.rejected }})</option>
+                    <option value="withdrawn" {% if filters.status == "withdrawn" %}selected{% endif %}>已撤回 ({{ status_counts.withdrawn }})</option>
+                    <option value="all" {% if filters.status == "all" %}selected{% endif %}>全部 ({{ status_counts.all }})</option>
+                </select>
+            </div>
+
+            <div class="admin-wb-field">
+                <label for="cur-pos">投放位置</label>
+                <select id="cur-pos" name="position">
+                    <option value="">全部位置</option>
+                    {% for pos_code, pos_label in position_choices %}
+                    <option value="{{ pos_code }}" {% if filters.position == pos_code %}selected{% endif %}>{{ pos_label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="admin-wb-field">
+                <label for="cur-q">定位文章</label>
+                <input id="cur-q" type="search" name="q" value="{{ filters.q|default:'' }}" placeholder="标题或 Page ID" style="min-width:200px;">
+            </div>
+
+            <button type="submit" class="button button-primary">筛选</button>
+            {% if filters.position or filters.q or filters.status != "pending" %}
+            <a href="{% url 'analytics_admin_curation' %}{% if site %}?site_id={{ site.id }}{% endif %}" class="button button-secondary">重置</a>
+            {% endif %}
+        </form>
+
+        <div class="admin-wb-pills">
+            <span class="admin-wb-badge admin-wb-badge--warn">待审批 {{ status_counts.pending }}</span>
+            <span class="admin-wb-badge admin-wb-badge--ok">已批准 {{ status_counts.approved }}</span>
+            <span class="admin-wb-badge admin-wb-badge--muted">冷却中 {{ status_counts.rejected }}</span>
+            <span class="admin-wb-badge admin-wb-badge--info">已撤回 {{ status_counts.withdrawn }}</span>
+        </div>
+    </div>
+
+    <div class="admin-wb-panel">
+        <div class="admin-wb-panel-head">
+            <h2>按 Page ID 手工提名精选</h2>
+            <span class="admin-wb-note">支持冷门佳作跳过门槛手工入池；仍强制核验公开状态、正式版本一致性、指南时效与高流量低口碑阻断告警</span>
+        </div>
+        <form method="post" class="admin-wb-filter-form">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="nominate">
+            <input type="hidden" name="filter_status" value="{{ filters.status }}">
+            <input type="hidden" name="filter_position" value="{{ filters.position }}">
+            <input type="hidden" name="filter_q" value="{{ filters.q }}">
+            {% if site %}<input type="hidden" name="site_id" value="{{ site.id }}">{% endif %}
+
+            <div class="admin-wb-field">
+                <label for="nom-page-id">目标 Page ID</label>
+                <input id="nom-page-id" type="text" name="page_id" required placeholder="例如 42" style="min-width:110px;">
+            </div>
+            <div class="admin-wb-field">
+                <label for="nom-pos">投放位置</label>
+                <select id="nom-pos" name="position">
+                    {% for pos_code, pos_label in position_choices %}
+                    <option value="{{ pos_code }}">{{ pos_label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="admin-wb-field">
+                <label for="nom-col">栏目页 ID（可选）</label>
+                <input id="nom-col" type="text" name="column_page_id" placeholder="栏目精选可填" style="min-width:110px;">
+            </div>
+            <div class="admin-wb-field">
+                <label for="nom-prio">优先级</label>
+                <input id="nom-prio" type="text" name="priority" value="0" style="min-width:80px;">
+            </div>
+            <div class="admin-wb-field">
+                <label for="nom-reason">提名理由</label>
+                <input id="nom-reason" type="text" name="reason" placeholder="主编推荐理由" style="min-width:200px;">
+            </div>
+            <label class="curation-inline-check">
+                <input type="checkbox" name="is_pinned" value="1"> 置顶
+            </label>
+            <label class="curation-inline-check">
+                <input type="checkbox" name="auto_approve" value="1" checked> 直接批准投放
+            </label>
+            <button type="submit" class="button button-primary">提交提名</button>
+        </form>
+    </div>
+
+    <div class="admin-wb-panel">
+        <div class="admin-wb-panel-head">
+            <h2>精选候选与投放池（{{ count_meta.label }}）</h2>
+            <span class="admin-wb-note">全部写操作带 CSRF 与 expected_version 乐观锁校验，并发改写将提示刷新</span>
+        </div>
+
+        {% if rows %}
+        <div class="admin-wb-table-wrap">
+            <table class="admin-wb-table">
+                <thead>
+                    <tr>
+                        <th>页面与版本</th>
+                        <th>投放位</th>
+                        <th class="num">Quality Score &amp; 证据</th>
+                        <th>状态与排期</th>
+                        <th>操作（带版本并发锁）</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in rows %}
+                    <tr>
+                        <td>
+                            <div>
+                                <strong>{{ row.rec.page.title }}</strong>
+                                <span class="admin-wb-note">#{{ row.rec.page_id }} · Rev #{{ row.rec.live_revision_id }}</span>
+                                {% if row.manual_nomination %}
+                                <span class="admin-wb-badge admin-wb-badge--info">手工提名</span>
+                                {% endif %}
+                            </div>
+                            <div class="admin-wb-note" style="margin-top:4px;">
+                                <a href="{% url 'analytics_admin_page_drawer' row.rec.page_id %}">查看单篇漏斗</a>
+                                {% if row.rec.page.url %} · <a href="{{ row.rec.page.url }}" target="_blank" rel="noopener">查看公开页</a>{% endif %}
+                            </div>
+                            {% if row.recent_actions %}
+                            <div class="admin-wb-note" style="margin-top:4px;">
+                                最近审计：{% for act in row.recent_actions %}{{ act.action }}{% if act.actor %}({{ act.actor.username }}){% endif %}{% if not forloop.last %} / {% endif %}{% endfor %}
+                            </div>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="admin-wb-badge admin-wb-badge--info">{{ row.rec.get_position_display }}</span>
+                            {% if row.rec.column_page_id %}
+                            <div class="admin-wb-note" style="margin-top:4px;">栏目 #{{ row.rec.column_page_id }}</div>
+                            {% endif %}
+                        </td>
+                        <td class="num" style="text-align:left;">
+                            <div><strong>{{ row.rec.quality_score|floatformat:1 }}</strong> 分</div>
+                            <div class="admin-wb-note">
+                                {% if row.completion_rate_pct is not None %}完读 {{ row.completion_rate_pct }}%{% endif %}
+                                {% if row.coverage_rate_pct is not None %} · 覆盖 {{ row.coverage_rate_pct }}%{% endif %}
+                                {% if row.visitor_days is not None %} · 访客日 {{ row.visitor_days }}{% endif %}
+                            </div>
+                            {% if row.r_trusted is not None %}
+                            <div class="admin-wb-note">口碑 R={{ row.r_trusted }}（可信票 {{ row.n_trusted|default:0 }}）</div>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div>
+                                {% if row.rec.status == "approved" %}
+                                    <span class="admin-wb-badge admin-wb-badge--ok">已批准</span>
+                                {% elif row.rec.status == "pending" %}
+                                    <span class="admin-wb-badge admin-wb-badge--warn">待审批</span>
+                                {% elif row.rec.status == "rejected" %}
+                                    <span class="admin-wb-badge admin-wb-badge--danger">暂不入选</span>
+                                {% else %}
+                                    <span class="admin-wb-badge admin-wb-badge--muted">已撤回</span>
+                                {% endif %}
+                                {% if row.rec.is_pinned %}
+                                    <span class="admin-wb-badge admin-wb-badge--info">已置顶</span>
+                                {% endif %}
+                                <span class="admin-wb-badge admin-wb-badge--muted">v{{ row.rec.version }}</span>
+                            </div>
+                            <div class="admin-wb-note" style="margin-top:4px;">
+                                优先级 {{ row.rec.priority }}
+                                {% if row.rec.rejected_cooldown_until %}
+                                    · 冷却至 {{ row.rec.rejected_cooldown_until|date:"Y-m-d H:i" }}
+                                {% endif %}
+                            </div>
+                        </td>
+                        <td>
+                            <div class="curation-action-stack">
+                                {% if row.rec.status != "approved" %}
+                                <form method="post" class="curation-inline-form">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="action" value="approve">
+                                    <input type="hidden" name="recommendation_id" value="{{ row.rec.id }}">
+                                    <input type="hidden" name="expected_version" value="{{ row.rec.version }}">
+                                    {% if site %}<input type="hidden" name="site_id" value="{{ site.id }}">{% endif %}
+                                    <input type="hidden" name="filter_status" value="{{ filters.status }}">
+                                    <input type="hidden" name="filter_position" value="{{ filters.position }}">
+                                    <input type="hidden" name="filter_q" value="{{ filters.q }}">
+                                    <input type="hidden" name="filter_p" value="{{ pagination.page }}">
+                                    <input type="number" name="priority" value="{{ row.rec.priority }}" title="展示优先级">
+                                    <label class="curation-inline-check">
+                                        <input type="checkbox" name="is_pinned" value="1" {% if row.rec.is_pinned %}checked{% endif %}> 置顶
+                                    </label>
+                                    <input type="text" name="reason" placeholder="批准备注">
+                                    <button type="submit" class="button button-small button-primary">批准</button>
+                                </form>
+                                {% else %}
+                                <form method="post" class="curation-inline-form">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="action" value="toggle_pin">
+                                    <input type="hidden" name="recommendation_id" value="{{ row.rec.id }}">
+                                    <input type="hidden" name="expected_version" value="{{ row.rec.version }}">
+                                    <input type="hidden" name="target_pinned" value="{% if row.rec.is_pinned %}0{% else %}1{% endif %}">
+                                    {% if site %}<input type="hidden" name="site_id" value="{{ site.id }}">{% endif %}
+                                    <input type="hidden" name="filter_status" value="{{ filters.status }}">
+                                    <input type="hidden" name="filter_position" value="{{ filters.position }}">
+                                    <input type="hidden" name="filter_q" value="{{ filters.q }}">
+                                    <input type="hidden" name="filter_p" value="{{ pagination.page }}">
+                                    <button type="submit" class="button button-small button-secondary">
+                                        {% if row.rec.is_pinned %}取消置顶{% else %}置顶该条{% endif %}
+                                    </button>
+                                </form>
+                                <form method="post" class="curation-inline-form">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="action" value="withdraw">
+                                    <input type="hidden" name="recommendation_id" value="{{ row.rec.id }}">
+                                    <input type="hidden" name="expected_version" value="{{ row.rec.version }}">
+                                    {% if site %}<input type="hidden" name="site_id" value="{{ site.id }}">{% endif %}
+                                    <input type="hidden" name="filter_status" value="{{ filters.status }}">
+                                    <input type="hidden" name="filter_position" value="{{ filters.position }}">
+                                    <input type="hidden" name="filter_q" value="{{ filters.q }}">
+                                    <input type="hidden" name="filter_p" value="{{ pagination.page }}">
+                                    <input type="text" name="reason" placeholder="撤回原因">
+                                    <button type="submit" class="button button-small button-secondary">撤回</button>
+                                </form>
+                                {% endif %}
+
+                                {% if row.rec.status == "pending" %}
+                                <form method="post" class="curation-inline-form">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="action" value="reject">
+                                    <input type="hidden" name="recommendation_id" value="{{ row.rec.id }}">
+                                    <input type="hidden" name="expected_version" value="{{ row.rec.version }}">
+                                    <input type="hidden" name="cooldown_days" value="14">
+                                    {% if site %}<input type="hidden" name="site_id" value="{{ site.id }}">{% endif %}
+                                    <input type="hidden" name="filter_status" value="{{ filters.status }}">
+                                    <input type="hidden" name="filter_position" value="{{ filters.position }}">
+                                    <input type="hidden" name="filter_q" value="{{ filters.q }}">
+                                    <input type="hidden" name="filter_p" value="{{ pagination.page }}">
+                                    <input type="text" name="reason" placeholder="暂不入选原因">
+                                    <button type="submit" class="button button-small button-secondary">暂不入选 (14天冷却)</button>
+                                </form>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {% if pagination.has_previous or pagination.has_next or pagination.page_links|length > 1 %}
+        <div class="admin-wb-pagination">
+            <span class="admin-wb-note">第 {{ pagination.page }} 页（{{ count_meta.label }}）</span>
+            <div class="admin-wb-pills">
+                {% for pl in pagination.page_links %}
+                    {% if pl.type == "ellipsis" %}
+                        <span class="admin-wb-note" style="padding:0 4px;">…</span>
+                    {% elif pl.is_current %}
+                        <span class="button button-small button-primary" aria-current="page">{{ pl.label }}</span>
+                    {% else %}
+                        <a class="button button-small button-secondary" href="?{% if site %}site_id={{ site.id }}&{% endif %}status={{ filters.status|urlencode }}&position={{ filters.position|urlencode }}&q={{ filters.q|urlencode }}&p={{ pl.page }}">{{ pl.label }}</a>
+                    {% endif %}
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+        {% else %}
+        <p class="admin-wb-note">当前筛选条件下暂无精选推荐记录。</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

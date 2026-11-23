@@ -1,0 +1,301 @@
+{% extends "wagtailadmin/base.html" %}
+{% load static %}
+
+{% block titletag %}降噪预警工作台 - 数据分析{% endblock %}
+
+{% block extra_css %}
+{{ block.super }}
+<link rel="stylesheet" href="{% static 'css/admin-workbench.css' %}?v=20261123c">
+<link rel="stylesheet" href="{% static 'analytics/css/analytics-admin.css' %}?v=20261123b">
+<style>
+.analytics-wb-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 14px;
+    padding: 8px 12px;
+    background: var(--wb-surface-subtle, #f6f8fa);
+    border: 1px solid var(--wb-border, #d9e1ea);
+    border-radius: 8px;
+}
+.analytics-wb-tab {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 14px;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+    color: var(--wb-text, #111827);
+    background: transparent;
+}
+.analytics-wb-tab:hover {
+    background: var(--wb-surface-elevated, #ffffff);
+    border-color: var(--wb-border, #d9e1ea);
+    color: var(--wb-text, #111827);
+}
+.analytics-wb-tab.is-active {
+    background: var(--wb-accent-bg, rgba(0, 125, 126, 0.1));
+    border-color: var(--wb-accent, #007d7e);
+    color: var(--wb-accent, #007d7e);
+}
+.alerts-action-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 250px;
+}
+.alerts-inline-form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    border: 1px solid var(--wb-border, #d9e1ea);
+    border-radius: 6px;
+    background: var(--wb-surface-subtle, #f6f8fa);
+}
+.alerts-inline-form input[type="text"],
+.alerts-inline-form input[type="number"] {
+    height: 30px;
+    padding: 4px 8px;
+    border: 1px solid var(--wb-border, #d9e1ea);
+    border-radius: 4px;
+    background: var(--wb-surface-elevated, #ffffff);
+    color: var(--wb-text, #111827);
+    font-size: 12px;
+}
+.alerts-inline-form input[type="number"] {
+    width: 60px;
+}
+.alerts-inline-form input[type="text"] {
+    width: 132px;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+{% include "wagtailadmin/shared/header.html" with title="高浏览低口碑与标题党降噪预警" icon="site" %}
+
+<div class="nice-padding admin-wb-shell analytics-shell">
+    <p class="admin-wb-note" style="margin:0 0 12px;">滞回告警状态机（observing / active / exempted / confirmed_demoted），支持 1~14 天限时豁免与确认下榜</p>
+    {% if wb_nav %}
+    <nav class="analytics-wb-tabs" aria-label="数据分析工作台导航">
+        {% if wb_nav.can_site %}
+        <a href="{% url 'analytics_admin_dashboard' %}{% if site %}?site_id={{ site.id }}{% endif %}" class="analytics-wb-tab {% if active_tab == 'dashboard' %}is-active{% endif %}">全站大盘</a>
+        {% endif %}
+        {% if wb_nav.can_curation %}
+        <a href="{% url 'analytics_admin_curation' %}{% if site %}?site_id={{ site.id }}{% endif %}" class="analytics-wb-tab {% if active_tab == 'curation' %}is-active{% endif %}">精选工作台</a>
+        {% endif %}
+        {% if wb_nav.can_alerts %}
+        <a href="{% url 'analytics_admin_alerts' %}{% if site %}?site_id={{ site.id }}{% endif %}" class="analytics-wb-tab {% if active_tab == 'alerts' %}is-active{% endif %}">降噪预警</a>
+        {% endif %}
+        {% if wb_nav.can_rankings %}
+        <a href="{% url 'analytics_admin_rankings' %}{% if site %}?site_id={{ site.id }}{% endif %}" class="analytics-wb-tab {% if active_tab == 'rankings' %}is-active{% endif %}">榜单预览</a>
+        {% endif %}
+    </nav>
+    {% endif %}
+
+    <div class="admin-wb-toolbar">
+        <form method="get" class="admin-wb-filter-form">
+            {% if sites|length > 1 %}
+            <div class="admin-wb-field">
+                <label for="al-site">站点</label>
+                <select id="al-site" name="site_id">
+                    {% for s in sites %}
+                    <option value="{{ s.id }}" {% if site and s.id == site.id %}selected{% endif %}>{{ s.site_name|default:s.hostname }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% elif site %}
+            <input type="hidden" name="site_id" value="{{ site.id }}">
+            {% endif %}
+
+            <div class="admin-wb-field">
+                <label for="al-status">告警状态</label>
+                <select id="al-status" name="status">
+                    <option value="open" {% if filters.status == "open" %}selected{% endif %}>需关注全部 ({{ status_counts.open }})</option>
+                    <option value="observing" {% if filters.status == "observing" %}selected{% endif %}>观察中 ({{ status_counts.observing }})</option>
+                    <option value="active" {% if filters.status == "active" %}selected{% endif %}>已生效 ({{ status_counts.active }})</option>
+                    <option value="exempted" {% if filters.status == "exempted" %}selected{% endif %}>限时豁免 ({{ status_counts.exempted }})</option>
+                    <option value="confirmed_demoted" {% if filters.status == "confirmed_demoted" %}selected{% endif %}>确认下榜 ({{ status_counts.confirmed_demoted }})</option>
+                    <option value="resolved" {% if filters.status == "resolved" %}selected{% endif %}>已解除 ({{ status_counts.resolved }})</option>
+                    <option value="all" {% if filters.status == "all" %}selected{% endif %}>全部 ({{ status_counts.all }})</option>
+                </select>
+            </div>
+
+            <div class="admin-wb-field">
+                <label for="al-kind">告警类型</label>
+                <select id="al-kind" name="alert_kind">
+                    <option value="">全部类型</option>
+                    {% for kind_code, kind_label in alert_kind_choices %}
+                    <option value="{{ kind_code }}" {% if filters.alert_kind == kind_code %}selected{% endif %}>{{ kind_label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="admin-wb-field">
+                <label for="al-q">定位文章</label>
+                <input id="al-q" type="search" name="q" value="{{ filters.q|default:'' }}" placeholder="标题或 Page ID" style="min-width:200px;">
+            </div>
+
+            <button type="submit" class="button button-primary">筛选</button>
+            {% if filters.alert_kind or filters.q or filters.status != "open" %}
+            <a href="{% url 'analytics_admin_alerts' %}{% if site %}?site_id={{ site.id }}{% endif %}" class="button button-secondary">重置</a>
+            {% endif %}
+        </form>
+
+        <div class="admin-wb-pills">
+            <span class="admin-wb-badge admin-wb-badge--warn">观察中 {{ status_counts.observing }}</span>
+            <span class="admin-wb-badge admin-wb-badge--danger">已生效 {{ status_counts.active }}</span>
+            <span class="admin-wb-badge admin-wb-badge--ok">限时豁免 {{ status_counts.exempted }}</span>
+            <span class="admin-wb-badge admin-wb-badge--danger">确认下榜 {{ status_counts.confirmed_demoted }}</span>
+        </div>
+    </div>
+
+    <div class="admin-wb-panel">
+        <div class="admin-wb-panel-head">
+            <h2>降噪告警列表（{{ count_meta.label }}）</h2>
+            <span class="admin-wb-note">TRAFFIC_ANOMALY 不可限时豁免；确认下榜将同时撤回该版本处于待审/已批状态的精选推荐</span>
+        </div>
+
+        {% if rows %}
+        <div class="admin-wb-table-wrap">
+            <table class="admin-wb-table">
+                <thead>
+                    <tr>
+                        <th>页面与版本</th>
+                        <th>告警类型 &amp; 滞回状态</th>
+                        <th>量化证据</th>
+                        <th>治理操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in rows %}
+                    <tr>
+                        <td>
+                            <div>
+                                <strong>{{ row.alert.page.title }}</strong>
+                                <span class="admin-wb-note">#{{ row.alert.page_id }} · Rev #{{ row.alert.live_revision_id }}</span>
+                            </div>
+                            <div class="admin-wb-note" style="margin-top:4px;">
+                                <a href="{% url 'analytics_admin_page_drawer' row.alert.page_id %}">查看单篇漏斗</a>
+                                {% if row.alert.last_evaluated_date %}
+                                · 最近评估 {{ row.alert.last_evaluated_date|date:"Y-m-d" }}
+                                {% endif %}
+                            </div>
+                        </td>
+                        <td>
+                            <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;">
+                                <span class="admin-wb-badge {% if row.alert.alert_kind == 'HIGH_TRAFFIC_LOW_REPUTATION' or row.alert.alert_kind == 'TRAFFIC_ANOMALY' %}admin-wb-badge--danger{% else %}admin-wb-badge--warn{% endif %}">
+                                    {{ row.alert.get_alert_kind_display }}
+                                </span>
+                                {% if row.alert.status == "observing" %}
+                                    <span class="admin-wb-badge admin-wb-badge--warn">观察中</span>
+                                {% elif row.alert.status == "active" %}
+                                    <span class="admin-wb-badge admin-wb-badge--danger">已生效</span>
+                                {% elif row.alert.status == "exempted" %}
+                                    <span class="admin-wb-badge admin-wb-badge--ok">限时豁免</span>
+                                {% elif row.alert.status == "confirmed_demoted" %}
+                                    <span class="admin-wb-badge admin-wb-badge--danger">确认下榜</span>
+                                {% else %}
+                                    <span class="admin-wb-badge admin-wb-badge--muted">已解除</span>
+                                {% endif %}
+                                <span class="admin-wb-badge admin-wb-badge--muted">v{{ row.expected_version }}</span>
+                            </div>
+                            <div class="admin-wb-note" style="margin-top:4px;">
+                                连续命中 {{ row.alert.consecutive_hit_days }} 天 · 连续恢复 {{ row.alert.consecutive_clear_days }} 天
+                                {% if row.alert.exempt_until %}
+                                · 豁免至 {{ row.alert.exempt_until|date:"Y-m-d H:i" }}
+                                {% endif %}
+                            </div>
+                            {% if row.exempt_reason %}
+                            <div class="admin-wb-note">豁免备注：{{ row.exempt_reason }}</div>
+                            {% endif %}
+                            {% if row.demote_reason %}
+                            <div class="admin-wb-note">下榜备注：{{ row.demote_reason }}</div>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div class="admin-wb-note">
+                                {% if row.organic_pv_30d is not None %}30日自然PV：<strong>{{ row.organic_pv_30d }}</strong>（高PV线 {{ row.high_pv_threshold|default:"—" }}）{% endif %}
+                            </div>
+                            <div class="admin-wb-note">
+                                {% if row.measurable_views_30d is not None %}可测阅读 {{ row.measurable_views_30d }}{% endif %}
+                                {% if row.completion_rate_pct is not None %} · 完读率 {{ row.completion_rate_pct }}%{% endif %}
+                                {% if row.short_bounce_rate_pct is not None %} · 短读离开 {{ row.short_bounce_rate_pct }}%{% endif %}
+                            </div>
+                            {% if row.n_trusted is not None %}
+                            <div class="admin-wb-note">
+                                可信口碑 R={{ row.r_trusted|default:"—" }} · n={{ row.n_trusted }}（差 {{ row.d_trusted|default:0 }}） · Wilson {{ row.wilson_lower|default:"—" }}
+                            </div>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div class="alerts-action-stack">
+                                {% if row.can_exempt %}
+                                <form method="post" class="alerts-inline-form">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="action" value="exempt">
+                                    <input type="hidden" name="alert_id" value="{{ row.alert.id }}">
+                                    <input type="hidden" name="expected_version" value="{{ row.expected_version }}">
+                                    {% if site %}<input type="hidden" name="site_id" value="{{ site.id }}">{% endif %}
+                                    <input type="hidden" name="filter_status" value="{{ filters.status }}">
+                                    <input type="hidden" name="filter_kind" value="{{ filters.alert_kind }}">
+                                    <input type="hidden" name="filter_q" value="{{ filters.q }}">
+                                    <input type="hidden" name="filter_p" value="{{ pagination.page }}">
+                                    <input type="number" name="days" min="1" max="14" value="7" title="豁免天数（1~14天）">
+                                    <input type="text" name="reason" placeholder="豁免理由">
+                                    <button type="submit" class="button button-small button-secondary">限时豁免(天)</button>
+                                </form>
+                                {% elif row.alert.alert_kind == "TRAFFIC_ANOMALY" %}
+                                <span class="admin-wb-note">异常流量告警不可限时豁免</span>
+                                {% endif %}
+
+                                {% if row.can_demote %}
+                                <form method="post" class="alerts-inline-form">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="action" value="confirm_demote">
+                                    <input type="hidden" name="alert_id" value="{{ row.alert.id }}">
+                                    <input type="hidden" name="expected_version" value="{{ row.expected_version }}">
+                                    {% if site %}<input type="hidden" name="site_id" value="{{ site.id }}">{% endif %}
+                                    <input type="hidden" name="filter_status" value="{{ filters.status }}">
+                                    <input type="hidden" name="filter_kind" value="{{ filters.alert_kind }}">
+                                    <input type="hidden" name="filter_q" value="{{ filters.q }}">
+                                    <input type="hidden" name="filter_p" value="{{ pagination.page }}">
+                                    <input type="text" name="reason" placeholder="下榜核查原因">
+                                    <button type="submit" class="button button-small button-primary">确认下榜</button>
+                                </form>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {% if pagination.has_previous or pagination.has_next or pagination.page_links|length > 1 %}
+        <div class="admin-wb-pagination">
+            <span class="admin-wb-note">第 {{ pagination.page }} 页（{{ count_meta.label }}）</span>
+            <div class="admin-wb-pills">
+                {% for pl in pagination.page_links %}
+                    {% if pl.type == "ellipsis" %}
+                        <span class="admin-wb-note" style="padding:0 4px;">…</span>
+                    {% elif pl.is_current %}
+                        <span class="button button-small button-primary" aria-current="page">{{ pl.label }}</span>
+                    {% else %}
+                        <a class="button button-small button-secondary" href="?{% if site %}site_id={{ site.id }}&{% endif %}status={{ filters.status|urlencode }}&alert_kind={{ filters.alert_kind|urlencode }}&q={{ filters.q|urlencode }}&p={{ pl.page }}">{{ pl.label }}</a>
+                    {% endif %}
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+        {% else %}
+        <p class="admin-wb-note">当前筛选条件下暂无降噪预警记录。</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

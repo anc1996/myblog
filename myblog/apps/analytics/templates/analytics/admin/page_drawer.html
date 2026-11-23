@@ -1,0 +1,246 @@
+{% load static %}
+{% if is_partial %}
+<link rel="stylesheet" href="{% static 'css/admin-workbench.css' %}?v=20261123c">
+<link rel="stylesheet" href="{% static 'analytics/css/analytics-admin.css' %}?v=20261123b">
+{% endif %}
+
+<div class="admin-wb-shell analytics-shell analytics-drawer-body">
+    <div class="admin-wb-toolbar" style="margin-bottom:14px;">
+        <div>
+            <div style="font-size:16px;font-weight:700;">{{ detail.page.title }}</div>
+            <div class="admin-wb-note" style="margin-top:4px;">
+                <span>类型：{{ detail.page.type_label }}</span>
+                {% if detail.page.document_uuid %} · <code>{{ detail.page.document_uuid }}</code>{% endif %}
+                {% if detail.page.live_revision_id %} · 正式版本 Rev #{{ detail.page.live_revision_id }}{% endif %}
+            </div>
+        </div>
+        <div class="admin-wb-pills">
+            {% if detail.page.is_recycled %}
+                <span class="admin-wb-badge admin-wb-badge--warn">受控回收站</span>
+            {% elif detail.page.live %}
+                <span class="admin-wb-badge admin-wb-badge--ok">已发布</span>
+            {% else %}
+                <span class="admin-wb-badge admin-wb-badge--muted">未发布草稿</span>
+            {% endif %}
+            <span class="admin-wb-badge {% if detail.health_coverage.meets_threshold %}admin-wb-badge--ok{% else %}admin-wb-badge--warn{% endif %}">
+                30日健康覆盖：{{ detail.health_coverage.healthy_days_30d }} / 30 天（门槛 {{ detail.health_coverage.min_healthy_days_in_30d }} 天）
+            </span>
+            <span class="admin-wb-badge admin-wb-badge--muted">访客日 ≠ 独立访客</span>
+            {% if not is_partial %}
+                {% if can_view_site %}
+                    <a href="{% url 'analytics_admin_dashboard' %}" class="button button-small button-secondary">返回全站大盘</a>
+                {% else %}
+                    <a href="{% url 'analytics_admin_my_pages' %}" class="button button-small button-secondary">返回我的页面</a>
+                {% endif %}
+            {% endif %}
+        </div>
+    </div>
+
+    {% if detail.health_coverage.warning.has_warning %}
+    <div class="admin-wb-alert" role="status">
+        <h3>数据覆盖与口径提示</h3>
+        <ul>
+            {% for msg in detail.health_coverage.warning.messages %}
+            <li>{{ msg }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+
+    <div class="admin-wb-kpi-grid">
+        <div class="admin-wb-kpi-card">
+            <div class="admin-wb-kpi-label">
+                <span>今日 PV</span>
+                <span class="admin-wb-badge admin-wb-badge--warn">暂估</span>
+            </div>
+            <div class="admin-wb-kpi-value">
+                {% if detail.summary.today_pv is not None %}{{ detail.summary.today_pv }}{% else %}—{% endif %}
+            </div>
+            <div class="admin-wb-kpi-sub">
+                昨日 PV：{% if detail.summary.yesterday_pv is not None %}{{ detail.summary.yesterday_pv }}{% else %}缺测/未覆盖{% endif %}
+            </div>
+        </div>
+
+        <div class="admin-wb-kpi-card">
+            <div class="admin-wb-kpi-label"><span>近 7 日 / 近 30 日 PV</span></div>
+            <div class="admin-wb-kpi-value">
+                {% if detail.summary.pv_7d is not None %}{{ detail.summary.pv_7d }}{% else %}—{% endif %}
+                <span style="font-size:14px;color:var(--wb-muted);font-weight:500;">
+                    / {% if detail.summary.pv_30d is not None %}{{ detail.summary.pv_30d }}{% else %}—{% endif %}
+                </span>
+            </div>
+            <div class="admin-wb-kpi-sub">历史累计 PV：{{ detail.summary.total_pv }}</div>
+        </div>
+
+        <div class="admin-wb-kpi-card">
+            <div class="admin-wb-kpi-label">
+                <span>昨日 UV / 近 7 日访客日</span>
+                <span class="admin-wb-badge admin-wb-badge--muted">非跨日独立</span>
+            </div>
+            <div class="admin-wb-kpi-value">
+                {% if detail.summary.yesterday_uv is not None %}{{ detail.summary.yesterday_uv }}{% else %}—{% endif %}
+                <span style="font-size:14px;color:var(--wb-muted);font-weight:500;">
+                    / {% if detail.summary.visitor_days_7d is not None %}{{ detail.summary.visitor_days_7d }}{% else %}—{% endif %}
+                </span>
+            </div>
+            <div class="admin-wb-kpi-sub">
+                累计访客日：{{ detail.summary.total_visitor_days }}（访客日 ≠ 独立访客）
+            </div>
+        </div>
+
+        <div class="admin-wb-kpi-card">
+            <div class="admin-wb-kpi-label"><span>有效阅读率（近 30 日）</span></div>
+            <div class="admin-wb-kpi-value">
+                {% if detail.summary.valid_read_rate_pct is not None %}{{ detail.summary.valid_read_rate_pct }}%{% else %}—{% endif %}
+            </div>
+            <div class="admin-wb-kpi-sub">
+                可测样本 {{ detail.summary.measurable_views_30d }} · 采集覆盖率
+                {% if detail.summary.coverage_rate_pct is not None %}{{ detail.summary.coverage_rate_pct }}%{% else %}—{% endif %}
+            </div>
+        </div>
+
+        <div class="admin-wb-kpi-card">
+            <div class="admin-wb-kpi-label"><span>完读率（近 30 日）</span></div>
+            <div class="admin-wb-kpi-value">
+                {% if detail.summary.completion_rate_pct is not None %}{{ detail.summary.completion_rate_pct }}%{% else %}—{% endif %}
+            </div>
+            <div class="admin-wb-kpi-sub">完读 {{ detail.summary.completed_views_30d }} 次（触达末端且 ≥10s）</div>
+        </div>
+
+        <div class="admin-wb-kpi-card">
+            <div class="admin-wb-kpi-label"><span>平均活跃时长 / 短读离开率</span></div>
+            <div class="admin-wb-kpi-value">
+                {% if detail.summary.avg_active_seconds is not None %}{{ detail.summary.avg_active_seconds }}s{% else %}—{% endif %}
+                <span style="font-size:14px;color:var(--wb-muted);font-weight:500;">
+                    / {% if detail.summary.short_bounce_rate_pct is not None %}{{ detail.summary.short_bounce_rate_pct }}%{% else %}—{% endif %}
+                </span>
+            </div>
+            <div class="admin-wb-kpi-sub">
+                最近封账：{% if detail.summary.last_settled_date %}{{ detail.summary.last_settled_date|date:"Y-m-d" }}{% else %}尚未封账{% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="admin-wb-grid-2">
+        <div class="admin-wb-panel">
+            <div class="admin-wb-panel-head">
+                <h2>5 档正文阅读漏斗（近 30 日）</h2>
+                <span class="admin-wb-note">短内容另列，不与长文滚动档混算</span>
+            </div>
+            <div class="analytics-funnel-list">
+                {% for stage in detail.funnel.stages %}
+                <div class="analytics-funnel-item">
+                    <span>{{ stage.label }}</span>
+                    <div class="analytics-bar-track">
+                        {% if stage.available and stage.rate_pct is not None %}
+                        <div class="analytics-bar-fill" style="width: {{ stage.rate_pct }}%;"></div>
+                        {% endif %}
+                    </div>
+                    <span class="num">
+                        {% if stage.available %}
+                            {{ stage.count }} 次 ({% if stage.rate_pct is not None %}{{ stage.rate_pct }}%{% else %}—{% endif %})
+                        {% else %}
+                            未细分采集
+                        {% endif %}
+                    </span>
+                </div>
+                {% endfor %}
+            </div>
+            <div class="admin-wb-note" style="margin-top:10px;">
+                满足停留规则的完读访问：<strong>{{ detail.funnel.completed_views }} 次</strong>
+                {% if detail.funnel.short_body_views is not None %}
+                    · 首屏短正文访问：<strong>{{ detail.funnel.short_body_views }} 次</strong>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="admin-wb-panel">
+            <div class="admin-wb-panel-head">
+                <h2>来源构成（近 30 日）</h2>
+                <span class="admin-wb-note">自然流量与精选/榜单导流分开统计</span>
+            </div>
+            <div class="analytics-bar-row">
+                <span>自然流量</span>
+                <div class="analytics-bar-track">
+                    <div class="analytics-bar-fill analytics-bar-fill--ok" style="width: {{ detail.sources.organic_share_pct|default:0 }}%;"></div>
+                </div>
+                <span class="num">{{ detail.sources.organic_pv }} ({% if detail.sources.organic_share_pct is not None %}{{ detail.sources.organic_share_pct }}%{% else %}—{% endif %})</span>
+            </div>
+            <div class="analytics-bar-row">
+                <span>精选/榜单导流</span>
+                <div class="analytics-bar-track">
+                    <div class="analytics-bar-fill" style="width: {% if detail.sources.curated_or_rank_pv > 0 %}100{% else %}0{% endif %}%;"></div>
+                </div>
+                <span class="num">{{ detail.sources.curated_or_rank_pv }}</span>
+            </div>
+
+            {% if detail.sources.channels %}
+            <div class="admin-wb-table-wrap" style="margin-top:10px;">
+                <table class="admin-wb-table">
+                    <thead>
+                        <tr>
+                            <th>细分渠道</th>
+                            <th class="num">PV</th>
+                            <th class="num">占比</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for ch in detail.sources.channels %}
+                        <tr>
+                            <td>{{ ch.label }}</td>
+                            <td class="num">{{ ch.pv }}</td>
+                            <td class="num">{% if ch.share_pct is not None %}{{ ch.share_pct }}%{% else %}—{% endif %}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="admin-wb-panel">
+        <div class="admin-wb-panel-head">
+            <h2>近 30 日单篇逐日明细</h2>
+            <span class="admin-wb-note">同日多版本已合并去重 UV；缺测区间显示为 —</span>
+        </div>
+        <div class="admin-wb-table-wrap">
+            <table class="admin-wb-table">
+                <thead>
+                    <tr>
+                        <th>日期</th>
+                        <th class="num">PV</th>
+                        <th class="num">单日 UV</th>
+                        <th class="num">有效阅读</th>
+                        <th class="num">完读数</th>
+                        <th class="num">均时长</th>
+                        <th>状态</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for day in detail.daily_trend %}
+                    <tr>
+                        <td><code>{{ day.date }}</code></td>
+                        <td class="num">{% if day.pv is not None %}{{ day.pv }}{% else %}—{% endif %}</td>
+                        <td class="num">{% if day.daily_uv is not None %}{{ day.daily_uv }}{% else %}—{% endif %}</td>
+                        <td class="num">{% if day.valid_views is not None %}{{ day.valid_views }}{% else %}—{% endif %}</td>
+                        <td class="num">{% if day.completed_views is not None %}{{ day.completed_views }}{% else %}—{% endif %}</td>
+                        <td class="num">{% if day.avg_active_seconds is not None %}{{ day.avg_active_seconds }}s{% else %}—{% endif %}</td>
+                        <td>
+                            {% if day.health_status == "missing" %}
+                                <span class="admin-wb-badge admin-wb-badge--danger">缺测区间</span>
+                            {% elif day.health_status == "uncovered" %}
+                                <span class="admin-wb-badge admin-wb-badge--muted">未覆盖</span>
+                            {% elif day.health_status == "partial" or day.is_provisional %}
+                                <span class="admin-wb-badge admin-wb-badge--warn">{{ day.status_label }}</span>
+                            {% else %}
+                                <span class="admin-wb-badge admin-wb-badge--ok">{{ day.status_label }}</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
