@@ -1,162 +1,184 @@
 <div class="timeline-content-shell">
-  {# 1. 类型过滤 Tab #}
-  <div class="timeline-type-tabs mb-3">
-    {% for tab in type_tabs %}
-      <a
-        href="{{ tab.url }}"
-        class="ui-btn ui-btn-sm {% if tab.is_active %}ui-btn-primary{% else %}ui-btn-outline{% endif %} timeline-nav-link"
-      >{{ tab.label }}</a>
-    {% endfor %}
-  </div>
+  {# 1. 顶部精简控制条：类型 Tab + 当前汇总 + 展开/收起侧栏日历按钮 #}
+  <div class="timeline-top-strip mb-3">
+    <div class="timeline-type-tabs">
+      {% for tab in type_tabs %}
+        <a
+          href="{{ tab.url }}"
+          class="ui-btn ui-btn-sm {% if tab.is_active %}ui-btn-primary{% else %}ui-btn-outline{% endif %} timeline-nav-link"
+        >{{ tab.label }}</a>
+      {% endfor %}
+    </div>
 
-  {# 2. 月历归档汇总卡片（只读 ArchiveDailyCount 当月最多 31 行） #}
-  <section class="timeline-calendar-card bg-white rounded border shadow-sm mb-4" aria-label="发布日历表">
-    <div class="timeline-cal-header">
-      <div class="timeline-cal-nav">
-        <a href="{{ calendar.previous_year.url }}" class="ui-btn ui-btn-sm ui-btn-outline timeline-nav-link" title="上一年">&laquo; {{ calendar.previous_year.year }}年</a>
-        <a href="{{ calendar.previous_month.url }}" class="ui-btn ui-btn-sm ui-btn-outline timeline-nav-link">&lsaquo; {{ calendar.previous_month.month }}</a>
-        <h2 class="timeline-cal-title">{{ calendar.year }} 年 {{ calendar.month_num }} 月</h2>
-        <a href="{{ calendar.next_month.url }}" class="ui-btn ui-btn-sm ui-btn-outline timeline-nav-link">{{ calendar.next_month.month }} &rsaquo;</a>
-        <a href="{{ calendar.next_year.url }}" class="ui-btn ui-btn-sm ui-btn-outline timeline-nav-link" title="下一年">{{ calendar.next_year.year }}年 &raquo;</a>
-        <a href="{{ calendar.today_url }}" class="ui-btn ui-btn-sm ui-btn-outline timeline-nav-link">回到本月</a>
-      </div>
+    <div class="timeline-top-actions">
       <div class="timeline-cal-summary">
-        <span class="badge bg-secondary" title="{{ calendar.year }}年全年共 {{ calendar.year_count }} 篇">本年 {{ calendar.year_count_display }} 篇</span>
-        <span class="badge bg-primary" title="本月共 {{ calendar.month_count }} 篇">本月 {{ calendar.month_count_display }} 篇</span>
+        <span class="badge bg-secondary" title="{{ calendar.year }}年全年共 {{ calendar.year_count }} 篇">{{ calendar.year }}年 {{ calendar.year_count_display }} 篇</span>
+        <span class="badge bg-primary" title="本月共 {{ calendar.month_count }} 篇">{{ calendar.month_num }}月 {{ calendar.month_count_display }} 篇</span>
         {% if calendar.status == "updating" %}
           <span class="badge bg-info">统计更新中</span>
         {% endif %}
-        <a href="/timeline/?year={{ calendar.year }}&amp;scope=year{% if active_type %}&amp;type={{ active_type }}{% endif %}" class="ui-btn ui-btn-sm {% if active_scope == 'year' %}ui-btn-primary{% else %}ui-btn-outline{% endif %} timeline-nav-link">看本年全部</a>
-        <a href="/timeline/?year={{ calendar.year }}&amp;month={{ calendar.month_num }}{% if active_type %}&amp;type={{ active_type }}{% endif %}" class="ui-btn ui-btn-sm {% if active_scope == 'month' %}ui-btn-primary{% else %}ui-btn-outline{% endif %} timeline-nav-link">查看本月</a>
       </div>
+      <button
+        type="button"
+        class="ui-btn ui-btn-sm ui-btn-outline timeline-cal-toggle-btn"
+        data-cal-toggle
+        aria-expanded="false"
+        aria-controls="timeline-calendar-aside"
+      >📅 展开热力日历</button>
     </div>
+  </div>
 
-    {# 2.1 跨年代/任意年月/任意日期一秒穿越工具栏（解决跨 20+ 年找 2002 年无需连续翻页） #}
-    <div class="timeline-time-travel-bar">
-      <form method="get" action="/timeline/" class="timeline-ym-jump-form">
-        {% if active_type %}<input type="hidden" name="type" value="{{ active_type }}">{% endif %}
-        <span class="small text-muted fw-semibold">快速穿越：</span>
-        <div class="timeline-year-select-wrap">
-          <select name="year" class="ui-select timeline-year-select" data-ui-select data-placeholder="输入或选择年份 (如 2002)" aria-label="选择或输入年份">
-            {% for ys in calendar.years_summary %}
-              <option value="{{ ys.year }}" {% if ys.is_active %}selected{% endif %}>{{ ys.year }} 年 ({{ ys.count_display }} 篇)</option>
-            {% endfor %}
-          </select>
-        </div>
-        <select name="month" class="ui-select timeline-month-select" aria-label="选择月份">
-          {% for ym in calendar.year_months %}
-            <option value="{{ ym.month }}" {% if ym.is_active %}selected{% endif %}>{{ ym.label }} ({{ ym.count_display }} 篇)</option>
+  {# 1.1 常驻迷你快速穿越条（无需展开侧边日历即可直达 2002 年或某天） #}
+  <div class="timeline-time-travel-bar">
+    <form method="get" action="/timeline/" class="timeline-ym-jump-form">
+      {% if active_type %}<input type="hidden" name="type" value="{{ active_type }}">{% endif %}
+      <span class="small text-muted fw-semibold">快速穿越：</span>
+      <div class="timeline-year-select-wrap">
+        <select name="year" class="ui-select timeline-year-select" data-ui-select data-placeholder="输入或选择年份 (如 2002)" aria-label="选择或输入年份">
+          {% for ys in calendar.years_summary %}
+            <option value="{{ ys.year }}" {% if ys.is_active %}selected{% endif %}>{{ ys.year }} 年 ({{ ys.count_display }} 篇)</option>
           {% endfor %}
         </select>
-        <button type="submit" class="ui-btn ui-btn-sm ui-btn-primary">直达年月</button>
-      </form>
+      </div>
+      <select name="month" class="ui-select timeline-month-select" aria-label="选择月份">
+        {% for ym in calendar.year_months %}
+          <option value="{{ ym.month }}" {% if ym.is_active %}selected{% endif %}>{{ ym.label }} ({{ ym.count_display }} 篇)</option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="ui-btn ui-btn-sm ui-btn-primary">直达年月</button>
+    </form>
 
-      <form method="get" action="/timeline/" class="timeline-day-jump-form">
-        {% if active_type %}<input type="hidden" name="type" value="{{ active_type }}">{% endif %}
-        <label class="small text-muted" for="timeline-direct-day-input">直达某日：</label>
-        <input
-          type="date"
-          id="timeline-direct-day-input"
-          name="day"
-          class="ui-input ui-date-input timeline-day-input"
-          data-ui-date="single"
-          placeholder="如 2002-05-18"
-          value="{{ selected_day }}"
-        >
-        <button type="submit" class="ui-btn ui-btn-sm ui-btn-outline">定位日期</button>
-      </form>
-    </div>
+    <form method="get" action="/timeline/" class="timeline-day-jump-form">
+      {% if active_type %}<input type="hidden" name="type" value="{{ active_type }}">{% endif %}
+      <label class="small text-muted" for="timeline-direct-day-input">直达某日：</label>
+      <input
+        type="date"
+        id="timeline-direct-day-input"
+        name="day"
+        class="ui-input ui-date-input timeline-day-input"
+        data-ui-date="single"
+        placeholder="如 2002-05-18"
+        value="{{ selected_day }}"
+      >
+      <button type="submit" class="ui-btn ui-btn-sm ui-btn-outline">定位日期</button>
+      <a href="/timeline/?year={{ calendar.year }}&amp;scope=year{% if active_type %}&amp;type={{ active_type }}{% endif %}" class="ui-btn ui-btn-sm {% if active_scope == 'year' %}ui-btn-primary{% else %}ui-btn-outline{% endif %} timeline-nav-link">看本年全部</a>
+      <a href="/timeline/?year={{ calendar.year }}&amp;month={{ calendar.month_num }}{% if active_type %}&amp;type={{ active_type }}{% endif %}" class="ui-btn ui-btn-sm {% if active_scope == 'month' %}ui-btn-primary{% else %}ui-btn-outline{% endif %} timeline-nav-link">查看本月</a>
+    </form>
+  </div>
 
-    {# 2.2 年代分组 (Decades: 2020s / 2010s / 2000s / 1990s) + 年份胶囊 + 12 个月点选矩阵 #}
-    <div class="timeline-year-bar">
-      <div class="timeline-decade-row">
-        <span class="small text-muted fw-semibold">年代：</span>
-        <div class="timeline-decade-pills">
-          {% for dec in calendar.decades %}
-            <a
-              href="{{ dec.url }}"
-              class="timeline-decade-pill {% if dec.is_active %}is-active{% endif %} timeline-nav-link"
-              title="{{ dec.range_label }} 共 {{ dec.count }} 篇"
-            >
-              <span>{{ dec.label }}</span>
-              <span class="timeline-decade-count">{{ dec.count_display }}</span>
-            </a>
+  <noscript>
+    <style>.timeline-calendar-aside[hidden] { display: block !important; }</style>
+  </noscript>
+
+  {# 2. 工作区容器：默认收起日历（主文章流居首），展开后在 >=1200px 桌面呈现左侧 Sticky 日历 + 右侧主列表 #}
+  <div class="timeline-workbench" data-timeline-workbench>
+    <aside id="timeline-calendar-aside" class="timeline-calendar-aside" aria-label="可收起侧边热力日历" hidden>
+      <section class="timeline-calendar-card bg-white rounded border shadow-sm" aria-label="发布日历表">
+        <div class="timeline-cal-header">
+          <div class="timeline-cal-title-row">
+            <h2 class="timeline-cal-title">{{ calendar.year }} 年 {{ calendar.month_num }} 月</h2>
+            <button type="button" class="ui-btn ui-btn-sm ui-btn-outline timeline-cal-close-btn" data-cal-close aria-label="收起热力日历" title="收起日历">收起</button>
+          </div>
+          <div class="timeline-cal-nav">
+            <a href="{{ calendar.previous_year.url }}" class="ui-btn ui-btn-sm ui-btn-outline timeline-nav-link" title="上一年">&laquo; {{ calendar.previous_year.year }}</a>
+            <a href="{{ calendar.previous_month.url }}" class="ui-btn ui-btn-sm ui-btn-outline timeline-nav-link">&lsaquo; 上月</a>
+            <a href="{{ calendar.today_url }}" class="ui-btn ui-btn-sm ui-btn-outline timeline-nav-link">本月</a>
+            <a href="{{ calendar.next_month.url }}" class="ui-btn ui-btn-sm ui-btn-outline timeline-nav-link">下月 &rsaquo;</a>
+            <a href="{{ calendar.next_year.url }}" class="ui-btn ui-btn-sm ui-btn-outline timeline-nav-link" title="下一年">{{ calendar.next_year.year }} &raquo;</a>
+          </div>
+        </div>
+
+        {# 年代分组 + 年份胶囊 + 12 个月点选矩阵 #}
+        <div class="timeline-year-bar">
+          <div class="timeline-decade-row">
+            <span class="small text-muted fw-semibold">年代：</span>
+            <div class="timeline-decade-pills">
+              {% for dec in calendar.decades %}
+                <a
+                  href="{{ dec.url }}"
+                  class="timeline-decade-pill {% if dec.is_active %}is-active{% endif %} timeline-nav-link"
+                  title="{{ dec.range_label }} 共 {{ dec.count }} 篇"
+                >
+                  <span>{{ dec.label }}</span>
+                  <span class="timeline-decade-count">{{ dec.count_display }}</span>
+                </a>
+              {% endfor %}
+            </div>
+          </div>
+
+          <div class="timeline-year-pills">
+            <span class="small text-muted fw-semibold">{{ calendar.active_decade }}年代：</span>
+            {% for yr in calendar.active_decade_years %}
+              <a
+                href="{{ yr.url }}"
+                class="timeline-year-pill {% if yr.is_active %}is-active{% endif %} {% if yr.has_items %}has-items{% endif %} timeline-nav-link"
+                title="{{ yr.year }}年 共 {{ yr.count }} 篇"
+              >
+                <span>{{ yr.year }}年</span>
+                {% if yr.count > 0 %}<span class="timeline-year-pill-num">{{ yr.count_display }}</span>{% endif %}
+              </a>
+            {% endfor %}
+          </div>
+
+          <div class="timeline-year-months">
+            {% for ym in calendar.year_months %}
+              <a
+                href="{{ ym.url }}"
+                class="timeline-month-chip {% if ym.is_active %}is-active{% endif %} {% if ym.count > 0 %}has-items{% endif %} timeline-nav-link"
+                title="{{ calendar.year }}年{{ ym.label }} 共 {{ ym.count }} 篇"
+              >
+                <span>{{ ym.label }}</span>
+                <span class="timeline-month-num">{{ ym.count_display }}</span>
+              </a>
+            {% endfor %}
+          </div>
+        </div>
+
+        {# 7 列紧凑热力月历网格（含 5 档热度图例） #}
+        <div class="timeline-cal-legend-row">
+          <span class="small text-muted">点击日期下钻（悬停看精确篇数）</span>
+          <div class="timeline-heat-legend" aria-label="日历发文热度图例">
+            <span class="small text-muted">少</span>
+            <span class="timeline-heat-swatch heat-0" title="0 篇"></span>
+            <span class="timeline-heat-swatch heat-1" title="较少"></span>
+            <span class="timeline-heat-swatch heat-2" title="中等"></span>
+            <span class="timeline-heat-swatch heat-3" title="较多"></span>
+            <span class="timeline-heat-swatch heat-4" title="高产峰值"></span>
+            <span class="small text-muted">多</span>
+          </div>
+        </div>
+        <div class="timeline-cal-weekdays" aria-hidden="true">
+          <span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span>
+        </div>
+        <div class="timeline-cal-grid" role="grid" aria-label="{{ calendar.year }}年{{ calendar.month_num }}月发表日历">
+          {% for week in calendar.weeks %}
+            {% for cell in week %}
+              {% if not cell.in_month %}
+                <div class="timeline-cal-cell is-outside" aria-hidden="true">
+                  <span class="timeline-cal-day">{{ cell.day }}</span>
+                </div>
+              {% elif cell.count > 0 %}
+                <a
+                  href="{{ cell.url }}"
+                  class="timeline-cal-cell has-posts heat-{{ cell.heat_level }} {% if cell.is_today %}is-today{% endif %} {% if selected_day == cell.date %}is-selected{% endif %} timeline-nav-link"
+                  title="{{ cell.date }} 共发表 {{ cell.count }} 篇"
+                >
+                  <span class="timeline-cal-day">{{ cell.day }}</span>
+                  <span class="timeline-cal-count">{{ cell.count_display }}</span>
+                </a>
+              {% else %}
+                <div class="timeline-cal-cell is-empty {% if cell.is_today %}is-today{% endif %}">
+                  <span class="timeline-cal-day">{{ cell.day }}</span>
+                </div>
+              {% endif %}
+            {% endfor %}
           {% endfor %}
         </div>
-      </div>
+      </section>
+    </aside>
 
-      <div class="timeline-year-pills">
-        <span class="small text-muted fw-semibold">{{ calendar.active_decade }}年代：</span>
-        {% for yr in calendar.active_decade_years %}
-          <a
-            href="{{ yr.url }}"
-            class="timeline-year-pill {% if yr.is_active %}is-active{% endif %} {% if yr.has_items %}has-items{% endif %} timeline-nav-link"
-            title="{{ yr.year }}年 共 {{ yr.count }} 篇"
-          >
-            <span>{{ yr.year }}年</span>
-            {% if yr.count > 0 %}<span class="timeline-year-pill-num">{{ yr.count_display }}</span>{% endif %}
-          </a>
-        {% endfor %}
-      </div>
-
-      <div class="timeline-year-months">
-        {% for ym in calendar.year_months %}
-          <a
-            href="{{ ym.url }}"
-            class="timeline-month-chip {% if ym.is_active %}is-active{% endif %} {% if ym.count > 0 %}has-items{% endif %} timeline-nav-link"
-            title="{{ calendar.year }}年{{ ym.label }} 共 {{ ym.count }} 篇"
-          >
-            <span>{{ ym.label }}</span>
-            <span class="timeline-month-num">{{ ym.count_display }}</span>
-          </a>
-        {% endfor %}
-      </div>
-    </div>
-
-    {# 2.3 7 列热力月历网格（含 5 档热度图例） #}
-    <div class="timeline-cal-legend-row">
-      <span class="small text-muted">点击有篇数标记的日期即可下钻查看当日文章（悬停看精确篇数）</span>
-      <div class="timeline-heat-legend" aria-label="日历发文热度图例">
-        <span class="small text-muted">少</span>
-        <span class="timeline-heat-swatch heat-0" title="0 篇"></span>
-        <span class="timeline-heat-swatch heat-1" title="较少"></span>
-        <span class="timeline-heat-swatch heat-2" title="中等"></span>
-        <span class="timeline-heat-swatch heat-3" title="较多"></span>
-        <span class="timeline-heat-swatch heat-4" title="高产峰值"></span>
-        <span class="small text-muted">多</span>
-      </div>
-    </div>
-    <div class="timeline-cal-weekdays" aria-hidden="true">
-      <span>周一</span><span>周二</span><span>周三</span><span>周四</span><span>周五</span><span>周六</span><span>周日</span>
-    </div>
-    <div class="timeline-cal-grid" role="grid" aria-label="{{ calendar.year }}年{{ calendar.month_num }}月发表日历">
-      {% for week in calendar.weeks %}
-        {% for cell in week %}
-          {% if not cell.in_month %}
-            <div class="timeline-cal-cell is-outside" aria-hidden="true">
-              <span class="timeline-cal-day">{{ cell.day }}</span>
-            </div>
-          {% elif cell.count > 0 %}
-            <a
-              href="{{ cell.url }}"
-              class="timeline-cal-cell has-posts heat-{{ cell.heat_level }} {% if cell.is_today %}is-today{% endif %} {% if selected_day == cell.date %}is-selected{% endif %} timeline-nav-link"
-              title="{{ cell.date }} 共发表 {{ cell.count }} 篇"
-            >
-              <span class="timeline-cal-day">{{ cell.day }}</span>
-              <span class="timeline-cal-count">{{ cell.count_display }} 篇</span>
-            </a>
-          {% else %}
-            <div class="timeline-cal-cell is-empty {% if cell.is_today %}is-today{% endif %}">
-              <span class="timeline-cal-day">{{ cell.day }}</span>
-            </div>
-          {% endif %}
-        {% endfor %}
-      {% endfor %}
-    </div>
-  </section>
-
-  {# 3. 当前下钻区间的文章列表与混合分页 #}
-  <section class="timeline-drilldown-section" aria-label="归档内容列表">
+    {# 3. 当前下钻区间的文章列表与混合分页 #}
+    <section class="timeline-drilldown-section" aria-label="归档内容列表">
     <div class="timeline-drill-header mb-3">
       <div>
         <h3 class="mb-0">{{ drill_label }}</h3>
@@ -225,5 +247,6 @@
 
       {% include "discovery/listing/_listing_pagination.html" with view_model=view_model %}
     {% endif %}
-  </section>
+    </section>
+  </div>
 </div>

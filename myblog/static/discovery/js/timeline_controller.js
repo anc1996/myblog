@@ -10,6 +10,41 @@
     if (!container) return;
 
     var activeAbort = null;
+    var STORAGE_KEY = "myblog_timeline_cal_open";
+
+    function readCalOpen() {
+      try {
+        return localStorage.getItem(STORAGE_KEY) === "1";
+      } catch (_e) {
+        return false;
+      }
+    }
+
+    function saveCalOpen(isOpen) {
+      try {
+        localStorage.setItem(STORAGE_KEY, isOpen ? "1" : "0");
+      } catch (_e) {}
+    }
+
+    function applyCalendarState(isOpen) {
+      var workbench = container.querySelector("[data-timeline-workbench]");
+      var aside = document.getElementById("timeline-calendar-aside");
+      var toggleBtn = container.querySelector("[data-cal-toggle]");
+      if (workbench) {
+        workbench.classList.toggle("is-cal-open", Boolean(isOpen));
+      }
+      if (aside) {
+        aside.hidden = !isOpen;
+      }
+      if (toggleBtn) {
+        toggleBtn.setAttribute("aria-expanded", isOpen ? "true" : "false");
+        toggleBtn.textContent = isOpen ? "📅 收起热力日历" : "📅 展开热力日历";
+        toggleBtn.classList.toggle("ui-btn-primary", Boolean(isOpen));
+        toggleBtn.classList.toggle("ui-btn-outline", !isOpen);
+      }
+    }
+
+    applyCalendarState(readCalOpen());
 
     function fetchTimeline(url, pushState) {
       if (activeAbort) activeAbort.abort();
@@ -35,6 +70,7 @@
           container.style.pointerEvents = "auto";
           if (res.data && res.data.html) {
             container.innerHTML = res.data.html;
+            applyCalendarState(readCalOpen());
             if (window.MyblogUI && typeof window.MyblogUI.mount === "function") {
               window.MyblogUI.mount(container);
             }
@@ -64,6 +100,22 @@
     }
 
     container.addEventListener("click", function (e) {
+      var calToggleBtn = e.target.closest("[data-cal-toggle]");
+      var calCloseBtn = e.target.closest("[data-cal-close]");
+      if (calToggleBtn) {
+        e.preventDefault();
+        var nextOpen = !readCalOpen();
+        saveCalOpen(nextOpen);
+        applyCalendarState(nextOpen);
+        return;
+      }
+      if (calCloseBtn) {
+        e.preventDefault();
+        saveCalOpen(false);
+        applyCalendarState(false);
+        return;
+      }
+
       var navLink = e.target.closest(".timeline-nav-link");
       var nextBtn = e.target.closest(".listing-page-next-btn");
       var prevBtn = e.target.closest(".listing-page-prev-btn");

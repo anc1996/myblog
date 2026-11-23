@@ -721,6 +721,12 @@ body {
   padding: 0 20px;
 }
 
+@media (min-width: 1366px) {
+  .timeline-page-container {
+    max-width: min(1360px, calc(100vw - 48px));
+  }
+}
+
 :is(.listing-shell, .tag-page-container, .timeline-page-container, .search-container) :is(h1, h2, h3, h4, h5, h6) {
   margin-top: 0;
 }
@@ -1036,17 +1042,85 @@ body {
   gap: 8px;
 }
 
+.timeline-top-strip {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.timeline-top-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.timeline-workbench {
+  display: block;
+}
+
+.timeline-calendar-aside[hidden] {
+  display: none;
+}
+
+.timeline-calendar-aside {
+  margin-bottom: 20px;
+}
+
+@media (min-width: 1200px) {
+  .timeline-workbench.is-cal-open {
+    display: grid;
+    grid-template-columns: minmax(360px, 400px) minmax(0, 1fr);
+    gap: 20px;
+    align-items: start;
+  }
+  .timeline-workbench.is-cal-open .timeline-calendar-aside {
+    position: sticky;
+    top: calc(var(--header-offset, 76px) + 12px);
+    max-height: calc(100vh - var(--header-offset, 76px) - 24px);
+    overflow-y: auto;
+    margin-bottom: 0;
+  }
+  .timeline-workbench.is-cal-open .timeline-calendar-card {
+    padding: 14px;
+  }
+  .timeline-workbench.is-cal-open .timeline-year-months {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .timeline-workbench.is-cal-open .timeline-cal-weekdays,
+  .timeline-workbench.is-cal-open .timeline-cal-grid {
+    gap: 4px;
+  }
+  .timeline-workbench.is-cal-open .timeline-cal-cell {
+    min-height: 46px;
+    padding: 4px 5px;
+  }
+  .timeline-workbench.is-cal-open .timeline-cal-day {
+    font-size: 0.8rem;
+  }
+  .timeline-workbench.is-cal-open .timeline-cal-count {
+    font-size: 0.68rem;
+  }
+}
+
 .timeline-calendar-card {
   padding: 20px;
 }
 
 .timeline-cal-header {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.timeline-cal-title-row {
+  display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 16px;
+  gap: 8px;
 }
 
 .timeline-cal-nav {
