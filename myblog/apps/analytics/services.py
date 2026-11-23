@@ -14,7 +14,9 @@ analytics.services
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from collections import defaultdict
+from datetime import date, datetime, timedelta
+import re
 from typing import Any
 
 from django.apps import apps
@@ -38,6 +40,7 @@ from analytics.permissions import (
     can_view_site_analytics,
     filter_accessible_pages_for_analytics,
 )
+from content_lifecycle.public_access import get_public_blocked_page_ids
 from discovery.pagination import (
     COUNT_PROBE_LIMIT,
     PageWindowExceededError,
@@ -318,6 +321,161 @@ def _extract_conversions_funnel_and_sources(conversions_json: Any) -> tuple[dict
                 ch_key = k[4:]
                 sources[ch_key] = sources.get(ch_key, 0) + val
     return funnel, sources
+
+
+_TYPE_CONVERSION_KEYS = (
+    "code_copy",
+    "mermaid_view",
+    "step_reach",
+    "step_complete",
+    "doc_attempt",
+    "doc_download",
+    "repo_click",
+    "demo_click",
+)
+
+
+def _extract_type_conversion_counts(conversions_json: Any) -> dict[str, int]:
+    """提取第 3 期各类型专属转化计数（非负整数）。"""
+    counts: dict[str, int] = {}
+    if not isinstance(conversions_json, dict):
+        return counts
+    for key in _TYPE_CONVERSION_KEYS:
+        raw = conversions_json.get(key)
+        if raw is None:
+            continue
+        try:
+            val = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if val > 0:
+            counts[key] = val
+    return counts
+
+
+def _build_page_type_conversions_summary(
+    specific_page: Any,
+    type_key: str,
+    conv_totals: dict[str, int],
+    measurable_30d: int,
+    today: date,
+) -> dict[str, Any]:
+    """按页面类型构建第 3 期专属转化与元信息（Blog/Guide/Project）。"""
+    has_body = hasattr(specific_page, "body")
+    visible_chars = 0
+    step_count = 0
+    code_blocks = 0
+    mermaid_blocks = 0
+    doc_blocks = 0
+    if has_body:
+        try:
+            if hasattr(specific_page, "hydrate_from_mongo") and (
+                not getattr(specific_page, "body", None) or len(getattr(specific_page, "body", [])) == 0
+            ):
+                specific_page.hydrate_from_mongo()
+        except Exception:
+            pass
+        body_val = getattr(specific_page, "body", None) or []
+        for blk in body_val:
+            btype = getattr(blk, "block_type", "")
+            bval = getattr(blk, "value", None)
+            if btype == "step":
+                step_count += 1
+            elif btype == "code":
+                code_blocks += 1
+            elif btype == "mermaid":
+                mermaid_blocks += 1
+            elif btype == "document":
+                doc_blocks += 1
+            elif btype == "attachment_list" and isinstance(bval, dict):
+                doc_blocks += len(bval.get("items") or [])
+            if btype in ("markdown", "rich_text", "paragraph", "step", "lead_in"):
+                txt = ""
+                if btype == "markdown":
+                    txt = str(bval or "")
+                    txt = re.sub(r"```[\s\S]*?```", " ", txt)
+                elif btype == "rich_text":
+                    txt = re.sub(r"<[^>]+>", " ", str(getattr(bval, "source", bval) or ""))
+                elif isinstance(bval, dict):
+                    txt = re.sub(r"<[^>]+>", " ", str(bval.get("title") or "") + " " + str(bval.get("content") or bval.get("overview") or ""))
+                visible_chars += len(re.sub(r"\s+", "", txt))
+
+    result: dict[str, Any] = {
+        "type_key": type_key,
+        "visible_chars": visible_chars,
+        "is_long_article": visible_chars >= 1500,
+        "items": [],
+        "meta": {},
+    }
+    if type_key in ("blog_page", "blog"):
+        cc = conv_totals.get("code_copy", 0)
+        mv = conv_totals.get("mermaid_view", 0)
+        result["items"] = [
+            {"key": "code_copy", "label": "代码复制次数", "count": cc, "rate_pct": _safe_pct(_safe_rate(cc, measurable_30d))},
+            {"key": "mermaid_view", "label": "Mermaid 查看次数", "count": mv, "rate_pct": _safe_pct(_safe_rate(mv, measurable_30d))},
+        ]
+        result["meta"] = {
+            "long_article_threshold": 1500,
+            "code_blocks": code_blocks,
+            "mermaid_blocks": mermaid_blocks,
+            "char_rule_version": "v1_no_code",
+        }
+    elif type_key in ("guide", "guide_page"):
+        sr = conv_totals.get("step_reach", 0)
+        sc = conv_totals.get("step_complete", 0)
+        da = conv_totals.get("doc_attempt", 0)
+        dd = conv_totals.get("doc_download", 0)
+        step_completion_pct = (
+            round((sc / float(measurable_30d * step_count)) * 100.0, 1)
+            if measurable_30d > 0 and step_count > 0
+            else None
+        )
+        rev_at = getattr(specific_page, "last_reviewed_at", None)
+        if rev_at is None:
+            freshness_status = "missing"
+            freshness_label = "缺失复核日期"
+            days_since_review = None
+        else:
+            rev_d = rev_at.date() if isinstance(rev_at, datetime) else rev_at
+            days_since_review = max(0, (today - rev_d).days)
+            if days_since_review >= 365:
+                freshness_status = "overdue"
+                freshness_label = f"已逾期（{days_since_review} 天未复核）"
+            elif days_since_review >= 335:
+                freshness_status = "expiring_soon"
+                freshness_label = f"临期提醒（{days_since_review} 天前复核）"
+            else:
+                freshness_status = "healthy"
+                freshness_label = f"时效健康（{days_since_review} 天前复核）"
+        result["items"] = [
+            {"key": "step_reach", "label": "步骤触达数", "count": sr, "rate_pct": None},
+            {"key": "step_complete", "label": "显式完成此步数", "count": sc, "rate_pct": step_completion_pct},
+            {"key": "doc_attempt", "label": "课件点击尝试", "count": da, "rate_pct": _safe_pct(_safe_rate(da, measurable_30d))},
+            {"key": "doc_download", "label": "网关授权成功下载（合并 Range）", "count": dd, "rate_pct": _safe_pct(_safe_rate(dd, da if da > 0 else measurable_30d))},
+        ]
+        result["meta"] = {
+            "step_count": step_count,
+            "doc_blocks": doc_blocks,
+            "freshness_status": freshness_status,
+            "freshness_label": freshness_label,
+            "days_since_review": days_since_review,
+        }
+    elif type_key in ("project", "project_page"):
+        rc = conv_totals.get("repo_click", 0)
+        dc = conv_totals.get("demo_click", 0)
+        has_repo = bool(str(getattr(specific_page, "repo_url", "") or "").strip())
+        has_demo = bool(str(getattr(specific_page, "demo_url", "") or "").strip())
+        result["items"] = [
+            {"key": "repo_click", "label": "代码仓库点击", "count": rc, "rate_pct": _safe_pct(_safe_rate(rc, measurable_30d)) if has_repo else None},
+            {"key": "demo_click", "label": "在线演示点击", "count": dc, "rate_pct": _safe_pct(_safe_rate(dc, measurable_30d)) if has_demo else None},
+        ]
+        result["meta"] = {
+            "primary_language": str(getattr(specific_page, "primary_language", "") or ""),
+            "has_repo": has_repo,
+            "has_demo": has_demo,
+            "star_count_display_only": getattr(specific_page, "star_count", 0),
+        }
+    return result
 
 
 def _aggregate_page_daily_rows(rows: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
@@ -1308,6 +1466,7 @@ def get_page_analytics_detail(user, page: Page | int) -> dict[str, Any]:
     }
     funnel_seen: dict[str, bool] = {k: False for k in funnel_totals}
     source_channels: dict[str, int] = {}
+    conv_totals: dict[str, int] = {k: 0 for k in _TYPE_CONVERSION_KEYS}
 
     for row in daily_qs.values(
         "stat_date",
@@ -1364,6 +1523,8 @@ def get_page_analytics_detail(user, page: Page | int) -> dict[str, Any]:
                 funnel_totals[fk] += fv
         for sk, sv in s_data.items():
             source_channels[sk] = source_channels.get(sk, 0) + sv
+        for ck, cv in _extract_type_conversion_counts(row.get("conversions_json")).items():
+            conv_totals[ck] = conv_totals.get(ck, 0) + cv
 
     healthy_days_30d = 0
     partial_days: list[str] = []
@@ -1540,6 +1701,14 @@ def get_page_analytics_detail(user, page: Page | int) -> dict[str, Any]:
         min_healthy_days_in_30d=settings_snapshot["min_healthy_days_in_30d"],
     )
 
+    type_conversions = _build_page_type_conversions_summary(
+        specific_page,
+        type_key,
+        conv_totals,
+        measurable_30d,
+        today,
+    )
+
     return {
         "page": {
             "id": specific_page.id,
@@ -1599,7 +1768,111 @@ def get_page_analytics_detail(user, page: Page | int) -> dict[str, Any]:
             "meets_threshold": healthy_days_30d >= settings_snapshot["min_healthy_days_in_30d"],
             "warning": coverage_warning,
         },
+        "type_conversions": type_conversions,
         "daily_trend": list(reversed(daily_trend)),
+    }
+
+
+def get_project_tech_stack_heat(
+    site: Site | None,
+    *,
+    days: int = 30,
+) -> dict[str, Any]:
+    """
+    第 3 期 ProjectPage 技术栈热度统计（按 primary_language 与技术标签分组）。
+    严格仅统计公开非回收 ProjectPage 的站内有效阅读与仓库/演示点击，不把 star_count 纳入站内流量。
+    """
+    if site is None:
+        return {"languages": [], "tags": []}
+
+    try:
+        from portfolio.models import ProjectPage
+    except ImportError:
+        return {"languages": [], "tags": []}
+
+    days = 7 if int(days or 30) <= 7 else 30
+    today = timezone.localdate()
+    end_date = today - timedelta(days=1)
+    start_date = end_date - timedelta(days=days - 1)
+
+    proj_qs = ProjectPage.objects.filter(
+        live=True,
+        is_recycled=False,
+        alias_of__isnull=True,
+    )
+    if site.root_page_id:
+        proj_qs = proj_qs.filter(path__startswith=site.root_page.path, depth__gt=site.root_page.depth)
+
+    # 按有界批次过滤祖先受限/回收页，避免大表内存膨胀
+    proj_rows = list(proj_qs.values_list("id", "path", "primary_language")[:1000])
+    if not proj_rows:
+        return {"languages": [], "tags": []}
+    blocked = get_public_blocked_page_ids([(pid, path) for pid, path, _ in proj_rows])
+    eligible_map: dict[int, str] = {
+        int(pid): (str(lang or "").strip() or "未标注语言")
+        for pid, _, lang in proj_rows
+        if pid not in blocked
+    }
+    if not eligible_map:
+        return {"languages": [], "tags": []}
+
+    eligible_ids = sorted(eligible_map.keys())
+    tags_by_pid: dict[int, list[str]] = defaultdict(list)
+    for pt in ProjectPage.tags.through.objects.filter(content_object_id__in=eligible_ids).select_related("tag"):
+        if pt.tag_id and getattr(pt.tag, "name", None):
+            tags_by_pid[int(pt.content_object_id)].append(str(pt.tag.name))
+
+    metrics_by_pid: dict[int, dict[str, int]] = defaultdict(lambda: {"valid": 0, "meas": 0, "repo": 0, "demo": 0})
+    for dr in (
+        PageAnalyticsDaily.objects.filter(
+            site=site,
+            page_id__in=eligible_ids,
+            stat_date__gte=start_date,
+            stat_date__lte=end_date,
+        )
+        .exclude(health_status="missing")
+        .values("page_id", "valid_views", "measurable_views", "conversions_json")
+    ):
+        pid = int(dr["page_id"])
+        m = metrics_by_pid[pid]
+        m["valid"] += int(dr.get("valid_views") or 0)
+        m["meas"] += int(dr.get("measurable_views") or 0)
+        convs = _extract_type_conversion_counts(dr.get("conversions_json"))
+        m["repo"] += convs.get("repo_click", 0)
+        m["demo"] += convs.get("demo_click", 0)
+
+    lang_buckets: dict[str, dict[str, Any]] = {}
+    tag_buckets: dict[str, dict[str, Any]] = {}
+    for pid, lang in eligible_map.items():
+        pm = metrics_by_pid.get(pid, {"valid": 0, "meas": 0, "repo": 0, "demo": 0})
+        lb = lang_buckets.setdefault(lang, {"name": lang, "project_count": 0, "valid_views": 0, "measurable_views": 0, "repo_clicks": 0, "demo_clicks": 0})
+        lb["project_count"] += 1
+        lb["valid_views"] += pm["valid"]
+        lb["measurable_views"] += pm["meas"]
+        lb["repo_clicks"] += pm["repo"]
+        lb["demo_clicks"] += pm["demo"]
+
+        for tname in tags_by_pid.get(pid, []):
+            tb = tag_buckets.setdefault(tname, {"name": tname, "project_count": 0, "valid_views": 0, "measurable_views": 0, "repo_clicks": 0, "demo_clicks": 0})
+            tb["project_count"] += 1
+            tb["valid_views"] += pm["valid"]
+            tb["measurable_views"] += pm["meas"]
+            tb["repo_clicks"] += pm["repo"]
+            tb["demo_clicks"] += pm["demo"]
+
+    def _finalize(buckets: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+        items = []
+        for b in buckets.values():
+            clicks = b["repo_clicks"] + b["demo_clicks"]
+            ctr = _safe_rate(clicks, b["measurable_views"])
+            items.append({**b, "total_clicks": clicks, "click_rate_pct": _safe_pct(ctr)})
+        items.sort(key=lambda x: (-x["valid_views"], -x["total_clicks"], -x["project_count"], x["name"]))
+        return items[:20]
+
+    return {
+        "days": days,
+        "languages": _finalize(lang_buckets),
+        "tags": _finalize(tag_buckets),
     }
 
 

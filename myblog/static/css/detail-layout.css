@@ -877,3 +877,44 @@
 :root[data-theme="dark"] .tutorial-step-card .step-body-content {
   color: var(--color-text-secondary);
 }
+
+.guide-step-actions {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--color-border);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.guide-step-complete-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  border-radius: 999px;
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.guide-step-complete-btn:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.guide-step-complete-btn.is-completed {
+  background: #ecfdf5;
+  border-color: #10b981;
+  color: #047857;
+}
+
+:root[data-theme="dark"] .guide-step-complete-btn.is-completed {
+  background: rgba(16, 185, 129, 0.18);
+  border-color: rgba(52, 211, 153, 0.5);
+  color: #6ee7b7;
+}

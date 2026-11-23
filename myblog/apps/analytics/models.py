@@ -706,3 +706,55 @@ class RankingSnapshot(models.Model):
 
     def __str__(self) -> str:
         return f"RankingSnapshot(site={self.site_id}, board={self.board_kind}, type={self.type_key}, date={self.stat_date})"
+
+
+EXPORT_KIND_CHOICES = [
+    ("page_summary", "授权页面分析明细"),
+    ("ranking_snapshot", "榜单快照明细"),
+    ("author_capacity", "作者产能与维护"),
+    ("review_efficiency", "审核效率与治理"),
+]
+
+EXPORT_STATUS_CHOICES = [
+    ("completed", "已导出"),
+    ("rejected", "已拒绝"),
+]
+
+
+class AnalyticsExportAudit(models.Model):
+    """第 3 期受控 CSV 导出审计留痕表（绝不记录访客键或原始搜索词）。"""
+
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="analytics_export_audits",
+        verbose_name="导出操作人",
+    )
+    site = models.ForeignKey(
+        Site,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="analytics_export_audits",
+        verbose_name="所属站点",
+    )
+    export_kind = models.CharField(max_length=32, choices=EXPORT_KIND_CHOICES, verbose_name="导出报表类型")
+    filters_json = models.JSONField(default=dict, blank=True, verbose_name="脱敏筛选参数")
+    row_count = models.PositiveIntegerField(default=0, verbose_name="导出行数")
+    status = models.CharField(max_length=16, choices=EXPORT_STATUS_CHOICES, default="completed", verbose_name="导出结果")
+    reason = models.CharField(max_length=255, blank=True, verbose_name="说明或拒绝原因")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="导出时间")
+
+    class Meta:
+        verbose_name = "分析数据导出审计"
+        verbose_name_plural = "分析数据导出审计"
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(fields=["site", "-created_at"], name="idx_ana_exp_site_created"),
+            models.Index(fields=["actor", "-created_at"], name="idx_ana_exp_actor_created"),
+        ]
+
+    def __str__(self) -> str:
+        return f"ExportAudit(actor={self.actor_id}, kind={self.export_kind}, rows={self.row_count}, status={self.status})"

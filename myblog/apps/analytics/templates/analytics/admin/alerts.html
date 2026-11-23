@@ -95,6 +95,9 @@
         {% if wb_nav.can_rankings %}
         <a href="{% url 'analytics_admin_rankings' %}{% if site %}?site_id={{ site.id }}{% endif %}" class="analytics-wb-tab {% if active_tab == 'rankings' %}is-active{% endif %}">榜单预览</a>
         {% endif %}
+        {% if wb_nav.can_operations %}
+        <a href="{% url 'analytics_admin_operations' %}{% if site %}?site_id={{ site.id }}{% endif %}" class="analytics-wb-tab {% if active_tab == 'operations' %}is-active{% endif %}">运营与审核</a>
+        {% endif %}
     </nav>
     {% endif %}
 

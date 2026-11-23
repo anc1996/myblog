@@ -40,7 +40,7 @@ class GuidePageAdapter:
     analytics_capabilities = AnalyticsCapabilities(
         kind="detail",
         metric_keys=("pv", "uv", "read_depth"),
-        conversion_keys=("step_complete", "doc_download"),
+        conversion_keys=("step_reach", "step_complete", "doc_attempt", "doc_download"),
         rating_enabled=True,
         rank_eligible=True,
         curation_eligible=True,

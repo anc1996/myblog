@@ -54,6 +54,8 @@ _BOT_UA_RE = re.compile(
     re.IGNORECASE,
 )
 _SAFE_CONVERSION_KEY_RE = re.compile(r"^[a-z0-9_]{1,48}$")
+_SAFE_CONVERSION_TARGET_RE = re.compile(r"^[a-zA-Z0-9_.:-]{1,64}$")
+_SERVER_ONLY_CONVERSIONS = frozenset({"doc_download"})
 
 # 单次原子 Redis Lua 脚本：完成防重放、30s PV 去重、阅读深度状态机、活动增量 Hash 与固定 48h TTL UV 集合写入
 _RECORD_ANALYTICS_EVENT_LUA = """
@@ -94,6 +96,7 @@ local use_uv_page = ARGV[22]
 local use_uv_type = ARGV[23]
 local use_uv_entry = ARGV[24]
 local use_uv_column = ARGV[25]
+local conversion_target = ARGV[27] or ''
 
 local function set_fixed_ttl(k, ttl)
     if redis.call('TTL', k) == -1 then
@@ -136,9 +139,20 @@ end
 
 if event_kind == 'conversion' then
     if is_detail == '1' and conversion_key ~= '' and page_field_prefix ~= '' then
-        hincr_fixed_ttl(active_pv_key, page_field_prefix .. '|conv:' .. conversion_key, 1, active_ttl)
+        local tgt = conversion_target
+        if tgt == '' then
+            tgt = 'default'
+        end
+        local conv_seen_field = 'conv_seen:' .. conversion_key .. ':' .. tgt
+        if redis.call('HEXISTS', visit_key, conv_seen_field) == 0 then
+            redis.call('HSET', visit_key, conv_seen_field, 1)
+            set_fixed_ttl(visit_key, visit_ttl)
+            hincr_fixed_ttl(active_pv_key, page_field_prefix .. '|conv:' .. conversion_key, 1, active_ttl)
+            return {1, 'conversion'}
+        end
+        return {0, 'duplicate_conversion'}
     end
-    return {1, 'conversion'}
+    return {0, 'ignored_conversion'}
 end
 
 local pv_counted = tonumber(redis.call('HGET', visit_key, 'pv_counted') or '0')
@@ -429,6 +443,10 @@ def issue_analytics_context(request, payload: dict[str, Any]) -> tuple[dict[str,
                 k for k in (getattr(caps, "metric_keys", ()) or ())
                 if k in ("code_copy", "mermaid_view")
             ]
+            if "step_complete" in allowed_conversions and "step_reach" not in allowed_conversions:
+                allowed_conversions.append("step_reach")
+            if "doc_download" in allowed_conversions and "doc_attempt" not in allowed_conversions:
+                allowed_conversions.append("doc_attempt")
         else:
             entry_kind = caps.entry_kind or entry_kind
     else:
@@ -689,10 +707,18 @@ def record_analytics_events(
             has_markers = "1" if (token_has_markers and not markers_missing) else "0"
 
             conv_key = ""
+            conv_target = "default"
             if ev_kind == "conversion":
                 raw_conv = str(ev.get("conversion_key") or "").strip().lower()
-                if _SAFE_CONVERSION_KEY_RE.match(raw_conv) and (not allowed_conversions or raw_conv in allowed_conversions):
+                if (
+                    raw_conv not in _SERVER_ONLY_CONVERSIONS
+                    and _SAFE_CONVERSION_KEY_RE.match(raw_conv)
+                    and (not allowed_conversions or raw_conv in allowed_conversions)
+                ):
                     conv_key = raw_conv
+                    raw_tgt = str(ev.get("conversion_target") or ev.get("target_key") or "default").strip()
+                    if raw_tgt and _SAFE_CONVERSION_TARGET_RE.match(raw_tgt):
+                        conv_target = raw_tgt
                 else:
                     continue
 
@@ -723,6 +749,7 @@ def record_analytics_events(
                 use_uv_entry,
                 use_uv_column,
                 _resolve_source_channel_key(visit_claims),
+                conv_target,
             ]
             res = script(keys=keys, args=args)
             status_flag = int(res[0]) if res else 0
@@ -735,6 +762,83 @@ def record_analytics_events(
         return {"accepted": False, "degraded": True}
 
     return {"accepted": True, "processed": processed, "duplicates": duplicates}
+
+
+_SERVER_CONVERSION_LUA = """
+local visit_key = KEYS[1]
+local active_pv_key = KEYS[2]
+local visit_ttl = tonumber(ARGV[1])
+local active_ttl = tonumber(ARGV[2])
+local conv_field = ARGV[3]
+local seen_field = ARGV[4]
+
+if redis.call('HEXISTS', visit_key, seen_field) == 0 then
+    redis.call('HSET', visit_key, seen_field, 1)
+    if redis.call('TTL', visit_key) == -1 then
+        redis.call('EXPIRE', visit_key, visit_ttl)
+    end
+    redis.call('HINCRBY', active_pv_key, conv_field, 1)
+    if redis.call('TTL', active_pv_key) == -1 then
+        redis.call('EXPIRE', active_pv_key, active_ttl)
+    end
+    return 1
+end
+return 0
+"""
+
+
+def record_server_conversion(
+    visit_claims: dict[str, Any],
+    conversion_key: str,
+    *,
+    target_id: str = "default",
+    redis_client: Any = None,
+) -> bool:
+    """
+    服务端权威转化记账（用于 /media-gateway/ 文档 200/206 成功交付合并 Range 分段去重）。
+    按 (visit_id, conversion_key, target_id) 原子去重；Redis 不可用时静默返回 False，绝不阻断交付。
+    """
+    if not isinstance(visit_claims, dict) or visit_claims.get("kind") != "detail":
+        return False
+    raw_conv = str(conversion_key or "").strip().lower()
+    if not _SAFE_CONVERSION_KEY_RE.match(raw_conv):
+        return False
+    allowed = set(visit_claims.get("allowed_conversions") or [])
+    if allowed and raw_conv not in allowed:
+        return False
+    page_id = visit_claims.get("page_id")
+    rev_id = int(visit_claims.get("live_revision_id") or 0)
+    if page_id is None or rev_id <= 0:
+        return False
+    raw_tgt = str(target_id or "default").strip()
+    clean_tgt = raw_tgt if _SAFE_CONVERSION_TARGET_RE.match(raw_tgt) else "default"
+
+    client = redis_client if redis_client is not None else _get_redis_client(write=True)
+    if client is None:
+        return False
+
+    prefix = _resolve_prefix()
+    site_id = int(visit_claims["site_id"])
+    stat_date = str(visit_claims["stat_date"])
+    visit_id = str(visit_claims["visit_id"])
+    type_key = str(visit_claims.get("type_key") or "")
+    col_id = visit_claims.get("column_page_id")
+    col_or_0 = str(int(col_id)) if col_id else "0"
+    page_field_prefix = f"{int(page_id)}|{rev_id}|{type_key}|{col_or_0}"
+    conv_field = f"{page_field_prefix}|conv:{raw_conv}"
+    seen_field = f"conv_seen:{raw_conv}:{clean_tgt}"
+    visit_key = f"{prefix}:analytics:visit:{visit_id}"
+    active_pv_key = f"{prefix}:analytics:active:pv:{site_id}:{stat_date}"
+    try:
+        script = client.register_script(_SERVER_CONVERSION_LUA)
+        res = script(
+            keys=[visit_key, active_pv_key],
+            args=[VISIT_AND_UV_TTL_SECONDS, ACTIVE_HASH_TTL_SECONDS, conv_field, seen_field],
+        )
+        return bool(int(res or 0) == 1)
+    except (RedisError, OSError, TimeoutError, ConnectionError) as exc:
+        logger.warning("Server conversion write degraded: %s", exc)
+        return False
 
 
 def _decode_redis_hash(raw_map: dict[Any, Any] | None) -> dict[str, str]:

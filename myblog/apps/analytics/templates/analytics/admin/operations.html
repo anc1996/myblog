@@ -1,0 +1,326 @@
+{% extends "wagtailadmin/base.html" %}
+{% load static %}
+
+{% block titletag %}运营与审核看板 - 数据分析{% endblock %}
+
+{% block extra_css %}
+{{ block.super }}
+<link rel="stylesheet" href="{% static 'css/admin-workbench.css' %}?v=20261123c">
+<link rel="stylesheet" href="{% static 'analytics/css/analytics-admin.css' %}?v=20261123b">
+<style>
+.analytics-wb-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 14px;
+    padding: 8px 12px;
+    background: var(--wb-surface-subtle, #f6f8fa);
+    border: 1px solid var(--wb-border, #d9e1ea);
+    border-radius: 8px;
+}
+.analytics-wb-tab {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 14px;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+    color: var(--wb-text, #111827);
+    background: transparent;
+}
+.analytics-wb-tab:hover {
+    background: var(--wb-surface-elevated, #ffffff);
+    border-color: var(--wb-border, #d9e1ea);
+    color: var(--wb-text, #111827);
+}
+.analytics-wb-tab.is-active {
+    background: var(--wb-accent-bg, rgba(0, 125, 126, 0.1));
+    border-color: var(--wb-accent, #007d7e);
+    color: var(--wb-accent, #007d7e);
+}
+</style>
+{% endblock %}
+
+{% block content %}
+{% include "wagtailadmin/shared/header.html" with title="作者产能、审核效率与治理看板" icon="site" %}
+
+<div class="nice-padding admin-wb-shell analytics-shell">
+    <p class="admin-wb-note" style="margin:0 0 12px;">
+        统计仅供内容运营、专栏维护与审核排班参考，绝不用于绩效考核、自动封禁或展示访客 IP。
+    </p>
+
+    {% if wb_nav %}
+    <nav class="analytics-wb-tabs" aria-label="数据分析工作台导航">
+        {% if wb_nav.can_site %}
+        <a href="{% url 'analytics_admin_dashboard' %}{% if ops.site %}?site_id={{ ops.site.id }}{% endif %}" class="analytics-wb-tab {% if active_tab == 'dashboard' %}is-active{% endif %}">全站大盘</a>
+        {% endif %}
+        {% if wb_nav.can_curation %}
+        <a href="{% url 'analytics_admin_curation' %}{% if ops.site %}?site_id={{ ops.site.id }}{% endif %}" class="analytics-wb-tab {% if active_tab == 'curation' %}is-active{% endif %}">精选工作台</a>
+        {% endif %}
+        {% if wb_nav.can_alerts %}
+        <a href="{% url 'analytics_admin_alerts' %}{% if ops.site %}?site_id={{ ops.site.id }}{% endif %}" class="analytics-wb-tab {% if active_tab == 'alerts' %}is-active{% endif %}">降噪预警</a>
+        {% endif %}
+        {% if wb_nav.can_rankings %}
+        <a href="{% url 'analytics_admin_rankings' %}{% if ops.site %}?site_id={{ ops.site.id }}{% endif %}" class="analytics-wb-tab {% if active_tab == 'rankings' %}is-active{% endif %}">榜单预览</a>
+        {% endif %}
+        {% if wb_nav.can_operations %}
+        <a href="{% url 'analytics_admin_operations' %}{% if ops.site %}?site_id={{ ops.site.id }}{% endif %}" class="analytics-wb-tab {% if active_tab == 'operations' %}is-active{% endif %}">运营与审核</a>
+        {% endif %}
+    </nav>
+    {% endif %}
+
+    <div class="admin-wb-toolbar">
+        <form method="get" class="admin-wb-filter-form">
+            {% if ops.is_site_manager and ops.sites|length > 1 %}
+            <div class="admin-wb-field">
+                <label for="op-site">站点</label>
+                <select id="op-site" name="site_id">
+                    {% for s in ops.sites %}
+                    <option value="{{ s.id }}" {% if ops.site and s.id == ops.site.id %}selected{% endif %}>{{ s.site_name|default:s.hostname }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% elif ops.site %}
+            <input type="hidden" name="site_id" value="{{ ops.site.id }}">
+            {% endif %}
+
+            <div class="admin-wb-field">
+                <label for="op-days">统计窗口</label>
+                <select id="op-days" name="days">
+                    <option value="7" {% if ops.filters.days == 7 %}selected{% endif %}>近 7 日</option>
+                    <option value="30" {% if ops.filters.days == 30 %}selected{% endif %}>近 30 日</option>
+                    <option value="90" {% if ops.filters.days == 90 %}selected{% endif %}>近 90 日</option>
+                </select>
+            </div>
+
+            <div class="admin-wb-field">
+                <label for="op-q">作者搜索</label>
+                <input id="op-q" type="search" name="author_q" value="{{ ops.filters.author_q|default:'' }}" placeholder="姓名 / Slug">
+            </div>
+
+            <button type="submit" class="button button-primary">筛选</button>
+        </form>
+
+        <div class="admin-wb-pills">
+            {% if ops.is_site_manager %}
+            <a href="{% url 'analytics_admin_export' %}?kind=author_capacity{% if ops.site %}&amp;site_id={{ ops.site.id }}{% endif %}&amp;days={{ ops.filters.days }}&amp;author_q={{ ops.filters.author_q|urlencode }}" class="button button-small button-secondary">导出作者产能 CSV</a>
+            <a href="{% url 'analytics_admin_export' %}?kind=review_efficiency{% if ops.site %}&amp;site_id={{ ops.site.id }}{% endif %}&amp;days={{ ops.filters.days }}" class="button button-small button-secondary">导出审核效率 CSV</a>
+            {% else %}
+            <a href="{% url 'analytics_admin_export' %}?kind=page_summary{% if ops.site %}&amp;site_id={{ ops.site.id }}{% endif %}&amp;days={{ ops.filters.days }}" class="button button-small button-secondary">导出我的页面 CSV</a>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if ops.can_view_governance and ops.review_governance %}
+    <div class="admin-wb-panel" style="margin-bottom:16px;">
+        <div class="admin-wb-panel-head">
+            <h2>工作流、评论审核效率与治理统计（近 {{ ops.filters.days }} 日）</h2>
+            <span class="admin-wb-note">驳回率 = 已驳回 ÷ (已通过 + 已驳回)，绝不用待审积压数作分母</span>
+        </div>
+        <div class="admin-wb-kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr));margin-bottom:0;">
+            <div class="admin-wb-kpi-card">
+                <div class="admin-wb-kpi-label">页面工作流待审积压</div>
+                <div class="admin-wb-kpi-value">{{ ops.review_governance.workflow.backlog.total }}</div>
+                <div class="admin-wb-kpi-sub">
+                    &lt;24h: {{ ops.review_governance.workflow.backlog.lt_24h }} ·
+                    1~3天: {{ ops.review_governance.workflow.backlog.d1_to_3 }} ·
+                    &gt;3天: {{ ops.review_governance.workflow.backlog.gt_3d }}
+                </div>
+            </div>
+            <div class="admin-wb-kpi-card">
+                <div class="admin-wb-kpi-label">工作流审核耗时（样本 {{ ops.review_governance.workflow.turnaround.sample_count }}）</div>
+                <div class="admin-wb-kpi-value">
+                    {% if ops.review_governance.workflow.turnaround.median_hours is not None %}{{ ops.review_governance.workflow.turnaround.median_hours }}h{% else %}—{% endif %}
+                </div>
+                <div class="admin-wb-kpi-sub">
+                    均值 {% if ops.review_governance.workflow.turnaround.mean_hours is not None %}{{ ops.review_governance.workflow.turnaround.mean_hours }}h{% else %}—{% endif %} ·
+                    P90 {% if ops.review_governance.workflow.turnaround.p90_hours is not None %}{{ ops.review_governance.workflow.turnaround.p90_hours }}h{% else %}—{% endif %} ·
+                    驳回率 {% if ops.review_governance.workflow.rejection_rate_pct is not None %}{{ ops.review_governance.workflow.rejection_rate_pct }}%{% else %}—{% endif %}
+                </div>
+            </div>
+            <div class="admin-wb-kpi-card">
+                <div class="admin-wb-kpi-label">评论审核待审积压</div>
+                <div class="admin-wb-kpi-value">{{ ops.review_governance.comments.backlog.total }}</div>
+                <div class="admin-wb-kpi-sub">
+                    &lt;24h: {{ ops.review_governance.comments.backlog.lt_24h }} ·
+                    1~3天: {{ ops.review_governance.comments.backlog.d1_to_3 }} ·
+                    &gt;3天: {{ ops.review_governance.comments.backlog.gt_3d }}
+                </div>
+            </div>
+            <div class="admin-wb-kpi-card">
+                <div class="admin-wb-kpi-label">评论审核耗时（样本 {{ ops.review_governance.comments.turnaround.sample_count }}）</div>
+                <div class="admin-wb-kpi-value">
+                    {% if ops.review_governance.comments.turnaround.median_hours is not None %}{{ ops.review_governance.comments.turnaround.median_hours }}h{% else %}—{% endif %}
+                </div>
+                <div class="admin-wb-kpi-sub">
+                    均值 {% if ops.review_governance.comments.turnaround.mean_hours is not None %}{{ ops.review_governance.comments.turnaround.mean_hours }}h{% else %}—{% endif %} ·
+                    P90 {% if ops.review_governance.comments.turnaround.p90_hours is not None %}{{ ops.review_governance.comments.turnaround.p90_hours }}h{% else %}—{% endif %} ·
+                    驳回率 {% if ops.review_governance.comments.rejection_rate_pct is not None %}{{ ops.review_governance.comments.rejection_rate_pct }}%{% else %}—{% endif %}
+                </div>
+            </div>
+            <div class="admin-wb-kpi-card">
+                <div class="admin-wb-kpi-label">回收站治理批次（近 {{ ops.filters.days }} 日）</div>
+                <div class="admin-wb-kpi-value">{{ ops.review_governance.governance.recycle.recycled }}</div>
+                <div class="admin-wb-kpi-sub">
+                    已恢复 {{ ops.review_governance.governance.recycle.restored }} ·
+                    已物理销毁 {{ ops.review_governance.governance.recycle.purged }}
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="admin-wb-panel" style="margin-bottom:16px;">
+        <div class="admin-wb-panel-head">
+            <h2>作者产能、维护提醒与作品样本（{{ ops.authors.count_meta.label }}）</h2>
+            <span class="admin-wb-note">按页面去重统计；合著作品不重复加总成全站总量；评价样本 &lt; {{ ops.authors.min_rating_votes }} 票时不展示好评率</span>
+        </div>
+        <div class="admin-wb-table-wrap">
+            <table class="admin-wb-table">
+                <thead>
+                    <tr>
+                        <th>公开人物 (Person)</th>
+                        <th class="num">参与作品数</th>
+                        <th>角色分布</th>
+                        <th class="num">窗口首发 / 再发布</th>
+                        <th class="num">90日未更 / 逾期指南</th>
+                        <th class="num">篇均 PV / 访客日</th>
+                        <th class="num">加权完读率</th>
+                        <th class="num">精选数</th>
+                        <th>评价分布（防反推）</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for ar in ops.authors.rows %}
+                    <tr>
+                        <td>
+                            <strong>{{ ar.person.name }}</strong>
+                            {% if ar.is_linked_account %}
+                                <span class="admin-wb-badge admin-wb-badge--ok">已绑定账号</span>
+                            {% else %}
+                                <span class="admin-wb-badge admin-wb-badge--muted">未绑定账号</span>
+                            {% endif %}
+                            <div class="admin-wb-note"><code>{{ ar.person.slug }}</code> · 最近发布 {{ ar.latest_pub_date }}</div>
+                        </td>
+                        <td class="num"><strong>{{ ar.page_count }}</strong></td>
+                        <td>{{ ar.role_summary }}</td>
+                        <td class="num">{{ ar.first_published_win }} / {{ ar.republish_win }}</td>
+                        <td class="num">
+                            {{ ar.stale_90d_count }} /
+                            {% if ar.overdue_guides > 0 %}
+                                <span class="admin-wb-badge admin-wb-badge--warn">{{ ar.overdue_guides }}</span>
+                            {% else %}
+                                0
+                            {% endif %}
+                        </td>
+                        <td class="num">{{ ar.avg_pv }} / {{ ar.avg_visitor_days }}</td>
+                        <td class="num">{% if ar.completion_pct is not None %}{{ ar.completion_pct }}%{% else %}—{% endif %}</td>
+                        <td class="num">{{ ar.curated_count }}</td>
+                        <td>
+                            {% if ar.favorable_pct is not None %}
+                                <span class="admin-wb-badge admin-wb-badge--ok">{{ ar.favorable_pct }}% 好评</span>
+                            {% endif %}
+                            <div class="admin-wb-note">{{ ar.rating_note }}</div>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="9" class="admin-wb-note">当前筛选条件下暂无作者/人物记录。</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {% if ops.authors.pagination.has_previous or ops.authors.pagination.has_next %}
+        <div class="admin-wb-pagination" style="margin-top:12px;">
+            {% if ops.authors.pagination.has_previous %}
+                <a href="?{% if ops.site %}site_id={{ ops.site.id }}&amp;{% endif %}days={{ ops.filters.days }}&amp;author_q={{ ops.filters.author_q|urlencode }}&amp;p={{ ops.authors.pagination.current_page|add:-1 }}" class="button button-small button-secondary">上一页</a>
+            {% endif %}
+            <span class="admin-wb-note">第 {{ ops.authors.pagination.current_page }} 页</span>
+            {% if ops.authors.pagination.has_next %}
+                <a href="?{% if ops.site %}site_id={{ ops.site.id }}&amp;{% endif %}days={{ ops.filters.days }}&amp;author_q={{ ops.filters.author_q|urlencode }}&amp;p={{ ops.authors.pagination.current_page|add:1 }}" class="button button-small button-secondary">下一页</a>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+
+    {% if ops.authors.overdue_guides %}
+    <div class="admin-wb-panel" style="margin-bottom:16px;">
+        <div class="admin-wb-panel-head">
+            <h2>365 日逾期未复核指南维护清单</h2>
+            <span class="admin-wb-note">按已发布贡献关系分派；未分派维护人的页面单列标注</span>
+        </div>
+        <div class="admin-wb-table-wrap">
+            <table class="admin-wb-table">
+                <thead>
+                    <tr>
+                        <th>指南标题</th>
+                        <th>最后复核日期</th>
+                        <th>维护责任人</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for og in ops.authors.overdue_guides %}
+                    <tr>
+                        <td><strong>{{ og.title }}</strong> <span class="admin-wb-note">#{{ og.page_id }}</span></td>
+                        <td>
+                            <span class="admin-wb-badge admin-wb-badge--warn">{{ og.last_reviewed_at }}</span>
+                            {% if og.days_overdue is not None %}<span class="admin-wb-note">({{ og.days_overdue }} 天前)</span>{% endif %}
+                        </td>
+                        <td>
+                            {% if og.is_unassigned %}
+                                <span class="admin-wb-badge admin-wb-badge--danger">{{ og.assignees }}</span>
+                            {% else %}
+                                {{ og.assignees }}
+                            {% endif %}
+                        </td>
+                        <td>
+                            <a href="{% url 'analytics_admin_page_drawer' og.page_id %}" class="button button-small button-secondary">详情</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if ops.is_site_manager and ops.tech_stack.languages %}
+    <div class="admin-wb-panel">
+        <div class="admin-wb-panel-head">
+            <h2>ProjectPage 技术栈热度（近 {{ ops.tech_stack.days }} 日）</h2>
+            <span class="admin-wb-note">基于站内有效阅读与仓库/演示点击；外部 Star 数绝不计入站内流量</span>
+        </div>
+        <div class="admin-wb-table-wrap">
+            <table class="admin-wb-table">
+                <thead>
+                    <tr>
+                        <th>主语言</th>
+                        <th class="num">公开项目数</th>
+                        <th class="num">有效阅读</th>
+                        <th class="num">仓库点击</th>
+                        <th class="num">演示点击</th>
+                        <th class="num">链接点击率</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for lg in ops.tech_stack.languages %}
+                    <tr>
+                        <td><strong>{{ lg.name }}</strong></td>
+                        <td class="num">{{ lg.project_count }}</td>
+                        <td class="num">{{ lg.valid_views }}</td>
+                        <td class="num">{{ lg.repo_clicks }}</td>
+                        <td class="num">{{ lg.demo_clicks }}</td>
+                        <td class="num">{% if lg.click_rate_pct is not None %}{{ lg.click_rate_pct }}%{% else %}—{% endif %}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

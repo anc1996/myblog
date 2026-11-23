@@ -199,6 +199,36 @@
         </div>
     </div>
 
+    {% if detail.type_conversions and detail.type_conversions.items %}
+    <div class="admin-wb-panel" style="margin-bottom:14px;">
+        <div class="admin-wb-panel-head">
+            <h2>类型专属转化与内容健康（近 30 日）</h2>
+            <span class="admin-wb-note">
+                可见文本 {{ detail.type_conversions.visible_chars }} 字
+                {% if detail.type_conversions.type_key == "blog_page" or detail.type_conversions.type_key == "blog" %}
+                    · {% if detail.type_conversions.is_long_article %}长文样本（≥ 1,500 字）{% else %}短文样本（&lt; 1,500 字）{% endif %}
+                {% elif detail.type_conversions.type_key == "guide" or detail.type_conversions.type_key == "guide_page" %}
+                    · 共 {{ detail.type_conversions.meta.step_count }} 步 · {{ detail.type_conversions.meta.freshness_label }}
+                {% elif detail.type_conversions.type_key == "project" or detail.type_conversions.type_key == "project_page" %}
+                    {% if detail.type_conversions.meta.primary_language %}· {{ detail.type_conversions.meta.primary_language }}{% endif %}
+                    · Star {{ detail.type_conversions.meta.star_count_display_only }}（仅展示徽标，不计入站内流量）
+                {% endif %}
+            </span>
+        </div>
+        <div class="admin-wb-kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin-bottom:0;">
+            {% for cv in detail.type_conversions.items %}
+            <div class="admin-wb-kpi-card">
+                <div class="admin-wb-kpi-label">{{ cv.label }}</div>
+                <div class="admin-wb-kpi-value">{{ cv.count }}</div>
+                <div class="admin-wb-kpi-sub">
+                    {% if cv.rate_pct is not None %}转化率 {{ cv.rate_pct }}%{% else %}计数统计（同次访问去重）{% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
     <div class="admin-wb-panel">
         <div class="admin-wb-panel-head">
             <h2>近 30 日单篇逐日明细</h2>

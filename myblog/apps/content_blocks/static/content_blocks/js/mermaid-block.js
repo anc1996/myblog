@@ -25,6 +25,30 @@
         var currentScale = 1.0;
         var currentSvgText = "";
         var renderSeq = 0;
+        var hasRenderedSvg = false;
+        var viewNotified = false;
+
+        function getBlockTargetKey() {
+            var root = block.closest("[data-cb-block-id]");
+            var bid = root ? (root.getAttribute("data-cb-block-id") || "") : "";
+            if (bid) return "mermaid:" + bid.slice(0, 36);
+            var all = document.querySelectorAll("[data-cb-mermaid]");
+            for (var i = 0; i < all.length; i++) {
+                if (all[i] === block) return "mermaid:" + i;
+            }
+            return "mermaid:0";
+        }
+
+        function maybeNotifyMermaidView(forceVisible) {
+            if (viewNotified || !hasRenderedSvg) return;
+            if (!forceVisible && block.classList.contains("is-collapsed")) return;
+            viewNotified = true;
+            try {
+                window.dispatchEvent(new CustomEvent("myblog:analytics:conversion", {
+                    detail: { conversion_key: "mermaid_view", target_key: getBlockTargetKey() }
+                }));
+            } catch (_e) {}
+        }
 
         function renderDiagram(themeToUse) {
             var seq = ++renderSeq;
@@ -37,6 +61,14 @@
                 canvas.innerHTML = "";
                 canvas.appendChild(res.svgNode);
                 if (statusEl) statusEl.hidden = true;
+                hasRenderedSvg = true;
+                try {
+                    var rect = canvas.getBoundingClientRect();
+                    var vh = window.innerHeight || document.documentElement.clientHeight || 0;
+                    if (rect.height > 0 && rect.top < vh && rect.bottom > 0 && !block.classList.contains("is-collapsed")) {
+                        maybeNotifyMermaidView(false);
+                    }
+                } catch (_e) {}
             }).catch(function (err) {
                 if (seq !== renderSeq) return;
                 console.warn("Mermaid render error:", err);
@@ -51,6 +83,19 @@
         }
 
         renderDiagram(initialTheme);
+
+        if (canvas && typeof window.IntersectionObserver === "function") {
+            try {
+                var viewObs = new window.IntersectionObserver(function (entries) {
+                    for (var i = 0; i < entries.length; i++) {
+                        if (entries[i].isIntersecting) {
+                            maybeNotifyMermaidView(false);
+                        }
+                    }
+                }, { threshold: 0.25 });
+                viewObs.observe(canvas);
+            } catch (_e) {}
+        }
 
         // 工具栏交互绑定
         var btnZoomIn = block.querySelector(".cb-btn-zoom-in");
@@ -156,10 +201,14 @@
                 var isCollapsed = block.classList.toggle("is-collapsed");
                 btnCollapse.textContent = isCollapsed ? "▲" : "▼";
                 btnCollapse.setAttribute("aria-expanded", String(!isCollapsed));
+                if (!isCollapsed) {
+                    maybeNotifyMermaidView(false);
+                }
             });
         }
         if (btnFullscreen) {
             btnFullscreen.addEventListener("click", function () {
+                maybeNotifyMermaidView(true);
                 var modal = document.createElement("dialog");
                 modal.className = "cb-mermaid-modal";
                 modal.innerHTML = '<div class="cb-mermaid-modal-content">' +

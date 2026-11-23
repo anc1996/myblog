@@ -37,7 +37,7 @@ ALLOWED_TAGS = {
 
 # 允许的属性白名单
 ALLOWED_ATTRIBUTES = {
-    "a": {"href", "title", "target", "class", "download"},
+    "a": {"href", "title", "target", "class", "download", "data-analytics-conv"},
     "img": {"src", "alt", "title", "width", "height", "loading", "data-asset-id", "class", "style"},
     "table": {"class", "align", "border"},
     "caption": {"class"},
@@ -90,6 +90,8 @@ def _filter_attributes(tag: str, attr: str, value: str) -> str | None:
         return value if value in {"audio", "video"} else None
     if tag == "div" and attr == "data-full-src":
         return value if _GATEWAY_IMG_SRC_RE.match(value or "") else None
+    if tag == "a" and attr == "data-analytics-conv":
+        return value if value in {"repo_click", "demo_click"} else None
     if tag == "a" and attr == "class":
         allowed_classes = {"doc-download-link"}
         kept = [c for c in (value or "").split() if c in allowed_classes]

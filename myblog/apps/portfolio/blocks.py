@@ -123,12 +123,12 @@ class RepositoryBlock(blocks.StructBlock):
         if repo_url:
             safe_repo = html.escape(repo_url, quote=True)
             links.append(
-                f'<a href="{safe_repo}" target="_blank" rel="noopener noreferrer">🔗 访问代码仓库</a>'
+                f'<a href="{safe_repo}" target="_blank" rel="noopener noreferrer" data-analytics-conv="repo_click">🔗 访问代码仓库</a>'
             )
         if demo_url:
             safe_demo = html.escape(demo_url, quote=True)
             links.append(
-                f'<a href="{safe_demo}" target="_blank" rel="noopener noreferrer">🚀 在线演示</a>'
+                f'<a href="{safe_demo}" target="_blank" rel="noopener noreferrer" data-analytics-conv="demo_click">🚀 在线演示</a>'
             )
 
         html_out = (

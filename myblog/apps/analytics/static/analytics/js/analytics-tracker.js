@@ -91,6 +91,14 @@
         if (!descriptor) return;
 
         var contextStarted = false;
+        var earlyConversions = [];
+        var earlyHandler = function (ev) {
+            if (!ev || !ev.detail || !ev.detail.conversion_key) return;
+            if (earlyConversions.length < 32) {
+                earlyConversions.push(ev.detail);
+            }
+        };
+        window.addEventListener("myblog:analytics:conversion", earlyHandler);
 
         function bootSession() {
             if (contextStarted) return;
@@ -110,7 +118,8 @@
                 if (!resp || !resp.ok) return;
                 return resp.json().then(function (data) {
                     if (!data || !data.enabled || !data.visit_token) return;
-                    startTracking(data);
+                    window.removeEventListener("myblog:analytics:conversion", earlyHandler);
+                    startTracking(data, earlyConversions);
                 }).catch(function () {});
             }).catch(function () {});
         }
@@ -127,7 +136,7 @@
         }
     }
 
-    function startTracking(ctx) {
+    function startTracking(ctx, earlyConversions) {
         var visitToken = String(ctx.visit_token);
         var kind = ctx.kind === "entry" ? "entry" : "detail";
         var heartbeatIntervalMs = Math.max(
@@ -142,13 +151,13 @@
         }
 
         if (kind === "detail") {
-            startDetailTracking(visitToken, heartbeatIntervalMs, nextSeq);
+            startDetailTracking(visitToken, heartbeatIntervalMs, nextSeq, earlyConversions || []);
         } else {
             startEntryTracking(visitToken, nextSeq);
         }
     }
 
-    function startDetailTracking(visitToken, heartbeatIntervalMs, nextSeq) {
+    function startDetailTracking(visitToken, heartbeatIntervalMs, nextSeq, earlyConversions) {
         var startEl = document.getElementById("article-start");
         var endEl = document.getElementById("article-end");
         var hasMarkers = Boolean(startEl && endEl);
@@ -280,6 +289,111 @@
         markSentState();
         emitVisitEvent(false);
         checkReadingGate();
+
+        // 第 3 期：类型专属转化上报与客户端去重集合
+        var sentConversionKeys = {};
+        function sendConversion(convKey, targetKey, useBeacon) {
+            var ck = String(convKey || "").trim().toLowerCase();
+            if (!ck) return;
+            var tk = String(targetKey || "default").trim() || "default";
+            var dedup = ck + "::" + tk;
+            if (sentConversionKeys[dedup]) return;
+            sentConversionKeys[dedup] = true;
+            var payload = {
+                visit_token: visitToken,
+                seq: nextSeq(),
+                event: "conversion",
+                conversion_key: ck,
+                conversion_target: tk
+            };
+            if (useBeacon) {
+                postBeacon(EVENTS_ENDPOINT, payload);
+            } else {
+                postJsonFetch(EVENTS_ENDPOINT, payload, false);
+            }
+        }
+
+        if (earlyConversions && earlyConversions.length) {
+            for (var ec = 0; ec < earlyConversions.length; ec++) {
+                sendConversion(earlyConversions[ec].conversion_key, earlyConversions[ec].target_key, false);
+            }
+        }
+        window.addEventListener("myblog:analytics:conversion", function (ev) {
+            if (!ev || !ev.detail) return;
+            sendConversion(ev.detail.conversion_key, ev.detail.target_key, false);
+        });
+
+        // ProjectPage 仓库/演示外链点击与 /media-gateway/document/<uuid>/ 课件下载尝试归因
+        document.addEventListener("click", function (ev) {
+            try {
+                var tgt = ev.target;
+                if (!tgt || typeof tgt.closest !== "function") return;
+                var convAnchor = tgt.closest("a[data-analytics-conv]");
+                if (convAnchor) {
+                    var ck = convAnchor.getAttribute("data-analytics-conv");
+                    if (ck === "repo_click" || ck === "demo_click") {
+                        sendConversion(ck, ck, true);
+                    }
+                    return;
+                }
+                var docAnchor = tgt.closest("a.doc-download-link[href]");
+                if (docAnchor) {
+                    var href = docAnchor.getAttribute("href") || "";
+                    var m = href.match(/\/media-gateway\/document\/([0-9a-fA-F-]{36})\//);
+                    if (m && m[1]) {
+                        document.cookie = "myblog_ana_dl_vt=" + encodeURIComponent(visitToken) + "; Path=/media-gateway/; Max-Age=60; SameSite=Lax";
+                        sendConversion("doc_attempt", "doc:" + m[1].toLowerCase(), true);
+                    }
+                }
+            } catch (_e) {}
+        }, true);
+
+        // GuidePage 操作步骤触达与显式完成此步交互
+        var stepCards = document.querySelectorAll(".tutorial-step-card[data-step]");
+        if (stepCards.length > 0) {
+            var stepReachObs = null;
+            if (typeof window.IntersectionObserver === "function") {
+                try {
+                    stepReachObs = new window.IntersectionObserver(function (entries) {
+                        for (var si = 0; si < entries.length; si++) {
+                            if (!entries[si].isIntersecting) continue;
+                            var card = entries[si].target;
+                            var sNum = (card.getAttribute("data-step") || "").trim() || "1";
+                            var sId = (card.getAttribute("id") || ("step-" + sNum)).slice(0, 48);
+                            sendConversion("step_reach", "step:" + sId, false);
+                            stepReachObs.unobserve(card);
+                        }
+                    }, { threshold: 0.25 });
+                } catch (_e) {
+                    stepReachObs = null;
+                }
+            }
+
+            for (var sc = 0; sc < stepCards.length; sc++) {
+                (function (card, idx) {
+                    if (stepReachObs) stepReachObs.observe(card);
+                    if (card.querySelector(".guide-step-complete-btn")) return;
+                    var sNum = (card.getAttribute("data-step") || "").trim() || String(idx + 1);
+                    var sId = (card.getAttribute("id") || ("step-" + sNum)).slice(0, 48);
+                    var footer = document.createElement("div");
+                    footer.className = "guide-step-actions";
+                    var btn = document.createElement("button");
+                    btn.type = "button";
+                    btn.className = "guide-step-complete-btn";
+                    btn.setAttribute("aria-pressed", "false");
+                    btn.textContent = "✓ 标记完成此步";
+                    btn.addEventListener("click", function () {
+                        if (btn.classList.contains("is-completed")) return;
+                        btn.classList.add("is-completed");
+                        btn.setAttribute("aria-pressed", "true");
+                        btn.textContent = "✓ 已完成此步";
+                        sendConversion("step_complete", "step:" + sId, false);
+                    });
+                    footer.appendChild(btn);
+                    card.appendChild(footer);
+                })(stepCards[sc], sc);
+            }
+        }
 
         // 监听用户真实交互
         var interactionEvents = ["scroll", "mousemove", "keydown", "touchstart", "click"];

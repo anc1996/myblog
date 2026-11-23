@@ -30,6 +30,46 @@ from media_library.models import CustomRendition
 _CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
 
 
+def _maybe_record_document_download_conversion(request, asset_type: str, asset_id: UUID, response: HttpResponse) -> None:
+    """
+    仅当文档通过 /media-gateway/document/<uuid>/ 权限核验并实际返回 200/206（非 HEAD / 403 / 404 / 416）时，
+    结合同页短时下载归因令牌与 MediaReferenceRecord 引用关系执行服务端去重记账（自动合并 Range 分段下载与重试）。
+    """
+    if asset_type != "document" or getattr(request, "method", "GET") == "HEAD":
+        return
+    if getattr(response, "status_code", 0) not in (200, 206):
+        return
+    dl_vt = (request.COOKIES.get("myblog_ana_dl_vt") or "").strip()
+    if not dl_vt:
+        return
+    try:
+        from analytics.collector import record_server_conversion
+        from analytics.tokens import verify_visit_token
+        from media_library.models import MediaReferenceRecord
+
+        visit_claims = verify_visit_token(dl_vt)
+        if not visit_claims or visit_claims.get("kind") != "detail":
+            return
+        page_id = visit_claims.get("page_id")
+        rev_id = int(visit_claims.get("live_revision_id") or 0)
+        if page_id is None or rev_id <= 0:
+            return
+        if not MediaReferenceRecord.objects.filter(
+            asset_id=asset_id,
+            asset_type="document",
+            page_id=int(page_id),
+            revision_id=rev_id,
+        ).exists():
+            return
+        record_server_conversion(
+            visit_claims,
+            "doc_download",
+            target_id=f"doc:{asset_id}",
+        )
+    except Exception:
+        pass
+
+
 def _sanitize_download_filename(raw_name: str, fallback: str = "document") -> str:
     """清洗下载文件名：仅保留 basename，剥除控制字符、回车换行与引号。"""
     candidate = str(raw_name or "").replace("\\", "/").split("/")[-1]
@@ -137,6 +177,7 @@ def serve_media_asset(request, asset_type: str, asset_id: UUID):
         response["X-Accel-Redirect"] = f"/internal-rustfs/{encoded_key}"
         response["Accept-Ranges"] = "bytes"
         _apply_document_security_headers(response, asset_type, asset, file_name)
+        _maybe_record_document_download_conversion(request, asset_type, asset_id, response)
         return response
 
     # 检查 HTTP Range 请求头（音视频进度拖动）
@@ -146,7 +187,7 @@ def serve_media_asset(request, asset_type: str, asset_id: UUID):
     if range_header and file_size > 0:
         try:
             file_obj = asset.file.open("rb")
-            return _handle_range_request(
+            response = _handle_range_request(
                 file_obj,
                 file_size,
                 range_header,
@@ -156,6 +197,8 @@ def serve_media_asset(request, asset_type: str, asset_id: UUID):
                 file_name=file_name,
                 is_head=is_head,
             )
+            _maybe_record_document_download_conversion(request, asset_type, asset_id, response)
+            return response
         except Exception:
             pass
 
@@ -172,6 +215,7 @@ def serve_media_asset(request, asset_type: str, asset_id: UUID):
         response = FileResponse(file_obj, content_type=content_type)
         response["Accept-Ranges"] = "bytes"
         _apply_document_security_headers(response, asset_type, asset, file_name)
+        _maybe_record_document_download_conversion(request, asset_type, asset_id, response)
         return response
     except Exception:
         return HttpResponseNotFound("404 Not Found: Unable to read file from storage")

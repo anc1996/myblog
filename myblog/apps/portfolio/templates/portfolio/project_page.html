@@ -25,10 +25,10 @@
 {% if page.repo_url or page.demo_url %}
 <div class="detail-action-links">
     {% if page.repo_url %}
-        <a href="{{ page.repo_url }}" class="ui-btn ui-btn-sm ui-btn-primary" target="_blank" rel="noopener">代码仓库</a>
+        <a href="{{ page.repo_url }}" class="ui-btn ui-btn-sm ui-btn-primary" target="_blank" rel="noopener" data-analytics-conv="repo_click">代码仓库</a>
     {% endif %}
     {% if page.demo_url %}
-        <a href="{{ page.demo_url }}" class="ui-btn ui-btn-sm ui-btn-outline" target="_blank" rel="noopener">在线演示</a>
+        <a href="{{ page.demo_url }}" class="ui-btn ui-btn-sm ui-btn-outline" target="_blank" rel="noopener" data-analytics-conv="demo_click">在线演示</a>
     {% endif %}
 </div>
 {% endif %}

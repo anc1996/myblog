@@ -44,7 +44,7 @@
     }
 
     function initCodeCopy() {
-        document.querySelectorAll(".copy-code-btn").forEach(function (btn) {
+        document.querySelectorAll(".copy-code-btn").forEach(function (btn, btnIdx) {
             if (btn.hasAttribute("data-copy-bound")) return;
             btn.setAttribute("data-copy-bound", "true");
 
@@ -68,6 +68,14 @@
 
                 var originalText = btn.textContent;
                 copyText(codeToCopy).then(function () {
+                    try {
+                        var blockRoot = btn.closest("[data-cb-block-id]");
+                        var blockId = blockRoot ? (blockRoot.getAttribute("data-cb-block-id") || "") : "";
+                        var targetKey = blockId ? ("code:" + blockId.slice(0, 36)) : ("code:" + btnIdx);
+                        window.dispatchEvent(new CustomEvent("myblog:analytics:conversion", {
+                            detail: { conversion_key: "code_copy", target_key: targetKey }
+                        }));
+                    } catch (_e) {}
                     btn.textContent = "已复制 ✓";
                     btn.classList.add("is-copied");
                     setTimeout(function () {

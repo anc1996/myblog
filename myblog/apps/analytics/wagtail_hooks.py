@@ -109,6 +109,7 @@ def _workbench_nav_context(user, active_tab: str) -> dict:
     can_site = can_view_site_analytics(user)
     can_curation = can_approve_curation(user)
     can_alerts = can_resolve_analytics_alerts(user)
+    can_ops = can_view_analytics_menu(user)
     return {
         "active_tab": active_tab,
         "wb_nav": {
@@ -116,6 +117,7 @@ def _workbench_nav_context(user, active_tab: str) -> dict:
             "can_curation": can_curation,
             "can_alerts": can_alerts,
             "can_rankings": bool(can_site or can_curation or can_alerts),
+            "can_operations": can_ops,
         },
     }
 
@@ -848,6 +850,82 @@ def admin_analytics_page_drawer_view(request, page_id: int):
     return HttpResponse(tpl.render(context, request))
 
 
+@require_admin_access
+def admin_analytics_operations_view(request):
+    """第 3 期作者产能、工作流/评论审核效率、治理汇总与技术栈热度工作台。"""
+    if not can_view_analytics_menu(request.user):
+        return HttpResponseForbidden("当前用户无权访问运营与审核工作台。")
+
+    from analytics.operations import get_operations_dashboard_data
+
+    site_id = _parse_int_param(request.GET.get("site_id"), default=None)
+    days = _parse_int_param(request.GET.get("days"), default=30) or 30
+    author_q = (request.GET.get("author_q") or "").strip()
+    page_num = _parse_int_param(request.GET.get("p"), default=1) or 1
+
+    try:
+        data = get_operations_dashboard_data(
+            request.user,
+            site_id=site_id,
+            days=days,
+            author_q=author_q,
+            page_num=page_num,
+        )
+    except PageWindowExceededError as exc:
+        return HttpResponse(
+            f"请求的页码超出浅页直跳上限（最多第 {exc.max_jump_page} 页），请使用作者关键词筛选定位。",
+            status=422,
+            content_type="text/plain; charset=utf-8",
+        )
+
+    return render(
+        request,
+        "analytics/admin/operations.html",
+        {
+            "ops": data,
+            **_workbench_nav_context(request.user, "operations"),
+        },
+    )
+
+
+@require_admin_access
+def admin_analytics_export_view(request):
+    """第 3 期受控 CSV 导出入口（权限过滤、5,000 行上限、防公式注入、防小样本反推与审计留痕）。"""
+    if request.method not in ("GET", "POST"):
+        return HttpResponse(status=405)
+    from analytics.exports import export_analytics_csv
+
+    params = request.POST if request.method == "POST" else request.GET
+    export_kind = (params.get("kind") or "page_summary").strip()
+    site_id = _parse_int_param(params.get("site_id"), default=None)
+    site, _ = _resolve_admin_site(request, explicit_site_id=site_id)
+    filters = {
+        "site_id": site.id if site else None,
+        "days": _parse_int_param(params.get("days"), default=30) or 30,
+        "type_key": (params.get("type_key") or "").strip(),
+        "board_kind": (params.get("board_kind") or "popular_7d").strip(),
+        "include_today": _parse_bool_param(params.get("include_today"), default=True),
+        "q": (params.get("q") or "").strip(),
+        "author_q": (params.get("author_q") or "").strip(),
+        "sort": (params.get("sort") or "window_valid").strip(),
+    }
+    try:
+        return export_analytics_csv(
+            request.user,
+            export_kind=export_kind,
+            site=site,
+            filters=filters,
+        )
+    except PermissionDenied as exc:
+        return HttpResponseForbidden(str(exc) or "无权导出该报表。")
+    except ValidationError as exc:
+        return HttpResponse(
+            _extract_error_message(exc),
+            status=400,
+            content_type="text/plain; charset=utf-8",
+        )
+
+
 class AnalyticsMenuItem(MenuItem):
     """按权限动态控制显示与目标入口的后台菜单项。"""
 
@@ -915,6 +993,16 @@ def register_analytics_admin_urls():
             "analytics/rankings/",
             admin_analytics_rankings_view,
             name="analytics_admin_rankings",
+        ),
+        path(
+            "analytics/operations/",
+            admin_analytics_operations_view,
+            name="analytics_admin_operations",
+        ),
+        path(
+            "analytics/export/",
+            admin_analytics_export_view,
+            name="analytics_admin_export",
         ),
         path(
             "analytics/page/<int:page_id>/",

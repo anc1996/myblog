@@ -68,6 +68,9 @@
         {% if wb_nav.can_rankings %}
         <a href="{% url 'analytics_admin_rankings' %}{% if dashboard.site %}?site_id={{ dashboard.site.id }}{% endif %}" class="analytics-wb-tab {% if active_tab == 'rankings' %}is-active{% endif %}">榜单预览</a>
         {% endif %}
+        {% if wb_nav.can_operations %}
+        <a href="{% url 'analytics_admin_operations' %}{% if dashboard.site %}?site_id={{ dashboard.site.id }}{% endif %}" class="analytics-wb-tab {% if active_tab == 'operations' %}is-active{% endif %}">运营与审核</a>
+        {% endif %}
     </nav>
     {% endif %}
 
@@ -138,6 +141,10 @@
             {% if dashboard.filters.q or dashboard.filters.type_key or dashboard.filters.sort != "window_valid" %}
                 <a href="{% if is_author_scope %}{% url 'analytics_admin_my_pages' %}{% else %}{% url 'analytics_admin_dashboard' %}{% endif %}" class="button button-secondary">重置</a>
             {% endif %}
+            <a
+                href="{% url 'analytics_admin_export' %}?kind=page_summary{% if dashboard.site %}&amp;site_id={{ dashboard.site.id }}{% endif %}&amp;days={{ dashboard.filters.days|default:7 }}&amp;type_key={{ dashboard.filters.type_key|default:''|urlencode }}&amp;q={{ dashboard.filters.q|default:''|urlencode }}&amp;sort={{ dashboard.filters.sort|default:'window_valid' }}"
+                class="button button-secondary"
+            >导出 CSV</a>
         </form>
 
         <div class="admin-wb-pills">
