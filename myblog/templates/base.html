@@ -1,8 +1,13 @@
 {% load static wagtailcore_tags wagtailuserbar wagtailsettings_tags site_settings_tags %}
 {% get_settings %}
+{% get_theme_settings as theme_cfg %}
 
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en"
+      data-palette="{{ theme_cfg.default_palette }}"
+      data-default-palette="{{ theme_cfg.default_palette }}"
+      data-default-mode="{{ theme_cfg.default_appearance_mode }}"
+      data-in-preview="{% if request.in_preview_panel %}1{% else %}0{% endif %}">
     <head>
         <meta charset="utf-8" />
         <title>
@@ -19,7 +24,96 @@
         {% endif %}
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <script>
-            (function(){try{var t=localStorage.getItem("myblog_theme_preference");if(t!=="light"&&t!=="dark"){t=window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";}document.documentElement.setAttribute("data-theme",t);}catch(_e){}})();
+            (function(){
+                var STORAGE_KEY="myblog_theme_preference";
+                var PREVIEW_KEY="myblog_preview_theme_mode";
+                var VALID_MODES={system:1,light:1,dark:1};
+                var VALID_PALETTES={"mist-blue":1,"moss-lab":1};
+                var root=document.documentElement;
+                var memPref=null;
+                var memPreview=null;
+                function isInPreview(){return root.getAttribute("data-in-preview")==="1";}
+                function getDefaultPalette(){var p=root.getAttribute("data-default-palette");return VALID_PALETTES[p]?p:"mist-blue";}
+                function getDefaultMode(){var m=root.getAttribute("data-default-mode");return VALID_MODES[m]?m:"system";}
+                function getSystemTheme(){return(window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches)?"dark":"light";}
+                function readStorage(storageObj,key){try{return storageObj?storageObj.getItem(key):null;}catch(_e){return null;}}
+                function computeState(){
+                    var inPrev=isInPreview();
+                    var defPalette=getDefaultPalette();
+                    var defMode=getDefaultMode();
+                    var mode=defMode;
+                    var hasOverride=false;
+                    var previewChoice="site";
+                    if(inPrev){
+                        var rawPrev=readStorage(window.sessionStorage,PREVIEW_KEY);
+                        if(rawPrev!=="light"&&rawPrev!=="dark"&&rawPrev!=="system"){rawPrev=memPreview;}
+                        if(rawPrev==="light"||rawPrev==="dark"){
+                            previewChoice=rawPrev;
+                            mode=rawPrev;
+                            hasOverride=true;
+                        }else{
+                            previewChoice="site";
+                            mode=defMode;
+                        }
+                    }else{
+                        var raw=readStorage(window.localStorage,STORAGE_KEY);
+                        if(!VALID_MODES[raw]){raw=memPref;}
+                        if(VALID_MODES[raw]){
+                            mode=raw;
+                            hasOverride=true;
+                        }
+                    }
+                    var resolved=(mode==="light"||mode==="dark")?mode:getSystemTheme();
+                    return{
+                        theme:resolved,
+                        mode:mode,
+                        palette:defPalette,
+                        defaultPalette:defPalette,
+                        defaultMode:defMode,
+                        hasOverride:hasOverride,
+                        previewChoice:previewChoice,
+                        inPreview:inPrev
+                    };
+                }
+                function applyState(st,silent){
+                    root.setAttribute("data-palette",st.palette);
+                    root.setAttribute("data-theme",st.theme);
+                    root.setAttribute("data-theme-mode",st.mode);
+                    root.style.colorScheme=st.theme;
+                    if(!silent&&typeof window.CustomEvent==="function"){
+                        try{window.dispatchEvent(new CustomEvent("myblog:theme:change",{detail:st}));}catch(_e){}
+                    }
+                    return st;
+                }
+                function sync(opts){return applyState(computeState(),opts&&opts.silent);}
+                function setMode(next){
+                    if(isInPreview()){
+                        if(next==="light"||next==="dark"){
+                            memPreview=next;
+                            try{window.sessionStorage.setItem(PREVIEW_KEY,next);}catch(_e){}
+                        }else{
+                            memPreview=null;
+                            try{window.sessionStorage.removeItem(PREVIEW_KEY);}catch(_e){}
+                        }
+                    }else if(next==="reset"||next===null||next===""){
+                        memPref=null;
+                        try{window.localStorage.removeItem(STORAGE_KEY);}catch(_e){}
+                    }else if(VALID_MODES[next]){
+                        memPref=next;
+                        try{window.localStorage.setItem(STORAGE_KEY,next);}catch(_e){}
+                    }
+                    return sync();
+                }
+                window.__myblogTheme={
+                    STORAGE_KEY:STORAGE_KEY,
+                    PREVIEW_KEY:PREVIEW_KEY,
+                    getState:computeState,
+                    sync:sync,
+                    setMode:setMode,
+                    reset:function(){return setMode("reset");}
+                };
+                sync({silent:true});
+            })();
         </script>
         <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>" />
 
@@ -28,9 +122,10 @@
         <base target="_blank">
         {% endif %}
 
-        {# Global stylesheets #}
-        <link rel="stylesheet" type="text/css" href="{% static 'css/myblog.css' %}?v=20261123b">
+        {# Global stylesheets: Tokens -> Vendor -> Site CSS -> Page Extra CSS #}
+        <link rel="stylesheet" type="text/css" href="{% static 'css/themes/tokens.css' %}?v=20261124a">
         {% include "includes/_ui_assets_css.html" %}
+        <link rel="stylesheet" type="text/css" href="{% static 'css/myblog.css' %}?v=20261124a">
 
         {% block extra_css %}
         {# Override this in templates to add extra stylesheets #}
@@ -40,6 +135,14 @@
 
     <body class="{% block body_class %}{% endblock %}">
         {% wagtailuserbar %}
+        {% if request.in_preview_panel %}
+        <div class="preview-theme-bar" data-preview-theme-bar role="region" aria-label="预览外观切换">
+            <span>预览外观：</span>
+            <button type="button" class="preview-theme-btn is-active" data-preview-mode-option="site" aria-pressed="true">站点默认</button>
+            <button type="button" class="preview-theme-btn" data-preview-mode-option="light" aria-pressed="false">白天</button>
+            <button type="button" class="preview-theme-btn" data-preview-mode-option="dark" aria-pressed="false">黑夜</button>
+        </div>
+        {% endif %}
 
         {# 1. 全局顶部响应式导航栏 (决策一 A) #}
         {% wagtail_site as current_site %}
@@ -75,7 +178,34 @@
                     {% endif %}
                     <a href="/search/" class="nav-link nav-search-btn">🔍 搜索</a>
                     <a href="/feeds/" class="nav-link" title="RSS / Atom 订阅">📡 订阅</a>
-                    <button type="button" class="theme-toggle-btn" data-theme-toggle aria-label="切换到深色主题" title="切换到深色主题">🌙</button>
+                    <div class="theme-switcher" data-theme-switcher>
+                        <button type="button"
+                                class="theme-toggle-btn"
+                                data-theme-toggle
+                                aria-haspopup="menu"
+                                aria-expanded="false"
+                                aria-controls="theme-switcher-menu"
+                                aria-label="外观模式：跟随系统"
+                                title="外观模式设置">
+                            <span class="theme-toggle-icon" data-theme-icon aria-hidden="true">🌓</span>
+                            <span class="theme-toggle-label" data-theme-label>系统</span>
+                        </button>
+                        <div id="theme-switcher-menu" class="theme-switcher-menu" data-theme-menu role="menu" aria-label="外观模式选择" hidden>
+                            <button type="button" class="theme-mode-option" role="menuitemradio" aria-checked="false" data-theme-mode-option="system">
+                                <span>🌓 跟随系统</span>
+                            </button>
+                            <button type="button" class="theme-mode-option" role="menuitemradio" aria-checked="false" data-theme-mode-option="light">
+                                <span>☀️ 白天（浅色）</span>
+                            </button>
+                            <button type="button" class="theme-mode-option" role="menuitemradio" aria-checked="false" data-theme-mode-option="dark">
+                                <span>🌙 黑夜（深色）</span>
+                            </button>
+                            <div class="theme-switcher-divider" role="separator"></div>
+                            <button type="button" class="theme-reset-btn" role="menuitem" data-theme-reset>
+                                <span>↺ 恢复站点默认</span>
+                            </button>
+                        </div>
+                    </div>
                     {% if request.user.is_authenticated %}
                         <a href="{% url 'identity:profile' %}" class="nav-link">
                             {{ request.user.display_name }}
@@ -158,7 +288,6 @@
         </footer>
 
         {# Global javascript #}
-        <script type="text/javascript" src="{% static 'js/myblog.js' %}?v=20261122c"></script>
         <script type="text/javascript" src="{% static 'analytics/js/analytics-tracker.js' %}?v=20261123b" defer></script>
         {% include "includes/_ui_assets_js.html" %}
 

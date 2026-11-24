@@ -1,0 +1,411 @@
+/* ============================================================================
+   myblog 全站三层设计令牌 (Design Tokens)
+   架构层次：
+     1. 基础色阶 (Primitive)：--palette-*，仅由令牌表内部引用；
+     2. 语义令牌 (Semantic)：--color-*，强制前景色与背景色成对定义；
+     3. 组件令牌 (Component)：代码块、表格、时间线热力日历等专用域令牌。
+   协议属性：
+     - html[data-palette="mist-blue" | "moss-lab"]：控制品牌配色方案；
+     - html[data-theme="light" | "dark"]：控制当前实际明暗与 color-scheme。
+   ============================================================================ */
+
+:root {
+  /* 1. 基础色阶（Primitive Tokens） */
+  --palette-mist-50: #f8fafc;
+  --palette-mist-100: #eef2f7;
+  --palette-mist-200: #e8eef6;
+  --palette-mist-300: #d3dce8;
+  --palette-mist-400: #b7c5d8;
+  --palette-mist-600: #475569;
+  --palette-mist-700: #334155;
+  --palette-mist-800: #1e2836;
+  --palette-mist-900: #151b25;
+  --palette-mist-950: #0f172a;
+  --palette-blue-100: #dbeafe;
+  --palette-blue-200: #bfdbfe;
+  --palette-blue-300: #93c5fd;
+  --palette-blue-400: #60a5fa;
+  --palette-blue-700: #1d4ed8;
+  --palette-blue-800: #1e40af;
+  --palette-blue-900: #1e3a8a;
+
+  --palette-moss-50: #f8faf5;
+  --palette-moss-100: #f0f3ee;
+  --palette-moss-200: #e6eee8;
+  --palette-moss-300: #cfdad0;
+  --palette-moss-400: #aebfac;
+  --palette-moss-600: #475e53;
+  --palette-moss-700: #2f443b;
+  --palette-moss-800: #202c28;
+  --palette-moss-850: #2a3933;
+  --palette-moss-900: #151e1c;
+  --palette-moss-950: #0f1f1b;
+  --palette-teal-100: #d5ede5;
+  --palette-teal-200: #a7ebd6;
+  --palette-teal-300: #7bd9be;
+  --palette-teal-400: #5ec9ab;
+  --palette-teal-700: #0f6658;
+  --palette-teal-800: #0b4f44;
+  --palette-teal-900: #0b4239;
+
+  /* 布局与排版标尺 */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --header-offset: 76px;
+  --reading-width: 820px;
+  --container-width: 1120px;
+  --touch-target: 44px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* ============================================================================
+   默认色板：mist-blue（雾蓝工程手册）- 白天（Light）
+   ============================================================================ */
+:root,
+:root[data-palette="mist-blue"],
+:root[data-palette="mist-blue"][data-theme="light"] {
+  --color-bg: var(--palette-mist-100);
+  --color-surface: var(--palette-mist-50);
+  --color-surface-subtle: var(--palette-mist-200);
+  --color-surface-raised: #ffffff;
+  --color-backdrop: rgba(15, 23, 42, 0.56);
+
+  --color-border: var(--palette-mist-300);
+  --color-border-strong: var(--palette-mist-400);
+
+  --color-text: var(--palette-mist-950);
+  --color-text-secondary: var(--palette-mist-700);
+  --color-muted: var(--palette-mist-600);
+
+  --color-link: var(--palette-blue-700);
+  --color-link-hover: var(--palette-blue-800);
+  --color-focus: #0284c7;
+  --color-focus-ring: rgba(29, 78, 216, 0.18);
+
+  --color-primary: var(--palette-blue-700);
+  --color-on-primary: #ffffff;
+  --color-primary-hover: var(--palette-blue-800);
+  --color-primary-soft: var(--palette-blue-100);
+  --color-on-primary-soft: var(--palette-blue-900);
+
+  --color-success: #15803d;
+  --color-on-success: #ffffff;
+  --color-success-soft: #dcfce7;
+  --color-on-success-soft: #14532d;
+  --color-success-border: #86efac;
+
+  --color-warning: #b45309;
+  --color-on-warning: #ffffff;
+  --color-warning-soft: #fef3c7;
+  --color-on-warning-soft: #78350f;
+  --color-warning-border: #fcd34d;
+
+  --color-danger: #dc2626;
+  --color-on-danger: #ffffff;
+  --color-danger-soft: #fee2e2;
+  --color-on-danger-soft: #7f1d1d;
+  --color-danger-border: #fca5a5;
+
+  --hero-bg: linear-gradient(135deg, #1e3a8a 0%, #0f172a 100%);
+  --hero-text: #ffffff;
+  --hero-desc: #dbeafe;
+  --hero-outline-border: rgba(255, 255, 255, 0.42);
+
+  /* 组件令牌（Light） */
+  --code-bg: #f6f8fa;
+  --code-header-bg: #eaeef2;
+  --code-border: #d0d7de;
+  --code-text: #1f2328;
+  --code-gutter: #57606a;
+  --code-fade-to: #f6f8fa;
+  --code-kw: #cf222e;
+  --code-str: #0a3069;
+  --code-comment: #57606a;
+  --code-fn: #8250df;
+  --code-num: #0550ae;
+  --code-op: #cf222e;
+  --code-attr: #116329;
+
+  --table-head-bg: #e2e8f0;
+  --table-head-text: #0f172a;
+  --table-stripe-bg: rgba(232, 238, 246, 0.55);
+
+  --cal-heat-1: rgba(29, 78, 216, 0.09);
+  --cal-heat-2: rgba(29, 78, 216, 0.16);
+  --cal-heat-3: rgba(29, 78, 216, 0.25);
+  --cal-heat-4: rgba(29, 78, 216, 0.36);
+
+  color-scheme: light;
+}
+
+/* ============================================================================
+   默认色板：mist-blue（雾蓝工程手册）- 黑夜（Dark）
+   ============================================================================ */
+:root[data-theme="dark"],
+:root[data-palette="mist-blue"][data-theme="dark"] {
+  --color-bg: var(--palette-mist-900);
+  --color-surface: var(--palette-mist-800);
+  --color-surface-subtle: #293545;
+  --color-surface-raised: #243040;
+  --color-backdrop: rgba(5, 10, 20, 0.72);
+
+  --color-border: var(--palette-mist-700);
+  --color-border-strong: #4b5e78;
+
+  --color-text: #f1f5f9;
+  --color-text-secondary: #cbd5e1;
+  --color-muted: #94a3b8;
+
+  --color-link: var(--palette-blue-300);
+  --color-link-hover: var(--palette-blue-200);
+  --color-focus: var(--palette-blue-400);
+  --color-focus-ring: rgba(147, 197, 253, 0.24);
+
+  --color-primary: var(--palette-blue-300);
+  --color-on-primary: var(--palette-mist-950);
+  --color-primary-hover: var(--palette-blue-400);
+  --color-primary-soft: rgba(59, 130, 246, 0.22);
+  --color-on-primary-soft: var(--palette-blue-200);
+
+  --color-success: #4ade80;
+  --color-on-success: #052e16;
+  --color-success-soft: rgba(22, 163, 74, 0.20);
+  --color-on-success-soft: #bbf7d0;
+  --color-success-border: rgba(74, 222, 128, 0.38);
+
+  --color-warning: #fbbf24;
+  --color-on-warning: #451a03;
+  --color-warning-soft: rgba(245, 158, 11, 0.18);
+  --color-on-warning-soft: #fde68a;
+  --color-warning-border: rgba(251, 191, 36, 0.38);
+
+  --color-danger: #f87171;
+  --color-on-danger: #450a0a;
+  --color-danger-soft: rgba(220, 38, 38, 0.20);
+  --color-on-danger-soft: #fecaca;
+  --color-danger-border: rgba(248, 113, 113, 0.38);
+
+  --hero-bg: linear-gradient(135deg, #1b283d 0%, #0f172a 100%);
+  --hero-text: #f8fafc;
+  --hero-desc: #cbd5e1;
+  --hero-outline-border: rgba(148, 163, 184, 0.55);
+
+  /* 组件令牌（Dark） */
+  --code-bg: #0d1117;
+  --code-header-bg: #161b22;
+  --code-border: #30363d;
+  --code-text: #e6edf3;
+  --code-gutter: #8b949e;
+  --code-fade-to: #0d1117;
+  --code-kw: #ff7b72;
+  --code-str: #a5d6ff;
+  --code-comment: #8b949e;
+  --code-fn: #d2a8ff;
+  --code-num: #79c0ff;
+  --code-op: #ff7b72;
+  --code-attr: #7ee787;
+
+  --table-head-bg: #293545;
+  --table-head-text: #f1f5f9;
+  --table-stripe-bg: rgba(41, 53, 69, 0.45);
+
+  --cal-heat-1: rgba(147, 197, 253, 0.12);
+  --cal-heat-2: rgba(147, 197, 253, 0.20);
+  --cal-heat-3: rgba(147, 197, 253, 0.30);
+  --cal-heat-4: rgba(147, 197, 253, 0.42);
+
+  color-scheme: dark;
+}
+
+/* ============================================================================
+   备选色板：moss-lab（苔青实验室）- 白天（Light）
+   ============================================================================ */
+:root[data-palette="moss-lab"],
+:root[data-palette="moss-lab"][data-theme="light"] {
+  --color-bg: var(--palette-moss-100);
+  --color-surface: var(--palette-moss-50);
+  --color-surface-subtle: var(--palette-moss-200);
+  --color-surface-raised: #ffffff;
+  --color-backdrop: rgba(15, 31, 27, 0.56);
+
+  --color-border: var(--palette-moss-300);
+  --color-border-strong: var(--palette-moss-400);
+
+  --color-text: #13201b;
+  --color-text-secondary: var(--palette-moss-700);
+  --color-muted: var(--palette-moss-600);
+
+  --color-link: var(--palette-teal-700);
+  --color-link-hover: var(--palette-teal-800);
+  --color-focus: #0d9488;
+  --color-focus-ring: rgba(15, 102, 88, 0.18);
+
+  --color-primary: var(--palette-teal-700);
+  --color-on-primary: #ffffff;
+  --color-primary-hover: var(--palette-teal-800);
+  --color-primary-soft: var(--palette-teal-100);
+  --color-on-primary-soft: var(--palette-teal-900);
+
+  --hero-bg: linear-gradient(135deg, #0f5146 0%, #13201b 100%);
+  --hero-text: #ffffff;
+  --hero-desc: #d5ede5;
+  --hero-outline-border: rgba(255, 255, 255, 0.42);
+
+  --cal-heat-1: rgba(15, 102, 88, 0.09);
+  --cal-heat-2: rgba(15, 102, 88, 0.16);
+  --cal-heat-3: rgba(15, 102, 88, 0.25);
+  --cal-heat-4: rgba(15, 102, 88, 0.36);
+
+  color-scheme: light;
+}
+
+/* ============================================================================
+   备选色板：moss-lab（苔青实验室）- 黑夜（Dark）
+   ============================================================================ */
+:root[data-palette="moss-lab"][data-theme="dark"] {
+  --color-bg: var(--palette-moss-900);
+  --color-surface: var(--palette-moss-800);
+  --color-surface-subtle: var(--palette-moss-850);
+  --color-surface-raised: #25332e;
+  --color-backdrop: rgba(5, 14, 12, 0.72);
+
+  --color-border: #364941;
+  --color-border-strong: #4d665c;
+
+  --color-text: #edf4f1;
+  --color-text-secondary: #c8d9d1;
+  --color-muted: #96b0a4;
+
+  --color-link: var(--palette-teal-300);
+  --color-link-hover: var(--palette-teal-200);
+  --color-focus: #5eead4;
+  --color-focus-ring: rgba(123, 217, 190, 0.24);
+
+  --color-primary: var(--palette-teal-300);
+  --color-on-primary: var(--palette-moss-950);
+  --color-primary-hover: var(--palette-teal-400);
+  --color-primary-soft: rgba(16, 185, 129, 0.20);
+  --color-on-primary-soft: #a7f3d0;
+
+  --hero-bg: linear-gradient(135deg, #16332c 0%, #0f1f1b 100%);
+  --hero-text: #edf4f1;
+  --hero-desc: #c8d9d1;
+  --hero-outline-border: rgba(150, 176, 164, 0.55);
+
+  --table-head-bg: #2a3933;
+  --table-head-text: #edf4f1;
+  --table-stripe-bg: rgba(42, 57, 51, 0.45);
+
+  --cal-heat-1: rgba(123, 217, 190, 0.12);
+  --cal-heat-2: rgba(123, 217, 190, 0.20);
+  --cal-heat-3: rgba(123, 217, 190, 0.30);
+  --cal-heat-4: rgba(123, 217, 190, 0.42);
+
+  color-scheme: dark;
+}
+
+/* ============================================================================
+   无 JavaScript 纯 CSS 系统夜间偏好兜底（仅当根节点未被强制设为 light）
+   ============================================================================ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-bg: var(--palette-mist-900);
+    --color-surface: var(--palette-mist-800);
+    --color-surface-subtle: #293545;
+    --color-surface-raised: #243040;
+    --color-backdrop: rgba(5, 10, 20, 0.72);
+    --color-border: var(--palette-mist-700);
+    --color-border-strong: #4b5e78;
+    --color-text: #f1f5f9;
+    --color-text-secondary: #cbd5e1;
+    --color-muted: #94a3b8;
+    --color-link: var(--palette-blue-300);
+    --color-link-hover: var(--palette-blue-200);
+    --color-focus: var(--palette-blue-400);
+    --color-focus-ring: rgba(147, 197, 253, 0.24);
+    --color-primary: var(--palette-blue-300);
+    --color-on-primary: var(--palette-mist-950);
+    --color-primary-hover: var(--palette-blue-400);
+    --color-primary-soft: rgba(59, 130, 246, 0.22);
+    --color-on-primary-soft: var(--palette-blue-200);
+    --code-bg: #0d1117;
+    --code-header-bg: #161b22;
+    --code-border: #30363d;
+    --code-text: #e6edf3;
+    --code-gutter: #8b949e;
+    --code-fade-to: #0d1117;
+    color-scheme: dark;
+  }
+
+  :root[data-palette="moss-lab"]:not([data-theme="light"]) {
+    --color-bg: var(--palette-moss-900);
+    --color-surface: var(--palette-moss-800);
+    --color-surface-subtle: var(--palette-moss-850);
+    --color-surface-raised: #25332e;
+    --color-backdrop: rgba(5, 14, 12, 0.72);
+    --color-border: #364941;
+    --color-border-strong: #4d665c;
+    --color-text: #edf4f1;
+    --color-text-secondary: #c8d9d1;
+    --color-muted: #96b0a4;
+    --color-link: var(--palette-teal-300);
+    --color-link-hover: var(--palette-teal-200);
+    --color-focus: #5eead4;
+    --color-focus-ring: rgba(123, 217, 190, 0.24);
+    --color-primary: var(--palette-teal-300);
+    --color-on-primary: var(--palette-moss-950);
+    --color-primary-hover: var(--palette-teal-400);
+    --color-primary-soft: rgba(16, 185, 129, 0.20);
+    --color-on-primary-soft: #a7f3d0;
+    color-scheme: dark;
+  }
+}
+
+/* ============================================================================
+   单向兼容旧变量别名（第 2 阶段业务 CSS 全面收敛后按需清理）
+   ============================================================================ */
+:root {
+  --primary-color: var(--color-primary);
+  --primary-hover: var(--color-primary-hover);
+  --text-main: var(--color-text);
+  --text-muted: var(--color-muted);
+  --bg-body: var(--color-bg);
+  --bg-card: var(--color-surface);
+  --border-color: var(--color-border);
+}
+
+/* ============================================================================
+   打印与高对比度强制定制兜底
+   ============================================================================ */
+@media print {
+  :root,
+  :root[data-theme="dark"],
+  :root[data-palette="moss-lab"][data-theme="dark"] {
+    --color-bg: #ffffff;
+    --color-surface: #ffffff;
+    --color-surface-subtle: #f8fafc;
+    --color-surface-raised: #ffffff;
+    --color-text: #000000;
+    --color-text-secondary: #1f2937;
+    --color-muted: #374151;
+    --color-border: #cbd5e1;
+    --color-border-strong: #94a3b8;
+    --color-primary: #1d4ed8;
+    --color-on-primary: #ffffff;
+    color-scheme: light;
+  }
+}
+
+@media (forced-colors: active) {
+  :focus-visible {
+    outline: 2px solid Highlight !important;
+    outline-offset: 2px;
+  }
+}
