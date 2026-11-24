@@ -2,7 +2,7 @@
 
 日期：2026-11-04
 
-状态：**生产已就绪**。ProtectedRustFSStorage 保护拦截、全桶私有化、零公网签名、Django 逐次鉴权、X-Accel/ASGI Range 续传交付及全站 96 项自动化测试已全部通过。
+状态：**核心应用已落地实施**。`media_library` 已实现 `ProtectedRustFSStorage` 保护拦截、全桶私有化、零公网签名、Django 逐次鉴权、206 Range 续传 / `X-Accel-Redirect` 交付与引用保护；全站当前使用 WSGI（无 ASGI），`tests/` 下已累积 54 份 `test_*.py` 自动化测试模块（早期记录的“96 项”为第一阶段历史基线）。
 
 ## 1. 当前选型
 
@@ -18,17 +18,17 @@ linux/amd64，镜像版本摘要、提交号和下载校验记录见环境准备
 
 | 服务 | 版本 | 地址/端口 | 用户 | 数据范围 |
 |---|---:|---|---|---|
-| PostgreSQL | 18.6，已启动并完成认证与空库检查 | `192.168.20.5:5432` | `postgres` | `myblog_dev`、`myblog_test`，UTF8，用户表/序列/物化视图均为零 |
-| Redis | 8.10.3 | `192.168.20.5:6379` | `default` | DB9=dev，DB11=test |
-| MongoDB | 9.0.4 | `192.168.20.5:27017` | `root`，`authSource=admin` | `myblog_dev`、`myblog_test` |
-| RustFS S3 API | 1.0.4 | `http://192.168.20.5:9000` | `root` | `myblog-dev`、`myblog-test` |
-| RustFS 控制台 | 1.0.4 | `http://192.168.20.5:9001` | `root` | 与 S3 API 共用管理员 |
+| PostgreSQL | 18.6（`postgres:18.6-trixie`） | 由 `.env.local` / `.env.test` 注入（默认 `127.0.0.1:5432`） | `postgres` | 开发库 `myblog_dev` / 探针库 `myblog_test` / 自动测试库 `POSTGRES_TEST_DB`（默认 `test_myblog`） |
+| Redis | 8.10.3 | 由 `.env.local` / `.env.test` 注入（默认 `REDIS_HOST=127.0.0.1`、`REDIS_PORT=6379`、`REDIS_DB=1`） | `default` | 由 `REDIS_DB` 与 `REDIS_KEY_PREFIX`（默认 `myblog`）隔离开发/测试缓存与限流命名空间 |
+| MongoDB | 9.0.4 | 由 `.env.local` / `.env.test` 注入（默认 `127.0.0.1:27017`） | `root`，`authSource=admin` | `myblog_dev`、`myblog_test` |
+| RustFS S3 API | 1.0.4 | 由 `.env.local` / `.env.test` 注入（默认 `http://127.0.0.1:9000`） | `root` | `myblog-dev`、`myblog-test` |
+| RustFS 控制台 | 1.0.4 | 同宿主控制台端口（默认 `9001`） | `root` | 与 S3 API 共用管理员 |
 
-服务均发布到 `0.0.0.0`，Windows 主机通过 `192.168.20.5` 连接。
-RustFS 的两个桶均为私有桶。应用配置使用：
+各服务连接参数统一由本地 `.env.local` 或通过 `MYBLOG_ENV_FILE=.env.test` 注入（进程环境变量优先），代码中不硬编码局域网 IP 或固定测试库编号。
+RustFS 的两个桶均为私有桶。当环境配置中存在 `S3_BUCKET` 时，`myblog/settings/base.py` 自动启用 `media_library.storage.ProtectedRustFSStorage`：
 
 ```text
-S3_ENDPOINT_URL=http://192.168.20.5:9000
+S3_ENDPOINT_URL=http://127.0.0.1:9000   # 按本地 .env.local / .env.test 实际地址注入
 S3_BUCKET=myblog-dev 或 myblog-test
 S3_REGION=us-east-1
 ```
@@ -70,20 +70,22 @@ PostgreSQL 管理员为 `postgres`，MongoDB 和 RustFS 仍为 `root`；不把�
 - RustFS 单独重启后对象内容和元数据保持一致。
 - 其他 Redis、MongoDB 容器保持健康运行。
 
-## 5. 后续实施顺序
+## 5. 已落地的 `media_library` 实现架构
 
-1. 先实现 `media_library` 的媒体元数据、权限和引用模型。
-2. 再实现 RustFS S3 存取适配器和统一下载/Range gateway。
-3. 接入 Wagtail Image/Document 或自定义模型，并禁止默认直链绕过 gateway。
-4. 实现 Revision、草稿、历史版本、回收站与媒体引用检查。
-5. 最后做上传、预览、发布阻断、权限变更、删除保护和故障注入测试。
+原规划步骤已全部在 `myblog/apps/media_library/` 落地实现：
+
+1. **受控媒体模型与引用索引**（`media_library/models.py`）：落地 `CustomImage`、`CustomDocument`、`Audio`、`Video`（均带 `public_id` UUID 与可见性控制）以及 `MediaReferenceRecord` 引用关系表。
+2. **保护性对象存储后端**（`media_library/storage.py`）：落地 `ProtectedRustFSStorage(S3Storage)`（强制 `file_overwrite=False`、`default_acl=None`、`querystring_auth=False`、SigV4 与 path-style；重写 `delete()` 拦截同步物理删，保留仅供对账任务使用的 `_controlled_physical_delete()`），并配套离线测试用 `ControlledFileSystemStorage`。
+3. **统一鉴权与 Range 交付网关**（`media_library/delivery.py`、`media_library/urls.py`）：`serve_media_asset` 与 `serve_rendition_asset` 实现逐次权限核验、HTTP 206 Range 续传、文档下载安全响应头（`X-Content-Type-Options: nosniff`、RFC 5987 `Content-Disposition` 强制附件下载）及生产 `X-Accel-Redirect` 支持；`settings/base.py` 通过 `WAGTAILDOCS_SERVE_METHOD = "serve_view"` 与自定义后台表单接管直链。
+4. **Revision 引用追踪与删除防线**（`media_library/references.py`、`forms.py`、`signals.py`）：`MediaReferenceTracker.register_revision_references()` 在 Revision 生成时登记图片/文档/音视频引用，整数 PK 精确解析为 `public_id`；`check_asset_references()` 在物理删除前核验发布、草稿、历史 Revision 与回收站引用，存在引用即一票否决（Fail-Closed）。
+5. **专项与全站测试覆盖**：`tests/test_s7_media_delivery.py`、`tests/test_document_download_and_sanitizer.py`、`tests/test_embeds_and_av_uploads.py` 等纳入全站 `tests/` 54 份 `test_*.py` 测试套件。
 
 本方案不自动执行 `migrate`、`makemigrations`、`runserver` 或部署。
 
-## 6. 尚未完成和回退
+## 6. 环境降级边界与回退说明
 
-Django 当前仍使用本地文件存储；四类媒体、统一鉴权交付、历史引用和回收流程尚未实现。
-单节点开发验证不能证明 RustFS 的分布式容错、扩容或性能宣传数字。
+- **配置降级条件**：`myblog/settings/base.py` 仅在环境变量未提供 `S3_BUCKET` 时才回退为本地 `FileSystemStorage`（离线单元/纯本地无桶环境）；一旦配置 `S3_BUCKET`，媒体默认存储即切换为 `ProtectedRustFSStorage`。
+- **容错验证边界**：单节点开发与容器验证不能证明 RustFS 的分布式容错、横向扩容或厂商性能指标。
 
 旧 MinIO 数据卷、镜像和切换前备份仅作为历史回退材料保留，不是当前对接方案。
 若需要回退，先暂停应用写入和会修改对象的后台任务，保持 RustFS 可读，

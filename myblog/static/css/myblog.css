@@ -36,7 +36,7 @@ body {
 }
 
 .site-nav-container {
-  max-width: min(1480px, calc(100vw - 40px));
+  max-width: min(1800px, calc(100vw - 48px));
   margin: 0 auto;
   padding: 0 20px;
   height: 64px;
@@ -192,7 +192,7 @@ body {
 }
 
 .site-footer-container {
-  max-width: var(--container-width);
+  max-width: min(1800px, calc(100vw - 48px));
   margin: 0 auto;
   padding: 0 20px;
 }
@@ -1020,7 +1020,7 @@ body > .flatpickr-calendar,
 .text-muted { color: var(--color-muted); }
 .text-secondary { color: var(--color-text-secondary); }
 .text-primary { color: var(--color-primary); }
-.text-white { color: #ffffff; }
+.text-white { color: var(--color-on-primary); }
 .text-end { text-align: right; }
 .text-start { text-align: left; }
 .text-center { text-align: center; }
@@ -1143,7 +1143,7 @@ body > .flatpickr-calendar,
 .badge.bg-info { background: var(--color-primary-soft); color: var(--color-on-primary-soft); }
 .badge.bg-success { background: var(--color-success-soft); color: var(--color-on-success-soft); }
 .badge.bg-danger { background: var(--color-danger-soft); color: var(--color-on-danger-soft); }
-.badge.bg-dark { background: #1e293b; color: #f8fafc; }
+.badge.bg-dark { background: var(--code-bg); color: var(--code-text); border: 1px solid var(--code-border); }
 
 .card {
   background: var(--color-surface);
@@ -1669,24 +1669,14 @@ body > .flatpickr-calendar,
   color: var(--color-text);
 }
 .alert-warning {
-  background: #fffbeb;
-  border-color: #fde68a;
-  color: #92400e;
+  background: var(--color-warning-soft);
+  border-color: var(--color-warning-border);
+  color: var(--color-on-warning-soft);
 }
 .alert-info {
-  background: #eff6ff;
-  border-color: #bfdbfe;
-  color: #1e40af;
-}
-:root[data-theme="dark"] .alert-warning {
-  background: rgba(217, 119, 6, 0.16);
-  border-color: rgba(251, 191, 36, 0.4);
-  color: #fde68a;
-}
-:root[data-theme="dark"] .alert-info {
-  background: rgba(37, 99, 235, 0.16);
-  border-color: rgba(96, 165, 250, 0.4);
-  color: #bfdbfe;
+  background: var(--color-primary-soft);
+  border-color: var(--color-border-strong);
+  color: var(--color-on-primary-soft);
 }
 
 /* ========================================================
@@ -2089,7 +2079,7 @@ body > .flatpickr-calendar,
 }
 .search-pill-remove:hover {
   background: var(--color-danger);
-  color: #ffffff;
+  color: var(--color-on-danger);
 }
 .search-clear-all {
   margin-left: auto;
@@ -2349,7 +2339,7 @@ body > .flatpickr-calendar,
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-sm, 6px);
   cursor: pointer;
-  background: #ffffff;
+  background: var(--color-surface-raised);
 }
 
 .captcha-widget-refresh {

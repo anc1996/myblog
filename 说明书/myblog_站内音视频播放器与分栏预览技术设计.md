@@ -1,6 +1,6 @@
 # 站内音视频播放器与分栏预览技术设计
 
-**状态：AV-1（Vendor 同步）与 AV-2/AV-3（前台公共播放器与后台分栏预览）均已实施并通过隔离测试（`test_embeds_and_av_uploads.py`、`test_embed_playback.py`）；仅剩真实移动 Safari 等多终端兼容验收按需补测。** 功能范围以[需求规格](myblog_站内音视频播放器与分栏预览需求规格_RFC.md)为准。
+**状态：AV-1（Vendor 同步）与 AV-2/AV-3（前台公共播放器与后台分栏预览）均已实施并通过隔离测试（`tests/test_s3_blocks.py`、`tests/test_embeds_and_av_uploads.py`、`tests/test_admin_split_editors.py`、`tests/test_embed_playback.py`）；仅剩复制排序并发浏览器交互、Firefox、真实移动 Safari 及生产媒体代理等按需补测。** 功能范围以[需求规格](myblog_站内音视频播放器与分栏预览需求规格_RFC.md)为准。
 
 **目标：** 音频和视频共用本地托管的播放器，Wagtail 后台右侧能试听或试看；左侧表单仍是唯一保存入口，源码栏只读。
 
@@ -40,10 +40,10 @@ flowchart LR
 
 **文件：** 修改 `myblog/apps/content_blocks/blocks/media.py`、`static/content_blocks/css/media-blocks.css` 及 `templates/content_blocks/includes/_block_assets_js.html`；在该应用的静态目录新增 `js/media-player.js`。渲染断言放在 `tests/test_s3_blocks.py`。
 
-- [ ] 服务端继续输出带 `controls` 的原生媒体标签，用 Django `reverse("media_gateway_asset", ...)` 生成素材和封面地址。输出标题仍转义；只在可信模板中提供播放器挂载标记。不开放可执行的 HTML、JS 或通用播放器参数，也不为第三方组件放宽全站 HTML 清洗规则。
-- [ ] 公共封装只增强站内标记过的音视频元素。见到对应块才加载本地音频或视频模块；同类型入口只加载一次，成功后才切到增强控件。失败则恢复原生控件；文件本身播放失败时给出提示，不绕过网关。只在有可播放媒体时启用相关交互，不对整页绑定会干扰写作的快捷键。
-- [ ] 通过素材自身的播放事件管理同页互斥：播放视频后暂停音频，反过来也一样。不自动播放；按浏览器能力提供倍速、音量、全屏及画中画；保留自然比例、深浅主题和可见键盘焦点。
-- [ ] 新测试先断言原生 `controls`、受控地址、转义标题及视频封面引用，再补浏览器证据：博客、指南、项目共用相同页面行为；无站内媒体的页面不下载厂商包；纯第三方嵌入页面不启动本播放器。
+- [x] 服务端继续输出带 `controls` 的原生媒体标签，用 Django `reverse("media_gateway_asset", ...)` 生成素材和封面地址。输出标题仍转义；只在可信模板中提供播放器挂载标记。不开放可执行的 HTML、JS 或通用播放器参数，也不为第三方组件放宽全站 HTML 清洗规则。
+- [x] 公共封装只增强站内标记过的音视频元素。见到对应块才加载本地音频或视频模块；同类型入口只加载一次，成功后才切到增强控件。失败则恢复原生控件；文件本身播放失败时给出提示，不绕过网关。只在有可播放媒体时启用相关交互，不对整页绑定会干扰写作的快捷键。
+- [x] 通过素材自身的播放事件管理同页互斥：播放视频后暂停音频，反过来也一样。不自动播放；按浏览器能力提供倍速、音量、全屏及画中画；保留自然比例、深浅主题和可见键盘焦点。
+- [x] 单元测试与 Chrome 隔离浏览器回归已覆盖原生 `controls`、受控地址、转义标题、视频封面引用、互斥播放、Range `206` 及无媒体页面零厂商包下载；真实 Firefox、真实移动 Safari 及生产 Nginx `X-Accel-Redirect` 代理留待按需补测。
 
 **通过条件：** MP3 和 MP4 能真实播放、拖动进度并继续播放；授权请求的合法分段返回 `206` 和正确的 `Content-Range`，起点超出文件长度时验证 `416`。这一步需要分别看项目直供模式和部署所用的代理模式；Django 返回 `X-Accel-Redirect` 响应头不等于代理已成功交付字节。若现有网关不能满足，应另列后端修复，不用播放器补丁绕过。
 
@@ -51,10 +51,10 @@ flowchart LR
 
 **文件：** 修改 `myblog/apps/content_blocks/blocks/media.py`，复用 `static/content_blocks/css/admin-split-editors.css`；新增 `templates/content_blocks/widgets/media_split.html` 和 `static/content_blocks/js/admin-media-split.js`，在已安装的 Wagtail 8.1 下核对 `StructBlock` 表单模板及 Telepath 的媒体资源注册。预览元数据放在 `myblog/apps/media_library/`；测试在 `tests/test_admin_split_editors.py`、`tests/test_embeds_and_av_uploads.py`。
 
-- [ ] 左侧复用原来的选择器和标题字段，不复制第二份可提交表单。「源码」只显示从当前表单派生的 JSON，例如 `{"type":"video","asset_id":"<UUID>","title_override":"安装演示"}`。显示用 `textContent` 或等效转义，不能反向改表单，也不包含存储密钥、签名或对象路径。
-- [ ] 新增一个后台只读的 `media_preview_metadata` 路由，输入为 `audio`/`video` 及当前选择器主键。复用 Wagtail 后台访问检查、现有素材实例选用策略和 `check_media_access()`，拒绝未授权和错误类型；不接受 URL 供服务端抓取。成功只返回 `kind`、`asset_id`（公共 UUID）、`title`、`src` 和 `poster`（向当前用户可交付时才返回，否则为 `null`）。`src` 和 `poster` 均从现有网关反解，不返回 RustFS 地址。响应不进共享缓存；文件请求仍独立通过网关鉴权，元数据通过不代表一定能播放。
-- [ ] 首次编辑已有块、选择已有素材和「上传并选用」都从同一渠道读取预览信息。改标题只更新显示，不中断播放；切换或清除素材时停旧播放器、清理事件和请求；晚到的旧响应不得覆盖新选择。复制或排序后的块各自管理状态，窄屏采用上下排列。不需要 JS 时作者仍可使用原表单。
-- [ ] 后台浏览器检查选择、取消、上传、换素材、清除、复制、排序、保存和重开。同一块快速连选两次，右侧必须显示第二次；取消选择不得清空已有素材。作者本人、其他作者、匿名访客分别核对受限素材；无权限、未选素材、缺文件和不支持的编码都有明确状态，预览不写页面版本、不改变素材可见性。
+- [x] 左侧复用原来的选择器和标题字段，不复制第二份可提交表单。「源码」只显示从当前表单派生的 JSON，例如 `{"type":"video","asset_id":"<UUID>","title_override":"安装演示"}`。显示用 `textContent` 或等效转义，不能反向改表单，也不包含存储密钥、签名或对象路径。
+- [x] 已新增后台只读路由 `media_library_preview_metadata`（视图函数 `media_preview_metadata`，路径 `media-library/preview-metadata/`），输入为 `audio`/`video` 及当前选择器主键。复用 Wagtail 后台访问检查、现有素材实例选用策略和 `check_media_access()`，拒绝未授权和错误类型；不接受 URL 供服务端抓取。成功只返回 `kind`、`asset_id`（公共 UUID）、`title`、`src` 和 `poster`（向当前用户可交付时才返回，否则为 `null`）。`src` 和 `poster` 均从现有网关反解，不返回 RustFS 地址。响应不进共享缓存；文件请求仍独立通过网关鉴权，元数据通过不代表一定能播放。
+- [x] 首次编辑已有块、选择已有素材和「上传并选用」都从同一渠道读取预览信息。改标题只更新显示，不中断播放；切换或清除素材时停旧播放器、清理事件和请求；晚到的旧响应不得覆盖新选择。复制或排序后的块各自管理状态，窄屏采用上下排列。不需要 JS 时作者仍可使用原表单。
+- [x] 后台浏览器（Chrome）及权限测试已覆盖选择、取消、上传、换素材、清除、保存、重开及作者本人/其他作者/匿名访客隔离；StreamField 块复制与拖拽排序交互、Firefox 及真实移动 Safari 留待按需补测。
 
 **通过条件：** 新素材可在文章保存前试听或试看，但仍是受限资产；只有 Wagtail 原有流程能改变页面发布状态。保存再打开时选择值和标题一致，既有历史仍能还原，音频、视频及视频封面仍登记 `MediaReferenceRecord`，有历史引用的文件仍受替换和删除保护。
 

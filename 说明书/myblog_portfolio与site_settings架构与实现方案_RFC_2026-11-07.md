@@ -4,7 +4,7 @@
 |---|---|
 | 标识 | MYBLOG-RFC-PORTFOLIO-SETTINGS-01 |
 | 规范形式 | Google Engineering RFC 风格：背景、目标、不变条件、方案、替代方案、风险、验证、发布与回退 |
-| 状态 | 用户已正式同意方案；8 项源码级加固已纳入合同，待 Gemini Argon 最终放行审核；业务实现与运行验收尚未完成 |
+| 状态 | **核心应用已落地实施，部分契约按现行源码简化修订**（`portfolio`、`site_settings`、`content_lifecycle.workflows` 等核心模块已交付，详见 §3 与各节现状注记） |
 | 日期 | 2026-11-07 |
 | 需求路线 | A：先实现 `portfolio` 与 `site_settings` |
 | 当前代码基线 | `main`，`c19827040e420f7befe36dd545e43de3db9dbebf` |
@@ -98,6 +98,22 @@ S0～S12 已有身份、公共积木、MongoDB 字段版本、受控媒体、原
 
 上述缺口先构成 P0 依赖任务。优先最小修复实际影响本期的共用入口，不借机重写整套 S0～S12。已有行为若经后续源码核查证明由其他入口覆盖，应提交证据并修订本表，而不是重复实现。
 
+### 3.1 现行源码落地与简化对照说明
+
+对照当前仓库真实代码，上表各项的最终落地状态区分如下：
+
+- **已闭环并落地的项**：
+  1. `discovery/query.py` 单快照状态机（在进入 `atomic()` 前判断 `not connection.in_atomic_block`，兼容 `TestCase` 并防止外部写事务误用）；
+  2. `myblog/settings/base.py` 启用 `WAGTAIL_WORKFLOW_REQUIRE_REAPPROVAL_ON_EDIT = True` 与 `WAGTAIL_FINISH_WORKFLOW_ACTION = "content_lifecycle.workflows.publish_approved_revision"`；
+  3. `content_lifecycle/recycle.py` `restore_page_or_subtree()` 已按快照恢复项目字段、标签、有序作者并执行 `can_move_to()` 校验；
+  4. `content_lifecycle/models.py` `prune_unpublished_draft_revisions(keep=20)` 落地 20 个未发布草稿保留窗口与白名单保护；
+  5. `media_library/references.py` `MediaReferenceTracker` 落地整数 PK 到 `public_id` 解析，无效引用抛出 `ValidationError`；
+  6. `comments` 访问守卫与锁顺序修复，以及 `portfolio`、`site_settings` 核心应用落地；`ProjectPage` 前台模板已统一继承 `detail/detail_shell.html`（`get_context()` 调用 `build_detail_presentation()`）。
+- **保持简化未下沉的项**：
+  1. `ExternalStreamPageMixin` 当前直接实现在 `myblog/apps/portfolio/models.py`（未下沉至 `external_content`，且 `BlogPage`/`GuidePage` 维持既有脱水保存逻辑）；
+  2. `people/models.py` 与 `people/wagtail_hooks.py` 仅对系统内置「佚名」(`is_system_anonymous` / `slug="anonymous"`) 及后台 Snippet 删除入口做了硬保护，未在普通 `Person.delete()` / `pre_delete` 对一般作者施加全量活跃/历史引用拦截；
+  3. 导航、社交、页脚设置仍采用项目自定义全站单例抽象基类 `BaseSiteSetting(BaseGenericSetting)`，另新增独立全站主题配置 `SiteThemeSettings(BaseGenericSetting)` 与按 `Site` 隔离的站点公告 `SiteAnnouncementSettings(wagtail.contrib.settings.models.BaseSiteSetting)`。
+
 ## 4. Proposed Architecture：模块和数据流
 
 ```mermaid
@@ -173,7 +189,7 @@ Wagtail 根节点 Page（技术树根，不作为普通项目）
 | `title/slug/seo_title/search_description` | Wagtail 原生字段 | 标题、路径与 SEO |
 | `authored_on` | DateField，默认当前站点日期 | 订阅、归档和项目成文时间；与发布时间分开 |
 | `summary` | 有界 TextField，建议最大 1,000 字符 | 列表、Feed 摘要 |
-| `project_status` | `planning / active / maintenance / archived`，默认 active | 业务进展；`archived` 不代表下架或回收 |
+| `project_status` | 现行实际枚举：`planning / in_development / maintained / archived`，默认 `maintained` | 业务进展；`archived` 不代表下架或回收 |
 | `featured_image` | FK CustomImage，null/blank，SET_NULL | 封面；写入历史引用索引 |
 | `body` | StreamField(ProjectStreamBlock)，SQL 恒为 `[]` | 长正文及结构化项目块 |
 | `tags` | ClusterTaggableManager，经 `ProjectPageTag` | 共用 taggit 词库；不再造技术标签库 |
@@ -377,6 +393,8 @@ GET/HEAD 只读，不在缺少配置、Epoch 或投影时创建数据。解析�
 
 状态和标签过滤使用发布投影，不读当前项目模型的草稿关系。现有 `ContentQuery.extra_filters` 尚未执行筛选；本期须添加受适配器白名单限制的过滤处理，或在 portfolio 查询服务中对同一发布候选集执行等价 SQL，方案选定后禁止两套口径。推荐最小扩展 ContentQuery，并补共享公开资格与真实快照入口。
 
+> **现行实现注记**：`myblog/apps/api/views.py:project_list_api` 当前通过通用注册表接口 `_serve_adapter_list_api(..., type_key="project", envelope="pagination", readonly_epoch=True)` 委派给 `ProjectPageAdapter.get_api_list_queryset()` / `serialize_api_list_item()` 执行（支持 `status`、`language`、`tag`、`page`、`page_size`），返回 `{status, epoch, pagination: {...}, data: [...]}` 包络结构，未单独经过 `ContentQuery`。
+
 列表不水合 MongoDB 正文。返回字段：
 
 ```json
@@ -423,7 +441,7 @@ slug 在当前 Site 内查询，只有一个公开候选时可直接解析；同
 
 每次先只读查询当前 Epoch 和公共资格，再判断缓存或弱 ETag。304 同样先完成 Site、参数、路径歧义及资格验证，不能把原本 404/409 的请求返回 304。详情 ETag 还应包含内容 schema/渲染器版本；列表 ETag 包含规范化参数和站点日期。
 
-公开响应使用 `Cache-Control: public, no-cache, must-revalidate`，使浏览器/CDN 复用前必须协商；不使用会允许撤权后继续新鲜命中的 `max-age=60`。Redis TTL 用于旧 key 的空间回收，不用于决定何时撤权生效。Redis 故障回源 SQL/Mongo；不能回用旧 Epoch 数据。
+公开响应策略设计目标为可协商缓存；现行源码中 `site_settings_api`（`myblog/apps/api/views.py`）实际输出 `Cache-Control: public, max-age=120` 配合弱 ETag `W/"site_settings:v1:s{site_id}:e{current_epoch}"`（Redis TTL 仅作旧 key 回收，Redis 故障时回源数据库）。
 
 公开列表/设置限流建议 60 次/分钟/IP，详情 120 次/分钟/IP，沿用现有限流入口与代理 IP 信任配置。公共读限流失败可降级放行；评论风控失败仍为 503，二者不能混用。
 
@@ -431,7 +449,9 @@ slug 在当前 Site 内查询，只有一个公开候选时可直接解析；同
 
 ### 10.1 模型、注册与边界
 
-建立独立 `site_settings` 应用，新增 `wagtail.contrib.settings` 到 INSTALLED_APPS。三个模型分别继承 `BaseGenericSetting`，用 `register_setting` 注册，使用各自 change 权限。
+已建立独立 `myblog/apps/site_settings` 应用并注册 `wagtail.contrib.settings`。现行源码中定义了：
+- **自定义抽象基类 `BaseSiteSetting(BaseGenericSetting)`**：承载 `singleton_key=1`、`version`、`updated_at`、`_get_or_create()` 与带 `content_mutation_guard` + `ContentDiscoveryEpoch.increment_epoch()` 的 `save()`；`NavigationSettings`、`SocialMediaSettings`、`FooterSettings` 均继承该基类；
+- **同步新增的其余两个独立模型**：`SiteThemeSettings(BaseGenericSetting)`（独立单例，不继承 `BaseSiteSetting`，不递增全局 Epoch，使用独立 Redis 缓存 `site_theme_settings:v1` 与 `get_readonly_dict()` 只读输出）和 `SiteAnnouncementSettings(wagtail.contrib.settings.models.BaseSiteSetting)`（按 `Site` 隔离的纯文本站点公告，提供只读接口 `get_active_for_site_readonly()`）。
 
 `BaseGenericSetting` 是全安装范围设置；不是每个 Site 一份。若将来需要站点独立社交与备案信息，另提 `BaseSiteSetting` 迁移方案。本期不同 Site 共享配置内容，但页面链接仍只输出当前 Site 可公开的目标。
 
@@ -466,6 +486,8 @@ def _get_or_create(cls):
 
 ### 10.2 `NavigationSettings`
 
+> **现行源码简化说明**：`myblog/apps/site_settings/models.py` 实际落地字段为单层 `nav_items = StreamField([("menu_item", MenuItemBlock())])`（`MenuItemBlock` 含 `label`、`badge`、`target_page`、`external_url`、`is_external`），未实施两级嵌套分组 `main_navigation`。`api/views.py:site_settings_api` 收集所有 `target_page_id` 后调用 `get_public_blocked_page_ids()` 批量核验并优雅降级过滤下架/回收/受限页面。
+
 `main_navigation`：StreamField，最多 20 个顶层项，每项最多 20 个子项，固定两级，拖拽排序。两级定义避免无限递归块和不可控 JSON 深度。
 
 单项含稳定 block ID、label、link_type、PageChooserBlock 页面或 external_url 二选一、可选 badge_text、badge_style 白名单、open_in_new_tab，以及 children。一级可为纯分组（自身无 URL、有子项）；叶子必须有唯一目标。不接受用户提供 CSS class、原始 SVG 或 HTML。
@@ -483,7 +505,9 @@ def _get_or_create(cls):
 
 ### 10.3 `SocialMediaSettings`
 
-`social_links`：最多 30 项；platform 为 github、x、bilibili、zhihu、email、website；项含 label、url、enabled，支持排序及规范化去重。
+> **现行源码注记**：`SocialMediaSettings.social_links` 使用 `SocialLinkBlock`，实际 `SOCIAL_PLATFORMS` 枚举为 `github`、`twitter`、`bilibili`、`zhihu`、`wechat`、`email`、`rss`、`custom`，字段为 `platform`、`label`、`url`（未包含 `enabled` 布尔开关）。
+
+（以下为设计期校验与安全规则参考：）
 
 URL 规则：
 
@@ -497,7 +521,9 @@ URL 规则：
 
 ### 10.4 `FooterSettings`
 
-字段包括 `icp_number`、`public_security_number`、`copyright_owner`、`copyright_start_year`、可选 `copyright_end_year` 和 `footer_links`。备案号是展示信息，不承诺系统自动验证其备案资格。
+> **现行源码简化说明**：`FooterSettings` 实际落地 4 个字段：`copyright_text`、`icp_number`、`police_record_number`、`about_text`（未单独拆分 `copyright_owner/start_year/end_year` 或新增 `footer_links`）。
+
+早期字段设计参考：`icp_number`、`public_security_number`、`copyright_owner`、`copyright_start_year`、可选 `copyright_end_year` 和 `footer_links`。备案号是展示信息，不承诺系统自动验证其备案资格。
 
 备案展示目标使用固定受信任主机的链接生成器；公安备案 URL 参数由校验后的编号编码，禁止直接拼接任意 URL。页脚链接复用导航叶子块和公开资格规则。
 
@@ -523,7 +549,7 @@ URL 规则：
 
 ### 10.6 `GET /api/v1/site/settings/`
 
-响应固定为 `{status, epoch, data:{navigation, social_links, footer}}`，子结构缺配置返回空数组/null/确定默认值，不创建 SQL 行。只输出公共配置；不序列化模型所有字段、管理员权限或内部版本字段。
+响应固定为 `{status, epoch, data:{navigation, social_links, footer}}`，子结构缺配置返回空数组/确定默认值，不创建 SQL 行。现行 `site_settings_api` 使用 `Cache-Control: public, max-age=120` 与弱 ETag `W/"site_settings:v1:s{site_id}:e{current_epoch}"`。只输出公共配置；不序列化模型所有字段、管理员权限或内部版本字段。
 
 读取事务必须在第一条业务 SELECT 前设置 REPEATABLE READ READ ONLY，以同一快照读取 Epoch、三份设置和页面链接资格，再组装结果。不能用全局设置对象的跨请求缓存携带 ORM 实例或 request。
 
@@ -752,13 +778,13 @@ git diff --check
 
 ### 16.2 建议文件归属
 
-| 任务归属 | 新增或限定修改文件 | 责任 |
+| 任务归属 | 现行代码路径（统一位于 `myblog/apps/*`） | 责任 |
 |---|---|---|
-| 项目常规实现 | `portfolio/{apps,models,blocks,adapters,services,serializers,views,urls,lifecycle}.py`、其 templates、migrations | 项目业务、API 和 Wagtail 桥接 |
-| 设置常规实现 | `site_settings/{apps,models,blocks,validators,signals,services,views,urls}.py`、其 migrations | 单例约束、_get_or_create 实例返回、先 guard 后写、只读输出与导航批量过滤 |
-| 经明确指派的高风险实现者 | `external_content` 新正文组件及 store/revision；`content_lifecycle/{recycle,reconciliation,guard,workflows}.py`（workflows 待新增）、必要 comments 修改 | 首次写入脱水、身份、全量恢复、修剪事务、固定审批版本与统一锁顺序 |
-| 经明确指派的人物/媒体实现者 | `people/{models,signals,apps}.py`（signals 按需新增）、`content_blocks/blocks/media.py` 及实际调用点、`media_library/references.py` | 人物活跃/历史引用保护、类型明确的 PK→UUID 解析、登记失败回滚；与公共事务任务串行集成 |
-| 集成负责人单独修改 | `home/models.py`、`myblog/settings/base.py`、`api/urls.py`、必要 discovery 与原生后台/审批桥接入口 | 白名单、工作流配置、注册、路由与共享合同；锁的外层入口须明确文件归属后再实现 |
+| 项目常规实现 | `myblog/apps/portfolio/{apps,models,blocks,adapters}.py`、`myblog/apps/portfolio/templates/portfolio/`、`migrations/` | 项目模型、积木、适配器与详情页壳层继承（API 由 `myblog/apps/api/views.py` 经适配器承载） |
+| 设置常规实现 | `myblog/apps/site_settings/{apps,models,blocks,templatetags}.py`、`migrations/`（公开 API 位于 `myblog/apps/api/views.py`） | 单例约束、`_get_or_create` 实例返回、先 guard 后写、主题/公告设置与只读过滤 |
+| 高风险生命周期模块 | `myblog/apps/external_content/`、`myblog/apps/content_lifecycle/{models,recycle,reconciliation,guard,workflows}.py`、`myblog/apps/comments/` | 首次写入脱水（`ExternalStreamPageMixin` 当前位于 `portfolio/models.py`）、全量恢复、20 草稿修剪、固定审批版本与锁顺序 |
+| 人物与媒体模块 | `myblog/apps/people/{models,wagtail_hooks,apps}.py`、`myblog/apps/content_blocks/blocks/media.py`、`myblog/apps/media_library/references.py` | 内置佚名保护、PK→public_id 解析、引用登记失败回滚 |
+| 共享集成与路由 | `myblog/apps/home/models.py`、`myblog/settings/base.py`、`myblog/apps/api/{views,urls}.py`、`myblog/apps/discovery/` | 白名单、工作流配置、注册表、路由与共享合同 |
 | 验收实现者 | `tests/test_portfolio.py`、`tests/test_site_settings.py`、独立并发测试及必要隔离修复 | 测试候选提交与真实 IO 边界 |
 | 独立审查者 | 只读上述候选代码与 Wagtail 源码 | 不参与同一高风险变更实现后再自审 |
 

@@ -6,7 +6,7 @@ Global Tag Directory & Cross-Type Discovery
 |---|---|
 | 标识 | MYBLOG-RFC-TAG-DISCOVERY-01 |
 | 文档形式 | Google 企业工程设计文档 / RFC 风格：背景、目标、详细设计、契约、权衡、实施、验收与审查；不假设 Google 存在统一强制模板 |
-| 状态 | Reviewed & Conditionally Approved（经 gemini-4-argon 独立审查，架构主方向通过，6项阻断项 BLK-01~06 闭环入约，待用户确认后实施） |
+| 状态 | **已实施落地**（含简化与 `discovery.registry` 注册表解耦演进；具体实现差异见 §5.2、§6.1、§7.1/§7.3、§8.1 与 §15.3 注记） |
 | 日期 | 2026-11-09 |
 | 提案职责 | 总体架构、数据与接口契约、发布一致性、性能边界、实施路线 |
 | 决策与审查责任 | 总体协作主代理组织；计划交由 `gemini-4-argon` 独立审查，本文不表示已调用或已通过 |
@@ -178,9 +178,7 @@ class TagIndexPage(RoutablePageMixin, CustomBasePage):
 
 词库展示信息属于独立公共配置：编辑保存后生效，不承诺 Wagtail Revision 审批。它不能修改某篇文章的标签关联，也不能决定该文章是否公开；若未来要审批标签介绍，应另设可发布的词库编辑合同。
 
-拼音策略采用本地 `pypinyin` 的常用读音，英文按 `casefold` 处理；去除排序用的首尾空白和无意义前导符号，生成不带声调的键。数字、纯符号、无法归类的文字进入 `#`；多音字默认读音可能不合语义，允许管理员覆盖 `sort_key/initial`。排序仅用于展示，不改变原标签名与 URL。
-
-`pypinyin` 当前未列入依赖，P0 必须核对许可证、运行环境和固定版本后再加锁；不能声称已安装。配置写入时生成排序字段；新建/改名标签时同步，已有标签通过授权后的独立数据准备步骤补齐。GET 不保存元数据。遗漏元数据的有效标签保留在目录，按 `#` 与原名稳定排序并报警，不因排序缺失隐藏公开内容。
+> **现行源码实现说明**：当前项目**未引入 `pypinyin` 第三方依赖**，而是直接在 `myblog/apps/taxonomy/models.py` 中使用内置 `get_pinyin_initial()` 函数（按英文大写及 GBK 一级汉字区段映射 A–Z 首字母，其余字符与纯符号归入 `#`）；`TagDirectoryMetadata` 实际字段为 `tag`、`initial`、`initial_group_rank`、`sort_key`、`description`（无 `updated_at`）。另请注意：当前 `TagDirectoryService.get_tag_directory()` 与 `TagDetailService.get_tag_detail()` 在 GET 请求中遇到缺失元数据的标签时，仍会调用 `TagDirectoryMetadata.get_or_create_for_tag()` 按需补建行，尚未改造为全链路纯只读预设。
 
 ### 5.3 复用的发布数据
 
@@ -220,11 +218,7 @@ taggit.Tag
 从上到下显示标题、导语、热门标签云、标签名搜索框、A–Z / `#` 导航、分组结果。
 
 - **热门云**：当前 Site 的有效标签按引用数降序取前 20；同数量按 `sort_key`、`tag_id` 升序稳定排列。不足 20 个全部展示，徽章始终显示精确文档数，视觉字号不改变可点击区域或阅读顺序。
-- **A–Z**：返回 `{"A": [...], ..., "#": [...]}` 的分组字典；空组不展示内容，字母导航可显示禁用状态。当前批次最多 100 个标签，默认 50；超出以目录自己的签名 keyset 继续加载，不能把全部词库塞入 HTML。
-- **即时搜索**：`q` 在大厅只搜索标签名，按规范化后的名称包含匹配，不搜索正文，不自动做拼音全串搜索。输入 300ms 防抖，中文组合输入结束后再发送请求；也支持普通 GET 表单。
-- **统计范围**：`valid_tag_count` 是该 Site 全部有效标签数；`matched_tag_count` 是 q/letter 过滤后的标签数；单个徽章是该标签的内容数，不能混淆。
-- **热门区域不随 q 改写排名**：同快照计算整个有效标签集的 Top 20，方便无匹配时继续发现内容。A–Z 结果受 q/letter 过滤，热门区标明“全站热门”。
-- **目录翻页**：先按初始组 A–Z、最后 `#`，再按 `sort_key/tag_id` 稳定排序；如果某组跨批次，允许下一批继续显示同一个组标题。字母导航给出 `?letter=P` 真链接，不跳转到尚未加载的 DOM。
+> **现行源码简化说明**：`TagDirectoryService.get_tag_directory()`（`myblog/apps/taxonomy/services/directory.py`）当前采用单快照聚合全量有效标签（返回 `top_tags` 前 20 与按 `(initial_group_rank, initial, name.lower(), id)` 排序的 `grouped_tags`），配合前端 JS 即时过滤与锚点导航展示；**未实现 `directory_cursor` 服务端目录分页与 `?letter=` 服务端过滤参数**。
 
 目录搜索无结果仍为目录模式，展示清除搜索与热门入口，不错误地提示某个标签不存在。
 
@@ -277,7 +271,7 @@ Tab 对外参数使用公开别名：`type=blog` 映射到 `blog_page`，`type=g
 5. 页面自身及相关祖先没有访问限制、回收中或恢复中状态；辅助回收标记与回收记录的覆盖范围须实测。
 6. 对于未来排期，Wagtail 尚未正式发布的版本绝不进入结果；`authored_on` 是成文日期，不能独自替代 live Revision 判断。本标签查询不额外加入“成文日期不得晚于今天”的新产品条件。
 
-拟在 adapter 能力声明中追加默认关闭的 `tag_listing_enabled`，与 Feed/Archive 能力分开。博客、指南、项目明确打开；栏目页和 TagIndexPage 关闭。公开类型别名复用现有 `public_type_slug`，展示名/顺序由注册描述提供默认值。不得使用“type_key 不以 `_index` 结尾”作为唯一能力判断。
+> **现行注册表解耦实现**：实际代码未新增 `tag_listing_enabled` 开关；`TagDetailService.get_tag_detail()` 直接调用 `discovery.registry.get_archive_enabled_type_keys()` 与 `get_type_display_label()` 动态收集已开启归档的公开文章类型（排除 `navigation` 栏目页后统计 `all_count`），并自动生成全站标签详情页的跨类型 Tab 分栏。
 
 新增默认值应兼容旧 adapter。将来新类型完成发布提取、能力声明与测试后，即可自动加入目录、“全部”和类型统计；仅注册模型名称不会自动产生可检索内容。
 
@@ -285,11 +279,10 @@ Tab 对外参数使用公开别名：`type=blog` 映射到 `blog_page`，`type=g
 
 拟定调用 `build(index_page, request) -> TagDirectoryViewModel`：
 
-1. 解析并校验 q、letter、目录游标与容量。
-2. 开启共用的只读快照，在里面复核 Site 与入口公开状态，读取 Epoch 和有效集合 E。
-3. 从 `PublishedSearchTag.document_id ∈ E` 出发，连接 Tag 与展示元数据，按 Tag ID 聚合有效文档引用数，排除 0 引用。
-4. 以同一候选关系分别得到热门 Top 20、A–Z 组数量、目录筛选总数和当前批次。
-5. 物化 DTO 后退出事务；SSR 和 AJAX 使用同一份结果。
+1. 解析标签名称过滤参数 `q`（当前未实现 `letter` 与 `directory_cursor`）。
+2. 基于 `PublishedSearchDocument` + `apply_public_eligibility_filter` 获取当前站点合法公开集合，通过 `PublishedSearchTag` 按 `tag_id` 聚合有效文档引用数（`Count("document_id", distinct=True) >= 1`）。
+3. 批量关联 `TagDirectoryMetadata`（缺失时当前实现会调用 `TagDirectoryMetadata.get_or_create_for_tag()` 补建）。
+4. 组装 Top 20 热门云与 A–Z / `#` 全量分组 `TagDirectoryViewModel`，供 SSR 与 AJAX 共用。
 
 核心查询形态为集合聚合，不为每个 Tag 调用 `.count()`。DTO 至少包含：
 
@@ -313,27 +306,28 @@ active_filters / canonical_url / corpus_epoch / cursor_reset
 
 传给公共查询的基本结构：
 
+> **现行 `TagDetailService` 调用实现**：实际传给 `ContentQuery.execute()` 的 `QuerySpec` 使用已落地的 `count_mode="bounded"`、`include_listing_scope=False` 以及混合分页参数（`page_size=15`、`cursor` / `page` / `seek_date` / `seek_direction`，未引入 `pagination_mode` / `facet_scope` / `content_scope` 三个字段；当浅页直跳触发 `PageWindowExceededError` 时自动回退第 1 页），Tab 数量与 `all_count` 则在服务层通过 `discovery.registry.get_archive_enabled_type_keys()` 结合 `facets["types"]` 动态组装：
+
 ```python
 QuerySpec(
-    q=filters.q or None,
-    tag_ids=[tag.id],
-    tag_mode="ANY",
-    type_keys=selected_type_keys,  # 全部为 []，由标签内容能力集合限定
-    site_id=site.id,
-    root_page_id=None,            # 全站标签不是 TagIndexPage 的后代
-    include_listing_scope=False,
-    search_fields="title" if filters.title_only else "all",
+    q=q_term or None,
+    search_fields="title" if title_only else "all",
+    tag_ids=[tag_id],
+    type_keys=type_keys,
+    site_id=site.id if site else None,
+    date_from=date_from,
+    date_to=date_to,
+    sort=sort_param,
     facets=["types"],
-    sort=filters.sort,
-    page_size=filters.page_size,
-    cursor=filters.cursor,
-    pagination_mode="keyset",     # 拟新增字段，首次请求也必须用 keyset
-    facet_scope="without_type",   # 拟新增字段，保留其他条件，仅去掉当前类型条件
-    content_scope="tag_listing",  # 拟新增字段，应用标签内容能力白名单
+    page_size=15,
+    cursor=cursor,
+    page=page_num,
+    seek_date=seek_date,
+    seek_direction=seek_direction,
+    count_mode="bounded",
+    include_listing_scope=False,
 )
 ```
-
-扩展必须在 `QuerySpec` 有默认值，既有调用方沿用原语义：`pagination_mode="auto"`、`facet_scope="filtered"`、`content_scope="default"`。标签请求固定策略，由服务端构造，HTTP 不允许直接控制这些内部参数。
 
 `QueryResult` 拟增加可选整数 `scope_total_count`、`matched_total_count`，旧调用默认 `None`。标签详情映射为：
 
@@ -410,13 +404,13 @@ SQL atomic
 | 参数 | 大厅 | 详情 | 限制 |
 |---|---|---|---|
 | `q` | 标签名查询 | 内容查询 | 单值，去首尾空白，最多 200 字符；超长返回 400，不静默截断 |
-| `letter` | A–Z、`#` | 不接受 | 单值；URL 中 `#` 必须编码为 `%23` |
+| `letter` | （当前大厅全量分组+JS过滤，暂未接服务端参数） | 不接受 | 原规划按 `#` 编码 `%23` |
 | `type` | 不接受 | all / 注册的公开类型别名 | 单值；内部 type_key 不直接暴露为自由输入 |
 | `title_only` | 不接受 | 0/1 | 默认 0，明确控制所有搜索阶段 |
 | `sort` | 目录固定顺序 | relevance / authored_desc / authored_asc | 有 q 默认 relevance，无 q 默认 authored_desc |
 | `expand` / `secondary` | 不接受 | 沿用公共搜索的受控枚举 | 不接受任意值；所有模式变化清除游标 |
 | `page_size` | 默认 50，最大 100 | 默认 15，最大 50 | 正整数；非法值返回 400；更大值按明确上限规范化 |
-| `directory_cursor` | 目录分页 | 不接受 | 与内容 cursor 分开，最多 2048 字符 |
+| `directory_cursor` | （当前全量返回，未实现目录服务端分页） | 不接受 | 预留扩展点 |
 | `cursor` | 不接受 | 当前内容页 | 最多 2048 字符，只接受新签名 keyset 格式 |
 | `format=partial` | 可选 | 可选 | 保留共享兼容入口；响应模式必须进入 Vary/缓存键 |
 
@@ -750,5 +744,5 @@ P0 阻断项必须在接入公开入口前解决；生命周期、迁移或跨�
 - **ADV-01**：在迁移中为 `PublishedSearchDocument` 增加 `(site_id, index_generation, type_key, page_id, effective_revision_id)` 条件复合索引，为 `TagDirectoryMetadata` 建立 `(initial_group_rank, initial, sort_key, tag_id)` 索引。
 - **ADV-02**：`projection.py` 写入时在事务内对 Page 加行锁重验版本，防止并发覆盖。
 - **ADV-03**：限流器 `limiter.py` 仅在配置信任代理时读取转发头，并在超限时停止追加时间戳。
-- **ADV-04**：后续引入 `pypinyin` 库使用词组模式提取中文拼音首字母，确保多音字技术词准确分组。
+- **ADV-04**：当前采用 `taxonomy.models.get_pinyin_initial()` 内置实现（GBK 区段 + 英文首字母），**未引入 `pypinyin` 依赖**；若未来需要词组级多音字精准识别，再另行评估依赖引入与审批。
 - **ADV-05**：`TagIndexPage` 重写 `can_copy() -> False`，防止在同一首页下产生重复路由冲突。

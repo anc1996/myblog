@@ -310,18 +310,30 @@ class TagDetailService:
             query_result = ContentQuery.execute(spec_fallback, AccessContext(mode=AccessMode.PUBLIC))
 
         # 组装类型分栏 Tab 计数 (BLK-03 / 决策二-A)
+        from discovery.facets import get_type_display_label
+        from discovery.registry import get_archive_enabled_type_keys
+
+        preferred_order = {"blog_page": 0, "guide": 1, "project": 2}
+        ordered_type_keys = sorted(
+            get_archive_enabled_type_keys(),
+            key=lambda tk: (preferred_order.get(tk, 50), tk),
+        )
         types_facet = {item["key"]: item["count"] for item in query_result.facets.get("types", [])}
-        all_count = sum(v for k, v in types_facet.items() if k != "navigation") if not q_term else len(query_result.items)
-        blog_count = types_facet.get("blog_page", 0)
-        guide_count = types_facet.get("guide", 0)
-        project_count = types_facet.get("project", 0)
+        if types_facet:
+            all_count = sum(v for k, v in types_facet.items() if k != "navigation")
+        else:
+            all_count = int(query_result.total_count or 0)
 
         type_tabs = [
             {"slug": "all", "label": "全部", "count": all_count, "is_active": (raw_type == "all" or not raw_type)},
-            {"slug": "blog_page", "label": "博客文章", "count": blog_count, "is_active": (raw_type == "blog_page")},
-            {"slug": "guide", "label": "技术指南", "count": guide_count, "is_active": (raw_type == "guide")},
-            {"slug": "project", "label": "开源项目", "count": project_count, "is_active": (raw_type == "project")},
         ]
+        for tk in ordered_type_keys:
+            type_tabs.append({
+                "slug": tk,
+                "label": get_type_display_label(tk),
+                "count": types_facet.get(tk, 0),
+                "is_active": (raw_type == tk),
+            })
 
         # 生成订阅链接 (BLK-06)
         feed_url = None

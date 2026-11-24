@@ -5,9 +5,9 @@
     <div class="comment-type-tabs" style="margin: 0 0 16px 0; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; background: #f8fafc; padding: 12px; border-radius: 6px; border: 1px solid #e2e8f0;">
         <span style="font-weight: 600; color: #475569; margin-right: 4px;">📂 页面类型：</span>
         <a href="?page_type=all{% if current_page_id %}&page_id={{ current_page_id }}{% endif %}" class="button button-small {% if current_page_type == 'all' and not current_status and not current_pending_queue %}button-primary{% else %}button-secondary{% endif %}">全部 ({{ tab_counts.all }})</a>
-        <a href="?page_type=blog_page{% if current_page_id %}&page_id={{ current_page_id }}{% endif %}" class="button button-small {% if current_page_type == 'blog_page' %}button-primary{% else %}button-secondary{% endif %}">博客文章 ({{ tab_counts.blog_page }})</a>
-        <a href="?page_type=guide{% if current_page_id %}&page_id={{ current_page_id }}{% endif %}" class="button button-small {% if current_page_type == 'guide' %}button-primary{% else %}button-secondary{% endif %}">专题指南 ({{ tab_counts.guide }})</a>
-        <a href="?page_type=project{% if current_page_id %}&page_id={{ current_page_id }}{% endif %}" class="button button-small {% if current_page_type == 'project' %}button-primary{% else %}button-secondary{% endif %}">实战项目 ({{ tab_counts.project }})</a>
+        {% for tab in page_type_tabs %}
+        <a href="?page_type={{ tab.key }}{% if current_page_id %}&page_id={{ current_page_id }}{% endif %}" class="button button-small {% if tab.is_active %}button-primary{% else %}button-secondary{% endif %}">{{ tab.label }} ({{ tab.count }})</a>
+        {% endfor %}
         <a href="?pending_queue=1{% if current_page_id %}&page_id={{ current_page_id }}{% endif %}" class="button button-small {% if current_pending_queue or current_status == 'pending' %}button-primary{% else %}button-secondary{% endif %}" style="margin-left: auto; {% if tab_counts.pending > 0 %}background:#f59e0b;color:#fff;border-color:#d97706;{% endif %}">⚠️ 待审核队列 ({{ tab_counts.pending }})</a>
     </div>
 

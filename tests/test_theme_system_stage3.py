@@ -124,6 +124,8 @@ class Stage3CssTokenGuardTests(TestCase):
     def test_converged_css_files_contain_zero_bare_hex_colors(self):
         """阶段 2–3 已收敛的业务 CSS 严禁写入裸 #hex 色值，必须消费语义令牌"""
         converged_css = [
+            "myblog/static/css/myblog.css",
+            "myblog/static/css/detail-layout.css",
             "myblog/static/css/identity-auth.css",
             "myblog/static/comments/css/comments_widget.css",
             "myblog/static/people/css/author_directory.css",

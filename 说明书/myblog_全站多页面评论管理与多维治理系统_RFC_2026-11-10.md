@@ -6,6 +6,7 @@
 | 日期 | 2026-11-10，Asia/Singapore |
 | 形式 | 采用 Google 工程设计文档常见组织方式：背景、目标、决策、详细设计、替代方案、风险、发布计划与验收；不声称这是 Google 官方统一模板 |
 | 状态 | Implemented & Verified（代码实施与数据库迁移已完成，133 项单元与生命周期测试 100% 通过） |
+| 现状更新注记 | 已进一步落地 Phase 3 双轨评论、全站注册表动态收集与详情页侧栏互动（见第 17.5 节），并修正部分未实现/简化路由与模型名称对照 |
 | 负责人 | 总体协调主代理负责批准与派发；架构代理负责本文；实现代理负责后续限定范围的代码 |
 | 独立审查 | 由总体协调主代理交给 `gemini-4-argon`；本次没有调用该模型，不表示审查已通过 |
 | 起草基线 | `main`，`987f47dd004c8c1e8ee4c57ac42cbaabc719190c`；开始核对时工作区干净 |
@@ -201,7 +202,7 @@ PageCommentSettings
 - 管理员仍能隐藏、驳回和处理已有待审；批准只在页面当前有效、非回收且仍已发布时允许。
 - 回收、下架、访问限制优先于该设置；关闭开关不允许把回收页评论公开。
 - 页面复制得到默认设置和空评论集；不复制原页的关闭状态、评论和置顶。恢复原页沿用原运行设置。
-- 历史页面没有设置行时使用类型默认值 true；首次设置在页面排他锁内幂等建行，不批量创建数千万条空配置。
+- 历史页面没有设置行时使用类型默认值 true；首次设置在页面排他锁内幂等建行，不为历史页面预先批量创建冗余空配置。
 
 这是拟议工程语义，审查时应检查独立保存的交互提示是否足够清楚。它不改变 D2 的单篇开关要求。
 
@@ -214,7 +215,7 @@ PageCommentSettings
 | `CommentGovernanceSubject` | `kind=user/ip`、规范化 `subject_key`、`restricted_until`、`generation`、`reason`、`updated_by`；`(kind, subject_key)` 唯一；同时作为该主体的锁记录 |
 | `CommentGovernanceBatch` | UUID、actor、动作、规范化筛选摘要、快照截止时间、进度、成功/冲突/失败计数；不保存评论原文 |
 | `CommentGovernanceItem` | batch FK、comment FK CASCADE、expected_version FK SET_NULL、expected_generation、结果；`(batch, comment)` 唯一 |
-| `CommentAuditEvent` | comment FK CASCADE、操作人、动作、版本标识、前后状态、原因、时间；不复制原文、完整 IP 和页面标题 |
+| `CommentReviewAction` / `CommentGovernanceAuditLog` | 现行源码分为评论级审计 `CommentReviewAction`（comment FK CASCADE）与主体级治理审计 `CommentGovernanceAuditLog`（记录主体 `restrict`/`lift_restriction`） |
 | `CommentMutationReceipt` | comment FK CASCADE、主体、动作、request_key、请求 hash、结果标识；`(主体, 动作, request_key)` 唯一 |
 
 批次中的每条操作都关联真实 Comment，而不是把 ID/正文堆进永久 JSON。Purge 级联删除 item、audit、receipt；版本 ID 明细不得因外键 SET_NULL 另留可恢复正文。批次仅保留动作、时间和汇总计数，原始 IP 条件在活动治理结束后清空或脱敏；不得成为另一份历史评论库。
@@ -243,7 +244,7 @@ return mark_safe(f"<pre>{escaped_raw}</pre>")
 
 ### 7.2 统一事务边界
 
-事务由业务服务负责。前台 API、后台单条动作、BulkAction、编辑器 Tab、受控脚本都调用同一服务；不允许视图做过检查就传一个旧 Page 对象进入服务。
+事务由业务服务负责。前台 API、后台单条动作、后台批量表单视图（`batch-hide/`）、编辑器 Tab、受控脚本都调用同一服务；不允许视图做过检查就传一个旧 Page 对象进入服务。
 
 ```text
 输入校验 / 身份提取 / 正文净化 / Redis 原子限流
@@ -259,7 +260,7 @@ return mark_safe(f"<pre>{escaped_raw}</pre>")
 
 数据库锁、SQL 修改和最终校验必须属于同一个事务。`SET LOCAL lock_timeout='3s'` 在事务内设置；锁超时或死锁退出整个事务，再向调用者返回可重试结果。不能捕获数据库异常后继续使用已经失败的事务。
 
-Redis 调用、正文解析、Mongo 或 RustFS IO 不得放在持锁阶段。必要的后续任务写入 Outbox；仅使用 `on_commit()` 不能保证进程退出后任务仍会执行。
+Redis 调用、正文解析、Mongo 或 RustFS IO 不得放在持锁阶段。页面 Purge 级联触发时由 `RecycleService` 写入 `page.purged` Outbox 清理外部页面正文，而评论系统自身的审核/隐藏/清理逻辑均在 PostgreSQL 本地 SQL 事务内直接完成（未在 `comments` 内另设 Outbox 表）。
 
 ### 7.3 全站锁顺序
 
@@ -439,11 +440,13 @@ Collector 可能绕过自定义 Model.delete/QuerySet.delete；因此“覆写 d
 4. 可组合筛选：日期、作者 ID、IP、是否根/回复、置顶。IP 字段只向有溯源权限者展示。
 5. 列表：页面当前标题与类型、作者、当前公开摘要、待审角标和摘要、时间、状态、可执行动作。
 
-参数建议为 `type=all|blog|guide|project`、`page_id`、`queue`、`author_id`、`ip`、`created_after`、`created_before`、`cursor`。注意本项目发现系统内部类型键存在 `blog_page`；评论后台对外 `blog` 必须显式映射到模型，不能混用字符串。
+> **现行后台筛选与动态类型收集实现**（`myblog/apps/comments/wagtail_hooks.py`）：`CommentIndexView` 实际使用的类型筛选参数名为 `page_type`（而非 `type`），且标签页通过 `_get_comment_page_type_entries()` 遍历 `discovery.registry.list_type_adapters()` 动态收集所有 `supports_comments=True` 的页面类型，共享层零页面硬编码。
 
 页面类型以当前 `page.content_type` 为准；栏目范围使用当前树关系。评论表不新增 `category_id`、祖先 ID 数组或长久不刷新的 page_type 快照用于裁决。
 
 ### 10.2 原生 BulkAction 的真实接入
+
+> **现行实现简化注记**：实际代码（`myblog/apps/comments/wagtail_hooks.py`）**未采用 Wagtail 原生 `BulkAction` 类**，而是在 `CommentViewSet` 中通过视图表单与独立 POST 端点 `batch-hide/`（调用 `CommentService.batch_hide_comments`，单批上限 100 条、按 ID 升序加锁）以及单条审核表单完成批量/逐条治理，并在 `comment_index.html` 中提供全选隐藏交互。以下原生 `BulkAction` 章节保留作早期扩展设计参考。
 
 本机 Wagtail 8.1 已核对存在：
 
@@ -595,7 +598,7 @@ Redis 用单次 Lua 脚本完成清理窗口、检查各桶、记录请求和 TT
 | `/api/v1/pages/<page_id>/comments/` | GET | 根列表；`sort`、`page_size`、`cursor`；输出 `items`、`has_more`、`next_cursor` |
 | `/api/v1/pages/<page_id>/comments/post/` | POST | `content`、request_key；访客另带 guest_name；回复另带根 ID/代次/批准版本及可选 reply_to |
 | `/api/v1/comments/<root_id>/replies/` | GET | 同根回复分页；作者删除占位根仍可访问 |
-| `/api/v1/comments/<comment_id>/edit-state/` | GET，拟新增 | 仅原登录作者/获授权后台取得自己的最新稿、版本 ID、代次与编辑截止时间；no-store |
+| `/api/v1/comments/<comment_id>/edit-state/` | （当前未建） | 现行 `comments/api/urls.py` 未实现该独立端点；编辑接口为 `POST /api/v1/comments/<comment_id>/edit/` |
 | `/api/v1/comments/<comment_id>/edit/` | POST | content、expected_version_id、expected_generation、request_key |
 | `/api/v1/comments/<comment_id>/delete/` | POST | expected_generation、request_key；只软删，不接受物理清空参数 |
 | `/api/v1/comments/<comment_id>/react/` | POST | `reaction=1/-1/0`、expected_version_id；禁止继续发送错误的 reaction_type 字段 |
@@ -988,4 +991,25 @@ https://www.postgresql.org/docs/18/sql-createindex.html
 
 7. **实测证据**：
    - 数据库迁移 `0002_commentgovernancebatch_commentgovernanceitem_and_more.py` 应用成功；
-   - 全站 133 项自动化测试（含 11 项全新治理与生命周期专用用例）100% PASS（耗时 48.4s）。
+   - 早期实施阶段记录：全站 133 项测试通过（历史基线，非本轮实测）。
+
+### 17.5 Phase 3 演进与现行源码对照更新 (后续补充)
+
+在 `0002` 治理改造之后，评论系统继续完成了以下真实落地扩展（已体现在现行源码与 `0004_pagecommentsettings_allow_guest_comments_and_more.py` 迁移中）：
+
+1. **双轨评论与持久配额防刷（Phase 3）**：
+   - 新增 `CommunitySettings`（`BaseGenericSetting` 单例，`get_solo()` 纯只读查询与 PG advisory lock 保存，控制全站评论模式、受控访客留言开关及注册会员分级审核）；
+   - 新增 `CommentDailyQuota` PostgreSQL 持久日配额表（按站点自然日统计会员 / IP / 访客浏览器配额，避免 Redis 清理后绕过）；
+   - `PageCommentSettings` 新增 `allow_guest_comments` 受控访客留言开关（仅超管、全站治理员或栏目主编可修改）；
+   - 评论发评接入 `captcha` 图片验证码挑战核销（访客发评强制验证码，高频或含外链会员触发 `captcha_required` 挑战）。
+2. **详情页统一挂载与作者侧栏联动**：
+   - 三类详情页统一继承 `myblog/templates/detail/detail_shell.html`，底部统一挂载 `comments/partials/_comment_section.html`；
+   - 作者名片侧栏（`detail/_detail_author_card.html`）通过 `comments.services.get_public_comments_for_user()` 只读聚合已绑定账号且开启 `show_public_comments` 的公开历史发言（仅读取 `approved_version.safe_html` 纯文本摘要，并复核父评论线程可见性与站点/回收权限）。
+3. **共享层注册表彻底解耦**：
+   - `comments/wagtail_hooks.py` 通过 `_get_comment_page_type_entries()` 调用 `discovery.registry.list_type_adapters()` 动态收集所有声明 `supports_comments=True` 的页面类型，消除业务页面类硬编码。
+4. **未实现 / 简化的设计项明确清单**：
+   - `GET /api/v1/comments/<comment_id>/edit-state/` 独立路由**未创建**；
+   - 后台批量操作采用 `CommentViewSet` 视图表单与 `batch-hide/` 端点，**未使用 Wagtail 原生 `BulkAction`**；
+   - 主体治理审计模型实名为 `CommentGovernanceAuditLog`（评论单条审计为 `CommentReviewAction`）；
+   - 中控台类型筛选参数为 `page_type`；
+   - 评论自身清理与状态流转均在 PostgreSQL SQL 事务内完成，**未使用 Outbox**。

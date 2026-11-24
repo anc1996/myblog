@@ -6,7 +6,7 @@ Universal Hierarchical Index Listing & Discovery Framework
 |---|---|
 | 标识 | MYBLOG-RFC-HIERARCHICAL-LISTING-01 |
 | 形式 | Google Engineering Design Doc / RFC 风格：摘要、背景、目标、合同、详细设计、替代方案、风险、实施与验收；不声称 Google 存在统一强制 RFC 模板 |
-| 状态 | Reviewed & Approved（经 gemini-4-argon 独立审查，B-01/B-02/B-03 与 A-01~A-04 闭环合并，待用户确认新增决策后实施） |
+| 状态 | **已实施落地**（含 `discovery/pagination.py` 混合分页协议与注册表解耦演进，详见第 4、12、15 节及现行实现注记） |
 | 日期 | 2026-11-09 |
 | 起草职责 | 架构、查询与展示合同、发布版本隔离、性能边界和验收设计 |
 | 当前代码基线 | `main`，`d35eacb56146a88f566d2e2a8ca6c5949e23c19c`；开始起草时工作区干净 |
@@ -91,6 +91,8 @@ flowchart TD
 已有发布投影可以一次提取正文，随后大量列表请求只访问 PostgreSQL。这样能够避免每页几十篇文章分别读取 MongoDB，也能阻止草稿日期、标签或标题进入正式结果。
 
 搜索副本仍占 PostgreSQL 空间，全文分块与 GIN 也有写入和存储成本。列表零 MongoDB 访问不等于“PostgreSQL 完全不存正文文本”，也不等于一千万篇文章下精确计数天然很快。
+
+> **规模假设注记**：文中早期讨论的“一千万篇”等超大规模假设属于立项背景语境；现行工程实践严格遵守 `AGENTS.md` 中的 YAGNI 规则，保留“不查全表 ID 到内存、有界计数 + Keyset 游标分页、聚合下推数据库”等轻量编码规范，不再为假想千万级并发引入额外存储或复杂异步系统。
 
 ## 3. Goals / Non-goals：目标、边界与成功标准
 
@@ -211,9 +213,13 @@ spec = QuerySpec(
 result = ContentQuery.execute(spec, AccessContext(mode=AccessMode.PUBLIC))
 ```
 
-此代码省略导入、标签和已有模式控制参数，仅解释合同；其中 `search_fields`、`include_listing_scope`、`navigation_cursor` 是本 RFC 待新增字段，当前代码直接执行会报错。
+此代码省略导入、标签和已有模式控制参数，仅解释合同；`search_fields`、`include_listing_scope`、`navigation_cursor` 均已在 `myblog/apps/discovery/contracts.py` 的 `QuerySpec` 中正式落地。
 
 一次 `execute()` 不等于一条 SQL；可以执行多条查询，但候选集、模式判断、排序、总数、统计和输出必须处于同一快照，不能每个用途调用一次服务。
+
+> **现行分页与排序实现注记**（`discovery/pagination.py` & `discovery/query.py`）：
+> 1. **混合分页协议**：已演进落地浅页直跳与深页游标结合的混合分页：`MAX_SHALLOW_ITEMS = 2000`、`MAX_SHALLOW_PAGE_CAP = 100`、`COUNT_PROBE_LIMIT = 5000`。超过浅页窗口抛出 `PageWindowExceededError` 并返回 **HTTP 422**（引导使用游标或日期定位）；支持 `seek_date` 与 `seek_direction="oldest"` 日期定位及 `v2:` 签名 Keyset 游标；超过 `COUNT_PROBE_LIMIT` 且条件满足时可读取 `ArchiveDailyCount` 预聚合汇总或返回 `lower_bound`（`"超过 5,000 篇"`）。
+> 2. **有关键词排序现状**：无关键词分支完全在 SQL 端完成排序与切片；**有关键词搜索分支（`discovery/query.py`）当前仍在 Python 中对 `matched_doc_ids` 执行 `sorted(..., key=sort_key)` 再切片分页**，尚未完全下推为 SQL 整数评分排序。
 
 ### 4.3 展现层：ListingViewModel
 
@@ -767,7 +773,7 @@ A 的导航不随 q、日期和文章专属条件消失，只受当前 Site/root
 
 本地需求与已批准合同：
 
-- `说明书/需求附件/SEARCH-V2-FILTER.md`：统一候选集、正式日期、原句优先、统一相关度与统计。
+- `说明书/archive/SEARCH-V2-FILTER_需求附件_2026-11-04.md`：统一候选集、正式日期、原句优先、统一相关度与统计。
 - `说明书/myblog_统一搜索与组合筛选方案_SEARCH-V2-FILTER_2026-11-04.md`：SEARCH-MODE-02、单快照、搜索副本与分块。
 - `说明书/myblog_全站订阅与时间线归档通用接口框架方案_2026-11-07.md`：能力声明、公开资格、日期范围和投影修正经验。
 - `说明书/myblog_portfolio与site_settings架构与实现方案_RFC_2026-11-07.md:331–349,536–573`：正式投影、旧任务拒绝和统一锁顺序。

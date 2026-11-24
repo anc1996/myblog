@@ -1,10 +1,10 @@
 # myblog 第一阶段技术实现方案与架构规范 (v1.0)
 
 > **版本定位**：从早期“设计方案”全面升级为“落地实现方案”，记录自 Git 提交 `a3f21dc` 修订以来的最新完整系统实现与全量架构资产。
-> **验证状态**：**已全量代码实现、迁移落库并实测通过 (121 项单测 + 36 项 Wagtail 8.1 生命周期演练 100% PASS)**。
+> **验证状态**：**核心系统已全量实现并完成后续多轮扩展演进**（早期“121 项单测 + 36 项 Wagtail 8.1 生命周期演练”为第一阶段历史基线记录；当前 `tests/` 已扩充至 54 份 `test_*.py` 模块）。
 > **运行环境**：Python 3.13 / Django 6.1.2 / Wagtail 8.1 / PostgreSQL 18.6 (psycopg 3.3.7) / MongoDB 9.0.4 / Redis 8.10.3 / RustFS 1.0.4。
 > **绑定宿主**：WSL2 `192.168.20.5:8000` (允许 `0.0.0.0:8000` 跨主机调试，已配置 `CSRF_TRUSTED_ORIGINS`)。
-> **应用目录架构**：**对齐 wagtailblog2 最佳工程实践，全站 16 个业务子应用收拢于 `myblog/myblog/apps/*`，与 `settings/`、`static/`、`templates/` 同级**。
+> **应用目录架构**：**对齐 wagtailblog2 最佳工程实践，全站 19 个业务子应用收拢于 `myblog/apps/*`（新增 `analytics`、`captcha`、`markdown_import`；其中 18 个已在 `INSTALLED_APPS` 注册，`api` 为 URL 分发普通包），与 `settings/`、`static/`、`templates/` 同级**。
 
 ---
 
@@ -21,8 +21,8 @@ graph TB
     end
 
     subgraph 网关与应用服务层
-        Nginx["Nginx 网关 (生产 X-Accel / 本地 ASGI 异步流)"]
-        Django["Django 6.1.2 + Wagtail 8.1 核心服务 (0.0.0.0:8000)"]
+        Nginx["Nginx 网关 (生产 X-Accel / WSGI 同步与 StreamingHttpResponse 流)"]
+        Django["Django 6.1.2 + Wagtail 8.1 核心服务 (myblog.wsgi)"]
     end
 
     subgraph 混合存储与辅助引擎层
@@ -47,7 +47,7 @@ graph TB
 
 ## 二、 核心存储与彻底脱水实现契约 (Plan A Dehydration)
 
-为支撑千万级（10,000,000+）文章规模且保证 PostgreSQL 主数据库平稳运行，系统全面落地**方案 A【彻底脱水模式】**：
+针对早期立项时提出的大规模内容假设（如“千万级”背景讨论）以及 PostgreSQL 主库减负需求，系统落地了**方案 A【彻底脱水模式】**；现行工程演进严格遵循 `AGENTS.md` 中的 YAGNI 克制规模原则（保留不查全表到内存、Keyset 游标分页与聚合下推数据库等轻量卫生习惯，不再以千万级并发为由新增额外存储或复杂补偿表）：
 
 ```mermaid
 sequenceDiagram
@@ -222,8 +222,8 @@ graph LR
     end
 
     subgraph 对外交付接口
-        F["统一订阅流<br/>/feed/<br/>/feed/type/<slug>/<br/>/feed/tag/<slug>/<br/>/feed/author/<slug>/<br/>/feed/topic/<slug>/"]
-        A["时间线归档 API<br/>GET /api/v1/archives/<br/>(PostgreSQL TruncMonth 年月分桶)"]
+        F["统一订阅流 (/feed/ 301 重定向至 /feeds/)<br/>/feeds/<br/>/feeds/type/<slug>/<br/>/feeds/tag/<slug>/<br/>/feeds/author/<slug>/<br/>/feeds/topic/<slug>/"]
+        A["时间线归档接口<br/>GET /api/v1/archives/ 与 /archives/calendar/<br/>GET /timeline/"]
     end
 
     B & G & X --> CAP
@@ -237,7 +237,7 @@ graph LR
    - 核心引擎不绑定任何具体模型；各应用通过 `PublicListingCapabilities(public_type_slug, feed_enabled, archive_enabled, supported_dimensions)` 声明自身能力；
    - 栏目聚合页显式关闭订阅和归档，物理杜绝大厅页混入文章列表。
 2. **全维度 RSS 2.0 与 Atom 1.0 订阅体系**：
-   - 路由：`/feed/`、`/feed/type/<slug>/`、`/feed/tag/<slug>/`、`/feed/author/<slug>/`、`/feed/topic/<slug>/` 及 `/feed/atom/`；
+   - 路由：统一规范前缀为 `/feeds/`（`/feeds/`、`/feeds/type/<slug>/`、`/feeds/tag/<slug>/`、`/feeds/author/<slug>/`、`/feeds/topic/<slug>/` 及 `/feeds/atom/`）；原 `/feed/` 仅保留 301 永久重定向兼容（`RedirectView.as_view(url="/feeds/", permanent=True)`）；
    - 标准合规：严格遵循 RFC 4287 (Atom) 与 RFC 822 (RSS)，时间统一转换 UTC，条目 ID 采用稳定 `urn:uuid:{document_uuid}`，`<summary>` 强制标记为 `type="text"`，清洗 XML 1.0 非法控制字符。
 3. **弱 ETag 协商与主库核验 304 极速响应**：
    - 基于当前 Epoch 生成弱 ETag：`W/"feed:v1:s{site}:e{epoch}:{dim}:{slug}:{fmt}:{today}"`；
@@ -268,16 +268,24 @@ graph LR
 | **专栏详情** | `GET /api/v1/guides/<slug>/` | 120次/分/IP | Redis Epoch 代次缓存 | 包含步骤目录（TOC）、代码块与 365 天过时预警 |
 | **项目列表** | `GET /api/v1/projects/` | 60次/分/IP | Redis Epoch 代次缓存 | 开源作品集与项目列表，支持状态/语言/标签过滤 |
 | **项目详情** | `GET /api/v1/projects/<slug>/` | 120次/分/IP | Redis Epoch 代次缓存 | 双形态输出（积木 JSON 树 + 预渲染 safe_html） |
-| **全局设置** | `GET /api/v1/site/settings/` | 120次/分/IP | 弱 ETag / 304 快速协商 | 全站导航菜单、社交媒体与页脚设置（下架页面自动降级） |
+| **通用内容列表** | `GET /api/v1/content/<type_slug>/` | 60次/分/IP | Redis Epoch 代次缓存 | 基于 `discovery.registry` 的通用注册表内容列表接口 |
+| **通用内容详情** | `GET /api/v1/content/<type_slug>/<slug>/` | 120次/分/IP | Redis Epoch 代次缓存 | 基于 `discovery.registry` 的通用注册表内容详情接口 |
+| **全局设置** | `GET /api/v1/site/settings/` | 120次/分/IP | 弱 ETag / `max-age=120` | 全站导航菜单、社交媒体与页脚设置（下架页面自动降级） |
 | **时间线归档** | `GET /api/v1/archives/` | 120次/分/IP | 弱 ETag / 304 快速协商 | 年月归档分桶统计，支持按 type/tag/topic/year 过滤 |
+| **日历归档** | `GET /api/v1/archives/calendar/` | 无 `@ratelimit_api` | 弱 ETag / Redis 短缓存 | 按月读取 `ArchiveDailyCount` 预聚合日桶统计 |
+| **人机验证码** | `POST /api/v1/captcha/challenges/`、`GET /api/v1/captcha/image/<captcha_id>/` | 服务内置核销校验 | Redis Lua 原子核销 | 公共图片验证码挑战签发与图片输出 |
+| **数据分析** | `GET /api/v1/analytics/context/`、`POST /api/v1/analytics/events/`、`POST /api/v1/analytics/pages/<id>/rating/`、`reading-proof/` | 服务风控与去重校验 | 非阻塞计数聚合 | 页面分析上下文、事件采集、四档评价与阅读证明 |
 | **评论列表** | `GET /api/v1/pages/<id>/comments/` | 120次/分/IP | 细粒度行锁与受限页隔离 | 扁平两级评论树，受限页面自动输出 no-store |
-| **发表评论** | `POST /api/v1/pages/<id>/comments/` | 30次/分/用户 | Fail-Closed 503 风控 | 蜜罐过滤、nh3 净化、生成待审版本 |
-| **回复评论** | `POST /api/v1/comments/<id>/replies/` | 30次/分/用户 | Parent-First 行锁 | 自动归一化指向根评论，锁定根评论存活状态 |
-| **评论互动** | `POST /api/v1/comments/<id>/reactions/` | 60次/分/用户 | 行锁 + 非负原子约束 | 点赞/点踩互斥切换，F() 原子计算 |
+| **发表评论** | `POST /api/v1/pages/<id>/comments/post/` | 滑动窗口 + 日配额 | Fail-Closed 503 风控 | 蜜罐过滤、nh3 净化、验证码与生成待审版本 |
+| **回复列表** | `GET /api/v1/comments/<root_id>/replies/` | 按根线程分页 | 只读快照隔离 | 获取同根下公开可见的二级回复分页列表 |
+| **评论编辑/删除** | `POST /api/v1/comments/<id>/edit/`、`delete/` | 滑动窗口限流 | 行锁 + CAS 代次校验 | 编辑生成新版本；作者自删生成占位或隐藏 |
+| **评论互动** | `POST /api/v1/comments/<id>/react/` | 滑动窗口限流 | 行锁 + 非负原子约束 | 点赞/点踩互斥切换，F() 原子计算 |
 
 ---
 
 ## 九、 现网实现验证证据与服务指标
+
+> 注：下表中的 `103 / 121` 项单测与 `36` 项生命周期脚本为第一阶段开发节点留存的历史验证快照；随着后续二期/三期功能扩展，全站 `tests/` 目录下现已拥有 54 份 `test_*.py` 测试模块（本轮仅作文档同步，未重跑全量测试）。
 
 | 验收项目 | 验收范围与命令 | 实测结果 | 结论 |
 |---|---|---|---|
@@ -323,8 +331,9 @@ graph LR
 系统从“后端功能完整”正式迈向“前台体验商业级可用”：
 1. **全局响应式导航与页脚 (`base.html`)**：
    - 顶部导航条：动态读取 `site_settings.NavigationSettings`，未配置时默认提供首页、技术专栏、专题指南、开源作品、全站标签、时间线归档、全站搜索与订阅入口；移动端自适应纯 CSS 汉堡菜单；
-   - 全局页脚：自动展示 `site_settings.FooterSettings` 的关于导语、版权声明、ICP 备案号、公安联网备案号与社交链接；
-2. **首页综合技术门户 (`home_page.html`)**：
+   - 全局页脚与主题/公告设置：自动展示 `site_settings.FooterSettings` 的关于导语、版权声明、ICP 备案号、公安联网备案号与社交链接；同时通过 `SiteThemeSettings` 控制全站默认主题色板（雾蓝工程手册 / 苔青实验室）与昼夜外观模式，通过按站点隔离的 `SiteAnnouncementSettings` 提供纯文本站点公告展示。
+2. **详情页统一壳层与首页综合技术门户 (`detail_shell.html` & `home_page.html`)**：
+   - **三类详情页统一继承 `detail/detail_shell.html`**：`BlogPage`、`GuidePage`、`ProjectPage` 前台模板均统一继承 `detail_shell.html`，共用三栏自适应布局、单次服务端解析的嵌套大纲目录（TOC 桌面侧栏与移动端 `<dialog>` 抽屉）、右侧栏作者名片（含月度创作热力图与「作者好文 / 作者发言」Tab）、本文标签跳转以及站点公告/同栏相关推荐；
    - Hero 标语导引区 + 快速操作入口；
    - 左右双栏布局：左侧主栏展示最新发布文章流与博客目录，右侧边栏穿插热门标签云（直达 `/tags/<slug>/`）、精选专题指南、开源实战项目与 RSS/Atom 订阅；
 3. **前台文章评论互动组件 (`_comment_section.html` & `comments_widget.js`)**：

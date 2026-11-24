@@ -2,7 +2,7 @@
 
 **RFC：** `MYBLOG-RFC-AUTHOR-DISCOVERY-01` · **日期：** 2026-11-23
 
-**状态：** 已实施落地（`myblog/apps/people/`、`discovery` 作者检索与并发测试 `test_author_discovery*.py` 已完成；未执行百万级合成压测）。
+**状态：** 已实施落地（`myblog/apps/people/`、`discovery` 作者检索与并发测试 `test_author_discovery*.py` 已完成；后续并延伸落地 `people/sidebar.py` 与 `Person.show_public_comments` 详情页侧栏名片；未执行大数据合成压测）。
 
 **核对基线：** `main`，起草前 `HEAD` 为 `01cc6f8d5fab63696233bca3a5ab56bc0e959165`；部分源码来自并行工作区候选改动。依赖声明为 Django 6.1 系列、Wagtail 8.1 系列；数据库目标为 PostgreSQL 18。未核对真实服务版本或远程最新提交。
 
@@ -26,6 +26,7 @@ Revision 是 Wagtail 保存的页面版本。发布副本是从当前正式 Revi
 | 当前代码 | 能复用什么，必须补什么 |
 |---|---|
 | `myblog/apps/people/models.py:21`、`people/migrations/0002_person_linked_user.py` | 已有 `Person.public_id/name/avatar/bio/email/linked_user` 与 Wagtail Snippet；没有稳定 slug、分组字段或系统名片保护 |
+| `myblog/apps/people/sidebar.py`、`people/migrations/0006_person_show_public_comments.py` | （后续延伸落地）提供详情页右侧栏「作者名片卡」（主笔名片、核验署名、本月 SQL 创作热力图、`作者好文 / 作者发言` Tab）与 `show_public_comments`（默认 `False`，`linked_user` 换绑/解绑自动归零） |
 | `myblog/apps/content_lifecycle/models.py:44`、`forms.py:16`、`wagtail_hooks.py:421`；`myblog/apps/markdown_import/services.py:684` | 已有新建/导入预填和作者防冒用；现有表单在署名清空时提前返回，现有预填并未按受限作者区分，且 helper 有直接写子表的路径，须按第 3 节收紧 |
 | `myblog/apps/blog/adapters.py`、`guides/adapters.py`、`portfolio/adapters.py` | 已注册发布适配器；三处重复提取作者，并将数字 ID、姓名派生值和 UUID 混入 `extra_data["author_slugs"]`；项目角色仍是自由文本 |
 | `myblog/apps/discovery/projection.py`、`signals.py`、`eligibility.py`、`myblog/apps/external_content/outbox.py` | 已有正式 Revision 重读、公开资格、信号和待办消费入口；尚无作者关联表，投影读快照到写入之间需复核，不能只记录异常就视为已同步 |
@@ -92,7 +93,7 @@ flowchart TD
 | `sort_key` | `CharField(255)`；归一化的拼音/英文键，由同一函数生成和更新；索引 `(initial_group_rank, initial, sort_key, id)`，同名用 `id` 固定次序 |
 | `is_system_anonymous` | `BooleanField(default=False, editable=False)`；数据库检查保证 `is_system_anonymous=True` 当且仅当 `slug="anonymous"`，且系统行 `linked_user_id IS NULL`、邮箱为空；唯一 slug 保证最多一条 |
 
-统一 `people/author_identity.py` 处理 Unicode NFKC、去首尾空白、固定的普通话拼音转写、拉丁重音折叠与小写转换；实现时在 `requirements.txt` 锁定一个离线拼音依赖版本，采用无声调、只保留一个读音的模式。不把 `taxonomy.models.get_pinyin_initial()` 当作完整拼音转写 API：它可用于对照 A–Z/# 行为，但不能生成全名 slug。拼音规则固定，并把多音字、罕用字和只有符号的输入放进单测；不在线纠音。常规例子：`张三 → zhang-san`、`Ada Lovelace → ada-lovelace`。先试基本键；冲突时在预留后缀空间内用稳定 `public_id.hex` 后缀，取不到英文或拼音也用 `person-<uuidhex>`。避免“先查没重复再写”的竞争：在内层 savepoint 中插入，仅对指定 slug 唯一约束冲突重试；其他异常原样报错。缩短基础串后再拼后缀，普通人物不得占用 `anonymous`、`lookup` 或 UUID/数字路由空间。
+统一 `people/author_identity.py` 处理 Unicode NFKC、去首尾空白、转写、拉丁重音折叠与小写转换；实现已在 `requirements.txt` 锁定 **`anyascii==0.3.3`** 作为离线转写依赖（无需联网，按 `anyascii.anyascii()` 确定性转写为 ASCII 后规范化为小写连字符 slug）。不把 `taxonomy.models.get_pinyin_initial()` 当作完整转写 API：它仅可用于对照 A–Z/# 行为，不用于生成全名 slug。转写规则固定，并把多音字、罕用字和只有符号的输入放进单测；不在线纠音。常规例子：`张三 → zhang-san`、`Ada Lovelace → ada-lovelace`。先试基本键；冲突时在预留后缀空间内用稳定 `public_id.hex` 后缀，取不到英文或转写串也用 `person-<uuidhex>`。避免“先查没重复再写”的竞争：在内层 savepoint 中插入，仅对指定 slug 唯一约束冲突重试；其他异常原样报错。缩短基础串后再拼后缀，普通人物不得占用 `anonymous`、`lookup` 或 UUID/数字路由空间。
 
 `get_or_create_anonymous_person(*, using="default")` 以唯一 slug 做幂等创建，默认名「佚名」，不覆盖管理员已编辑的显示名、头像、简介。部署时数据迁移先生成系统行；GET 只读，不调用工厂；在线投影缺系统行报故障，不新建普通人物遮掩异常。匿名徽章用当前显示名，保留匿名图标及含义，不必强制一直叫「佚名」。管理员可编辑上述三项，不可删除、改系统标志/slug 或绑定账户；选择器、直接表单 POST、单删/批删和 ORM 删除分别检查。采用自定义 Snippet 权限入口加 `pre_delete` 阻挡 ORM 批删；对任何绕过模型层写身份字段的应用调用禁用 `update/bulk_update`，数据库以检查约束拒绝无效系统身份。若部署要求防应用角色直接 SQL 删系统行，由单独审查的数据库触发器拒绝目标行删除，不影响测试库销毁或维护角色的受控操作。普通 `Person` 不允许通过 Snippet 级联擦掉已使用的作者或历史署名；本期关闭普通硬删入口，清理须单独检查现行子表及历史 Revision 引用。
 
@@ -121,7 +122,7 @@ models.Index(fields=["author_slug", "role", "document"], name="disc_author_role_
 ### 4.3 迁移顺序
 
 1. `myblog/apps/people/migrations/` 继承当前 `0002_person_linked_user`：`0003` 增加允许空的 slug、分组和系统标志（slug 一开始就有唯一约束，旧行用 `NULL` 而非空串）。`0004` 用 `RunPython` 的历史模型按主键递增分批回填；固定转写规则、优先预留 `anonymous`，先生成可重复定位的系统行；同名按主键固定加工顺序，既有 slug 不写。大表允许分批提交并记录进度；部署窗口暂停旧版本写入 `Person` 或先发布兼容写代码，不能让旧进程持续插入空 slug。`0005` 校验无空值、锁定 NOT NULL 和检查约束，再建历史核准表。编号若被并行工作占用，重排而不修改已应用迁移。
-2. `myblog/apps/discovery/migrations/` 在当前 `0002_archivecontribution_archivecountstate_and_more` 后创建新表，跨 App 依赖 `people` 最终字段迁移；没有业务页面迁移的循环依赖。新空表随迁移建索引；若对既有千万行热表加索引，评估用非原子迁移并发建索引，失败验证索引是否有效再重试。
+2. `myblog/apps/discovery/migrations/` 在当前 `0002_archivecontribution_archivecountstate_and_more` 后创建新表，跨 App 依赖 `people` 最终字段迁移；没有业务页面迁移的循环依赖。新空表随迁移建索引；若未来对既有大表加索引，需按非原子并发建索引流程单独评估并验证有效性。
 3. 不把全库发布投影塞进 `RunPython`。新增 `myblog/apps/discovery/management/commands/reconcile_author_projection.py`：默认只读报告，`--apply` 显式写入，支持主键续跑、批大小与站点范围；一次锁一个页面，处理事务短。对能核验当前正式版本且可从 Revision 内容解出作者关系的现有文档，只补作者行、兼容 JSON 与作者投影版本，不重切正文；无法核验的由现有全量发布投影入口按需重建。导出缺失、冲突、错误版本，以及 JSON 与行集合差异数；切换要求这些未解释差异为零。
 
 ## 5. 发布投影、并发和失败恢复
@@ -152,7 +153,7 @@ models.Index(fields=["author_slug", "role", "document"], name="disc_author_role_
 
 安全兜底：公开查询还要核对 `Page.live_revision_id = effective_revision_id`、非别名、当前树位置、当前 Site、非回收，以及自身与祖先无访问限制。不能匹配时暂不显示，不能用旧版或绕开限制补结果。对于当前有效 Revision 但作者投影未完成的作者功能请求，排障期间允许明确的短暂不完整或 `503`；不误报「佚名」或把作者条件删掉。媒体与账号变更遵循原服务边界，公开 GET 不写索引或创建任何人物行。
 
-## 6. 公共查询、分面与千万级约束
+## 6. 公共查询、分面与大容量约束
 
 ### 6.1 作者条件如何与其他筛选组合
 
@@ -183,7 +184,7 @@ if spec.author_slugs or spec.author_role:
 ### 6.3 SQL 热路径与容量门槛
 
 - 复用当前 `PublishedSearchDocument` 的条件索引 `disc_doc_live_site_date_idx`、`disc_doc_live_type_date_idx`。日期序用 `(authored_on, page_id)`，相关度用实际排序的完整确定性元组（匹配层级、整型分数、日期及页 ID）；反向查询比较方向和 SQL 排序反转，取得结果后再还原。单靠 `(author_slug, document_id)` 不能保证稀疏作者在日期排序时不会全站遍历：要测试单个冷门作者、热门作者与「佚名」极端倾斜。若不达标，下一步是在相同事务中维护可排序关系副本字段并加 `(site_id, author_slug, authored_on, page_id)` 条件适用索引，再次测量；它仍需通过当前 Wagtail 公开资格检查。不要先上分区、双写搜索集群或用无限制 OFFSET。
-- 保留当前全文规则：A 原句匹配、B 分词组 AND、C 受控同义词，按已批准门槛和展开策略；跨 chunk 的 B 以文档为单位交集；标题模式在各轮、评分和高亮都限定标题。现有 GIN 词向量服务 B/C；A 的任意子串不靠该 GIN，加带计划验证的 `pg_trgm` 索引前需单独确认扩展授权和短词语义。千万级上线前，作者相关的关键词查询须把命中集合、去重、评分、边界与 `LIMIT` 下推 SQL，只读当前页所需标签和高亮片段，不能把现有 Python 全量匹配路径带入新入口。优化不能改变已有 A/B/C 搜索含义。
+- 保留当前全文规则：A 原句匹配、B 分词组 AND、C 受控同义词，按已批准门槛和展开策略；跨 chunk 的 B 以文档为单位交集；标题模式在各轮、评分和高亮都限定标题。现有 GIN 词向量服务 B/C；A 的任意子串不靠该 GIN，加带计划验证的 `pg_trgm` 索引前需单独确认扩展授权和短词语义。**现行限制说明**：`discovery/query.py` 的关键词分支目前仍在 Python 侧完成 `sorted(matched_doc_ids, key=sort_key)` 排序并读取当前页片段；后续若规模显著增长且实测命中集成为瓶颈，再按 SQL 下推路径专项演进（优化不得改变已有 A/B/C 搜索语义）。
 - 大厅和 sitemap 在 SQL 中聚合/分页，不在请求中加载全站文档 ID。目录服务批量聚合 `person_id/type_key`，再和当前 `Person` 关联；若冷热压测证明全站精确热门与分组成本不可接受，沿用 `archive_counts.py` 的贡献记录、代次和对账思想，另加按 `(site_id, person_id, type_key)` 的可重建汇总。发布、撤回、移动、权限变动以及当地日期换日都必须维护或同步标脏，并用同代次与公开资格复核后再读；脏时回数据库精确查询或显式降级 `503`，不展示未核验名片。初版不引入未证明必要的计数系统。
 
 ## 7. 作者大厅与个人专栏
@@ -201,7 +202,7 @@ if spec.author_slugs or spec.author_role:
 
 ### 7.2 大厅
 
-首屏是「作者专栏」标题和带显式标签的搜索框。默认显示最多 12 位高产作者（计数降序、`sort_key` 和 ID 破同分）；下方 A–Z 导航，`#` 在最后，空组不生成可点击锚点。目录查询按 `(initial_group_rank, initial, sort_key, id)` 稳定排序，每页 48 人；字母切换、搜索都回到目录第一页，更多项用同一排序键继续，不能把全站人物都塞给浏览器。输入搜索时热门区隐藏，避免混淆结果。卡片有头像、名字、简介的纯文本节选、总篇数及 `博客 · 指南 · 项目` 计数徽章；将来的类型可扩展徽章，当前合计不遗漏接入类型。同一公开文档给每位参与者各贡献一篇。`published_count > 0` 才显示；「佚名」一视同仁，最后一篇未署名文章补署名重发、撤回或转私有后，自动从目录、用户查找和推荐消失。没有活跃作者时大厅仍 `200` 并显示空状态。
+首屏是「作者专栏」标题和带显式标签的搜索框。默认显示最多 12 位高产作者（计数降序、`sort_key` 和 ID 破同分）；下方 A–Z 导航，`#` 在最后，空组不生成可点击锚点。目录查询按 `(initial_group_rank, initial, sort_key, id)` 稳定排序，当前在 `people/services.py` 中先聚合活跃作者卡片并在筛选后通过 Django **`Paginator(filtered, 48)`**（`DIRECTORY_PAGE_SIZE = 48`）按页切片输出，不把全站人物一次塞给浏览器（字母切换、搜索均回到目录第一页）。输入搜索时热门区隐藏，避免混淆结果。卡片有头像、名字、简介的纯文本节选、总篇数及 `博客 · 指南 · 项目` 计数徽章；将来的类型可扩展徽章，当前合计不遗漏接入类型。同一公开文档给每位参与者各贡献一篇。`published_count > 0` 才显示；「佚名」一视同仁，最后一篇未署名文章补署名重发、撤回或转私有后，自动从目录、用户查找和推荐消失。没有活跃作者时大厅仍 `200` 并显示空状态。
 
 ### 7.3 个人专栏
 
@@ -246,7 +247,7 @@ if spec.author_slugs or spec.author_role:
 
 切换期间由单一发布开关控制作者入口、徽章链接、搜索筛选、作者订阅新读路径和 sitemap 暴露（规范路由不可误落给 Wagtail）。先部署兼容 schema，再部署所有实例写关系行与 JSON，然后按当前正式版本回填并重新对账。任一缺口未收敛不启用；该顺序规避旧进程继续写旧 JSON 覆盖兼容字段。回退先关闭作者功能露出，保留新列、关系行、历史核准和待办；旧读者只在能证明旧格式兼容、公开隔离无回退时恢复原读，否则暂停作者 Feed 并返回可重试状态，不能回到不核验生效 Revision 的 JSON 查询。不直接降级迁移或删除外部对象。
 
-运行指标最少包含投影延迟/失败/待办重试、最新 Revision 缺失与 JSON 差异数、`anonymous` 比例、按入口的 SQL P95、超时率、游标重置率和作者 sitemap 页数。日志记 Site/页面/Revision/事件及错误码，不记全文、邮箱、账号或凭据。基准目标建议为代表性选择性查询服务端 P95 ≤ 500ms（10 并发），在线单 SQL 预算复用约 2 秒，并给请求总预算；宽范围精确计数和热门投影单独验收，不用简单查询平均值替代。记录数据分布和软硬件规格，未实测不得称为已支持一千万篇。
+运行指标最少包含投影延迟/失败/待办重试、最新 Revision 缺失与 JSON 差异数、`anonymous` 比例、按入口的 SQL P95、超时率、游标重置率和作者 sitemap 页数。日志记 Site/页面/Revision/事件及错误码，不记全文、邮箱、账号或凭据。基准目标建议为代表性选择性查询服务端 P95 ≤ 500ms（10 并发），在线单 SQL 预算复用约 2 秒，并给请求总预算；宽范围精确计数和热门投影单独验收，不用简单查询平均值替代。记录数据分布和软硬件规格，未实测不得虚称大容量压测已通过。
 
 ## 10. 自动化测试验收矩阵
 
@@ -263,8 +264,6 @@ if spec.author_slugs or spec.author_role:
 | A09 | 新 `tests/test_author_discovery.py` | 同作者跨两个 Site，父栏目受限、回收、排期、移动、Alias、过期副本；作者卡片、计数、分面、推荐、Feed、联想、sitemap 都不外泄。零篇/未知统一 404；备选作者限当前站 |
 | A10 | 新 `tests/test_author_discovery_concurrency.py` (`TransactionTestCase` / PostgreSQL 独立连接) | 有屏障地交错同页发布两个 Revision、回收后恢复/重发、过期事件、人物改名、历史命令与后台改稿、权限变更与订阅请求；无死锁、旧快照不能覆盖新生效版本；写入第 N 项故障不留下半套行，并可幂等重试 |
 | A11 | 新 `tests/test_author_discovery.py` 与真实浏览器场景 | 系统名片不可从管理后台 URL、批删或 chooser 绕过；头像限制、公开邮箱、恶意名字转义；SSR/片段前进后退、无 JS、中文输入、弱网竞态、窄屏与键盘 |
-| A12 | 授权的 PostgreSQL 性能与故障专项 | 分阶段到 10⁷ 文档、冷热门分布与合著；记录 `EXPLAIN (ANALYZE, BUFFERS)`、索引体积/写入、P95、内存、快照与锁等待；搜全文冷/热、宽精确计数、日期跳转及 sitemap。模拟 Mongo/RustFS 故障的失败恢复需用隔离服务；验收作者读取链只查 SQL，不做 Mongo 对象水合或 S3 请求 |
+| A12 | 授权的 PostgreSQL 性能与故障专项 | 在授权隔离库上按真实体量梯度构造冷热门分布与合著压测数据；记录 `EXPLAIN (ANALYZE, BUFFERS)`、索引体积/写入、P95、内存、快照与锁等待；搜全文冷/热、宽精确计数、日期跳转及 sitemap。模拟 Mongo/RustFS 故障的失败恢复需用隔离服务；验收作者读取链只查 SQL，不做 Mongo 对象水合或 S3 请求 |
 
-后续实施者在 WSL2 先确认工作目录 `/mnt/f/openclaw/workspace/wagtail/myblog`，用 `/root/anaconda3/envs/wagtailblog-test/bin/python`，核对测试连接实际使用的 SQL 自动测试库（默认 `test_myblog`，不是手工探针 `myblog_test`）、Mongo 数据库、Redis 库与 RustFS 桶/前缀是否独立。`.env.test` 文件名本身不证明隔离。由明确授权后执行 `manage.py check`、`makemigrations --check --dry-run`、`migrate --plan`，以及 `manage.py test tests.test_author_discovery tests.test_author_discovery_concurrency tests.test_author_isolation tests.test_markdown_import_integration tests.test_s9_search tests.test_feed_and_archive tests.test_listing_framework tests.test_pagination_and_calendar_archive tests.test_detail_shell_and_toc`。先建失败用例再验证通过；测试库建表、真实服务连接与压测须分别获准。真实浏览器需截图核对桌面/移动端，实测普通点击、双向游标、中文输入中间态、禁用 JS 与返回按钮；不能单以页面返回 `200` 代替。
-
-**本次仅交付 RFC。** 发布入口的实际覆盖、真实 PostgreSQL 锁序与故障重放、数据库体量、浏览器与 SEO 行为都由后续实施阶段验证；本文不授予业务写入或部署权限。
+上述主力功能已在 WSL2 `wagtailblog-test` 环境完成实施与定向自动化测试（`tests/test_author_discovery*.py` 等），详情页侧栏名片已延伸落地于 `people/sidebar.py` 与 `people.0006`；真实大数据梯度压测、外部服务故障注入及多浏览器实机 SEO 联调仍需在获得授权后另行专项验收。

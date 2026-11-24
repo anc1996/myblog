@@ -1,6 +1,6 @@
 # myblog 全站主题设计系统与昼夜跟随架构方案（RFC）
 
-> **文档状态**：**阶段 1（`694aff5`）、阶段 2（`a6be3ee`）及阶段 3（代码块双主题令牌、Mermaid `follow-site` 联动与 `content_blocks`/Vendor 组件收敛，含 3 项非破坏性 StreamField 元数据迁移）均已实施并通过 51 项自动化回归与静态守卫测试；待按需补充真实多视口全量截图验收。**
+> **文档状态**：**阶段 1（`694aff5`）、阶段 2（`a6be3ee`）及阶段 3（代码块双主题令牌、Mermaid `follow-site` 联动与 `content_blocks`/Vendor 组件收敛，含 3 项非破坏性 StreamField 元数据迁移）均已实施完成。主题系统专项测试共 16 项（`test_theme_system_stage1~3.py`：7 + 4 + 5 项，阶段 4 的静态对比度与零裸 `#hex` 护栏已分别合入 `stage1` 与 `stage3`；后续并已将 `myblog.css` 与 `detail-layout.css` 一并收敛进 `stage3` 的 12 份 CSS 零裸 `#hex` 守卫，并删除 0 字节 `myblog.js`），与相关全站回归组合验证共计 51 项通过；待按需补充真实多视口全量截图验收。**
 
 ---
 
@@ -96,7 +96,7 @@
 
 - **独立 `SiteThemeSettings` 单例模型**（位于 `site_settings` App，使用 `@register_setting` 注册到 Wagtail 后台设置菜单，但**独立于 `BaseSiteSetting`**）：
   - 字段：`singleton_key`（固定为 `1`，唯一与 `CHECK(singleton_key=1)` 约束）、`default_palette`（`choices=[("mist-blue", "雾蓝工程手册"), ("moss-lab", "苔青实验室")]`，默认 `"mist-blue"`）、`default_appearance_mode`（`choices=[("system", "跟随系统"), ("light", "白天（浅色）"), ("dark", "黑夜（深色）")]`，默认 `"system"`）、`version`、`updated_at`。
-  - **严禁继承会递增 `ContentDiscoveryEpoch` 的 `BaseSiteSetting.save()`**：改一次网站主题颜色不能使全站千万级搜索分页游标、时间线归档缓存和 RSS ETag 全部失效。外观配置采用独立缓存键 `site_theme_settings:v1`，设置有限 TTL（`300` 秒兜底防 Redis 抖动脏读），并在 `save()` 事务提交成功后通过 `transaction.on_commit()` 清理/刷新缓存。
+  - **严禁继承会递增 `ContentDiscoveryEpoch` 的 `BaseSiteSetting.save()`**：改一次网站主题颜色不能使全站搜索分页游标、时间线归档缓存和 RSS ETag 全部失效。外观配置采用独立缓存键 `site_theme_settings:v1`，设置有限 TTL（`300` 秒兜底防 Redis 抖动脏读），并在 `save()` 事务提交成功后通过 `transaction.on_commit()` 清理/刷新缓存。
   - **公开 GET 绝对只读（避开 Wagtail `{% get_settings %}` 隐式写库）**：经核查本机 Wagtail 8.1 源码，`BaseGenericSetting.load()` 与模板标签 `{% get_settings %}` 内部会调用 `cls._get_or_create()`，空表时会在公开 GET 触发数据库 `INSERT`。因此前台 `base.html` **严禁通过 `settings.site_settings.SiteThemeSettings` 读取**，必须提供专用只读模板标签 `{% get_theme_settings as theme_cfg %}`：先读独立缓存 `site_theme_settings:v1` → 未命中仅执行只读查询 `SiteThemeSettings.objects.filter(singleton_key=1).first()` → 若表为空直接返回内存默认实例，彻底保证公开 `GET` 零写库。
   - **安全输入边界**：首期仅开放经过对比度与安全审核的受控预设色板枚举（不允许自由粘贴原始 CSS 或未校验色值，杜绝 CSS 注入与不可读配色）。
 - **前后台严格隔离**：前台访客切换外观绝不影响 Wagtail 后台自身的 `w-theme-*` 壳层；后台用户管理页 `myblog/templates/identity/admin/user_manage.html` 归口至 `admin-workbench.css`，不混入前台色板；后台预览面板亦不得读取 Wagtail 外壳的 `w-theme-dark` 覆盖站点预览规则。
@@ -136,7 +136,7 @@
 
 ### 4.2 实施分期
 1. **阶段 1：底座与单源状态机**
-   - 在 `myblog/static/css/themes/tokens.css` 落地三层设计令牌（含 `mist-blue` 与 `moss-lab` 浅/深完整映射、`--color-backdrop`、`@media print` 与 `@media (prefers-color-scheme: dark)` 无 JS 兜底）；调整 `base.html` 加载链并清理空文件 `myblog.js` 同步请求；
+   - 在 `myblog/static/css/themes/tokens.css` 落地三层设计令牌（含 `mist-blue` 与 `moss-lab` 浅/深完整映射、`--color-backdrop`、`@media print` 与 `@media (prefers-color-scheme: dark)` 无 JS 兜底）；调整 `base.html` 加载链并移除 0 字节 `myblog.js` 文件及其同步请求；
    - 升级 `base.html` + `ui-components.js` 为三态单源主题控制器（支持系统实时监听、`storage` 跨标签同步、`pageshow` `bfcache` 恢复、`htmx:afterSwap` 保持、三态外观菜单并保留 `data-theme-toggle` 兼容标记）；
    - 新增独立 `site_settings.SiteThemeSettings` 单例模型（含迁移、独立缓存 `site_theme_settings:v1` / `300s` TTL / `transaction.on_commit()` 刷新）、专用只读模板标签 `{% get_theme_settings %}`（严禁前台走 `{% get_settings %}`）及基于 `<button type="button">` 的 Wagtail 预览临时外观控制条。
 2. **阶段 2：破除“白块”与全站 CSS/模板收敛**
@@ -148,8 +148,8 @@
    - 完成 Mermaid 5 处白名单同步（`blocks/mermaid.py`、`rendering/mermaid.py`、`mermaid-renderer.js`、`mermaid-block.js`、`admin-mermaid-split.js`）、生成 `blog`/`guides`/`portfolio` 三个 App 的非破坏性 StreamField 元数据迁移，落地全屏弹窗同步与防竞态修复；
    - 完善 `Tom Select`、`Flatpickr`（含 `body` 弹层）、`Splide`、`table.css`、`structured-blocks.css`、`embed-block.css`、`media-blocks.css` 的双主题/双色板适配。
 4. **阶段 4：自动化校验与真机多视口验收**
-   - 用 Python 编写基于确定性规则的令牌完整性与配对对比度静态检查测试（纳入 CI 门禁）；
-   - 启动隔离测试服务完成 Playwright 真实浏览器验收。
+   - 静态检查门禁（令牌完整性、4 套色板配对 WCAG AA 对比度校验、以及含 `myblog.css` 与 `detail-layout.css` 在内的 12 份业务 CSS 零裸 `#hex` 守卫）**已合入 `tests/test_theme_system_stage1.py` 与 `tests/test_theme_system_stage3.py` 并通过**；
+   - 启动隔离测试服务完成 Playwright 真实多视口全量截图验收仍待按需补跑。
 
 ---
 

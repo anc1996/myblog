@@ -86,6 +86,12 @@ class SharedLayerDecouplingAstGuardTests(TestCase):
 
         self.assertEqual(violations, [], f"共享层检测到硬编码业务页面依赖：\n" + "\n".join(violations))
 
+    def test_comments_hooks_never_hardcode_concrete_page_model_names(self):
+        """评论后台钩子不得以小写模型名字符串硬编码过滤 blogpage/guidepage/projectpage"""
+        hooks_src = (PROJECT_ROOT / "myblog/apps/comments/wagtail_hooks.py").read_text(encoding="utf-8")
+        for bad in ('"blogpage"', '"guidepage"', '"projectpage"', "'blogpage'", "'guidepage'", "'projectpage'"):
+            self.assertNotIn(bad, hooks_src)
+
     def test_registered_page_models_and_sitemap_decoupled(self):
         """TypeAdapter 注册表动态解析全部已注册页面模型，且 Sitemap 自动排除回收页"""
         models = list_registered_page_models()

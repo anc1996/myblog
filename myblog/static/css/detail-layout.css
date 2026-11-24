@@ -17,7 +17,7 @@
 }
 
 .detail-shell {
-  max-width: min(1480px, calc(100vw - 40px));
+  max-width: min(1800px, calc(100vw - 48px));
   margin: 24px auto 56px auto;
   padding: 0 20px;
 }
@@ -54,7 +54,7 @@
 }
 
 .detail-shell.has-toc.no-right {
-  max-width: min(1240px, calc(100vw - 40px));
+  max-width: min(1440px, calc(100vw - 48px));
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr);
   grid-template-areas:
@@ -823,16 +823,38 @@
 /* 右侧侧栏、标签卡、公告与推荐、上下篇与评论区 */
 .detail-right-aside {
   grid-area: right;
-  position: sticky;
-  top: var(--detail-sticky-top);
-  max-height: calc(100vh - var(--detail-sticky-top) - 20px);
-  overflow-y: auto;
+  position: static;
+  align-self: start;
   display: flex;
   flex-direction: column;
   gap: 16px;
   min-width: 0;
   width: 100%;
   max-width: 100%;
+}
+
+@media (min-width: 1440px) {
+  .detail-shell.has-toc.has-right {
+    grid-template-columns: clamp(260px, 17vw, 300px) minmax(0, 1fr) clamp(320px, 20vw, 360px);
+    gap: 32px;
+  }
+
+  .detail-shell.has-toc.has-right.is-toc-collapsed {
+    grid-template-columns: 56px minmax(0, 1fr) clamp(320px, 20vw, 360px);
+  }
+
+  .detail-shell.no-toc.has-right {
+    grid-template-columns: minmax(0, 1fr) clamp(320px, 20vw, 360px);
+    gap: 32px;
+  }
+
+  .detail-main {
+    padding: 32px 42px 48px 42px;
+  }
+
+  .detail-comments-wrap {
+    padding: 32px 42px;
+  }
 }
 
 .detail-side-card {

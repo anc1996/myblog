@@ -4,11 +4,11 @@
 |---|---|
 | 标识 | MYBLOG-RFC-MEMBERSHIP-RBAC-01 |
 | 日期 | 2026-11-18（Asia/Singapore） |
-| 状态 | **Phase 1–5 Implemented & Verified（已完成全部 5 个阶段与 `gemini-4-argon` Wagtail 8.1 生命周期审核发现修复，通过全站 215 项测试与真实浏览器验收）** |
+| 状态 | **Phase 1–5 Implemented & Verified（已完成全部 5 个阶段与 `gemini-4-argon` Wagtail 8.1 生命周期审核发现修复，通过 2026-11-18 历史基线全站 215 项测试与真实浏览器验收；后续已补充 `Audio`/`Video` 作者隔离迁移）** |
 | 独立审查 | `gemini-4-argon`（方案审查及最终 Wagtail 8.1 生命周期代码只读复核）；`gpt-6.1-terra`（完成 Phase 1–3 只读反例审查）；审查发现均已修复并补齐回归测试 |
 | 起草基线 | `main@0bc6429b9bb2bd435706a417c96517c96bdd0f73` |
 | 已核对依赖 | Django `6.1.2`、Wagtail `8.1`、psycopg `3.3.7`、Pillow `13.0.0`、redis-py `8.1.0`；未安装 `django-simple-captcha` |
-| 实施边界 | 测试库（`.env.test`）与开发库（`.env.local`）均已应用最新迁移并执行 `setup_author_roles`；`Audio`/`Video` 首期暂不新增作者归属迁移，维持超管维护与非超管发布受限音视频拦截；真实中文 IME 组合输入与独立容器故障注入尚未演练 |
+| 实施边界 | 测试库（`.env.test`）与开发库（`.env.local`）均已应用最新迁移并执行 `setup_author_roles`；`Audio`/`Video` 已补充 `media_library/migrations/0003`、`AuthorIsolatedSnippetPermissionPolicy` 与 `AudioSnippetViewSet`/`VideoSnippetViewSet`，实现音视频作者隔离与选择器内上传；真实中文 IME 组合输入与独立容器故障注入尚未演练 |
 
 ---
 
@@ -33,7 +33,7 @@
 | **M3** | 作者后台审核开通 | 前台注册永远只得普通会员；想成为作者需由管理员在后台审核并加入 `Authors` 组 |
 | **M4** | 作者直发与隔离 | 作者在受限 Wagtail `/admin/` 后台编写，**无需审校即可直接发布自己名下的文章**，但严格限制只能增删改查 `owner == 本人` 的内容 |
 | **M5** | 基类声明与大厅隔离 | **不在代码里写死具体页面模型**；在统一基类 `CustomBasePage` 用声明式属性 `author_creatable` 与 `author_allow_child_creation` 区分“可创作内容页”与“栏目大厅”。管理员在后台按需把指定大厅（`BlogIndexPage`/`GuideIndexPage`/`PortfolioIndexPage` 等）的 `add + publish` 授给 `Authors` 组后，作者即可直发对应内容页；禁止作者新建/修改栏目大厅或在内容页下套建子页 |
-| **M6** | 个人媒体 + 只读公共库 | 作者仅管理本人上传的图片和文档，公共素材库只读选用；音视频（`Audio`/`Video`）暂只限管理员维护 |
+| **M6** | 个人媒体 + 只读公共库 | 作者仅管理本人上传的图片、文档和音视频（`Audio`/`Video` 通过 `AuthorIsolatedSnippetPermissionPolicy` 与 `AudioChooserViewSet`/`VideoChooserViewSet` 实现归属隔离与选择器内「上传并选用」），公共素材库只读选用 |
 | **M7** | 回收站归属隔离与人工清库 | 作者只能回收/恢复自己名下文章（恢复回原树位置且为草稿）；**取消打开列表自动触发 30 天物理清空**，改为超期 30 天标红预警，仅由超级管理员人工二次确认执行永久删除（Purge） |
 | **M8** | 评论双轨准入 | 默认全站**仅限登录会员发表评论**；仅在站长指定勾选的文章开启**受控访客留言**（访客强制待审、禁外链、低日配额、每次必过验证码） |
 | **M9** | 全站公共图片验证码 | 基于环境已有的 `Pillow 13.0.0 + Redis` 自建公共 `captcha` 模块，供注册、异常登录、访客留言与会员高频风控统一调用 |
@@ -41,7 +41,7 @@
 ### 1.4 本期不做哪些功能（延后二期）
 - 邮箱验证码校验与邮件找回密码（待接入 SMTP 服务后在二期平滑扩展）；
 - `/u/<username>/` 仿知乎公开个人主页（聚合作者全部文章、关注/私信）；
-- 开放作者在线自主申请审核单、作者管理音视频（`Audio`/`Video`）；
+- 开放作者在线自主申请审核单；
 - 跨站第三方登录（OAuth/微信/GitHub）。
 
 ---
@@ -105,6 +105,7 @@ flowchart TD
    - **全局会话守卫中间件 `IdentitySessionGuardMiddleware`（P0-7 必须）**：Django 原生会话只校密码哈希，移出 `Authors` 组或修改 `session_epoch` 不会使旧会话自动失效。必须在 `AuthenticationMiddleware` 之后挂载守卫中间件：登录时将 `member_profile.session_epoch` 写入 `request.session["session_epoch"]`，每次请求核对一致且 `user.is_active=True`（否则立即 `logout`）；当 `must_change_password=True` 时，除改密页、退出接口、静态资源与验证码接口外，页面请求一律 302 跳转至强制改密页，`/api/v1/*` 写接口返回 `403 {"code": "must_change_password"}`。
 3. **`people.Person`**（公开作者名片，继续保留在 `people` App）：
    - 为解决后续“点击文章作者看简介”需求，可在 `Person` 或独立关联表增加可选 `linked_user = OneToOneField(User, null=True, blank=True, on_delete=SET_NULL)`，**必须由管理员在后台手工确认绑定**；绝不因为“用户名相同”或“留的联系邮箱相同”就自动绑定。
+   - **公开历史评论聚合开关与换绑归零联动（已补充）**：`Person` 新增 `show_public_comments = BooleanField(default=False)`（仅管理员权限可编辑），控制是否在详情页右侧栏「作者名片卡」公开聚合该绑定账号的公开可见评论。系统「佚名」或未绑定 `linked_user` 时强制保持 `False`；且一旦 `linked_user` 在 `Person.save()` 中发生换绑或解绑，自动将 `show_public_comments` 归零为 `False`，防止历史绑定的开启状态顺延给新账号，须由管理员复核后重新开启。
    - **三者互不替代**：`Page.owner` 决定后台谁能操作这篇文章；`Person` 决定文章前台署名显示谁；`Revision.user` 记录历史上哪次版本是谁保存的。账号注销或停用时，不连带擦除历史文章与 `Person` 署名。
 
 ### 4.2 独立会员头像存储与安全交付合同
@@ -251,7 +252,7 @@ flowchart TD
 4. **封堵 `EditView` 替换原图与 `restrict_asset()` 越权下架漏洞（P0-2）**：
    - 自定义图片/文档后台 `EditForm`，在 `clean_file()` 中校验：只要该资产在 `MediaReferenceRecord` 中仍有引用，作者本人也**禁止上传新文件直接覆盖替换原图内容**（只允许修改 `title` 等非破坏性信息，想换图须上传新资产）；物理删除继续由 `MEDIA-REF-01` 一票否决；
    - 在 [media_library/access.py:109](F:/openclaw/workspace/wagtail/myblog/myblog/apps/media_library/access.py:109) 补充操作人权限校验：**影响已发布页面的“公开转受限（连带下架页面）”动作仅限管理员执行**，作者绝对无法调用 `restrict_asset()`。
-5. **音视频边界**：`Audio` 和 `Video` 模型目前缺少 Collection 与上传者字段，首期保持仅管理员维护，待二期补齐同等归属隔离后再按需开放。
+5. **音视频作者隔离与选择器上传（已补充实现）**：已通过 `media_library/migrations/0003_audio_uploaded_by_user_video_uploaded_by_user.py` 为 `Audio`、`Video` 补齐 `uploaded_by_user` 字段，并注册 `AuthorIsolatedSnippetPermissionPolicy` 与 `AudioSnippetViewSet`/`VideoSnippetViewSet`（配套 `AudioChooserViewSet`/`VideoChooserViewSet` 与 `MediaSnippetCreateView`），实现与图片/文档一致的上传者归属隔离、选择器内「上传并选用」（默认 `RESTRICTED`）及页面发布自动公开本人音视频。
 
 ### 8.3 回收站归属隔离、人工清库与撤权处理
 1. **移除自动物理清理与多余路由（P0-3）**：
@@ -306,6 +307,6 @@ flowchart TD
 
 ### 附：目前明确延后与未解决事项
 1. **30 天超期回收清理机制**：保留人工一键彻底销毁为主，同时在管理员/编辑登录时通过 Redis 6 小时冷却锁触发 `maybe_trigger_expired_recycle_purge`（每次最多处理 3 个超期批次），弥补非 24 小时开机环境定时任务遗漏风险。
-2. **音视频作者隔离边界**：`Audio`/`Video` 首期暂不做表结构迁移，保持超管维护与非超管发布受限音视频拦截；若后续需开放多作者自传音视频，需在 `media_library` 新增 `uploaded_by_user` 与 `collection` 迁移并接入 `AuthorIsolatedMediaPermissionPolicy`。
+2. **音视频作者隔离边界（已实现基础隔离）**：`Audio`/`Video` 已通过 `media_library/migrations/0003`、`AuthorIsolatedSnippetPermissionPolicy` 与 `AudioSnippetViewSet`/`VideoSnippetViewSet` 完成上传者归属隔离与选择器内上传（作者仅管理自己上传及只读选用 `PUBLIC` 音视频，非超管仍不可擅自修改或公开他人受限音视频）；更细粒度的自定义 `Collection` 文件夹分组留待按需扩展。
 3. **人工找回密码的运营成本**：在一期暂不接入邮箱验证的前提下，若用户注册时未填 `recovery_hint` 备用核密线索，后续忘记密码将无法自动验证身份，只能靠管理员线下人工确认。
 4. **按需专项未测范围**：真实中文输入法（IME）组合输入、带版本控制（versioning）S3 桶的历史对象版本擦除，以及独立故障容器演练留待按需专项验证。

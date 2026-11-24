@@ -4,7 +4,7 @@
 |---|---|
 | 标识 | MYBLOG-RFC-APP-LAYOUT-01 |
 | 规范形式 | Google Engineering Design Doc / RFC 风格：背景、目标、合同、设计、替代方案、风险、执行、验证与回退；不声称 Google 存在一套统一的强制 RFC 模板 |
-| 状态 | Draft：供用户与 Gemini Argon 审查，尚未批准实施 |
+| 状态 | **已实施完成（现收拢 19 个业务子应用至 `myblog/apps/*`）**；原规划的 `asgi.py`、`settings/test.py`、`scripts/run_tests.py` 未创建，按现行环境方案简化落地 |
 | 日期 | 2026-11-09 |
 | 起草职责 | 总体架构、应用身份、迁移依赖、执行入口及验收合同；角色名称不作为底层模型身份的证明 |
 | 用户提供的历史基线 | `c8d616b8b7658bf226615113634bf1f481925f95`，历史记录为 103 项单测、36 项生命周期演练通过 |
@@ -18,7 +18,7 @@
 
 ## 1. Executive Summary：提案摘要
 
-把工程根目录的 16 个自有模块完整搬到项目包内的 `apps/`，使它与 `settings/` 同级：
+已将原位于工程根目录的自有业务模块完整搬迁并收拢到项目包内的 `myblog/apps/`，使它与 `settings/` 同级（初始搬迁 16 个模块，随二期/三期演进现已收拢 **19 个业务子应用**，新增 `analytics`、`captcha`、`markdown_import`）：
 
 ```text
 F:\openclaw\workspace\wagtail\myblog\       ← 工程根目录
@@ -26,7 +26,7 @@ F:\openclaw\workspace\wagtail\myblog\       ← 工程根目录
     ├── apps\                            ← 自有模块的新物理位置
     │   ├── blog\
     │   ├── portfolio\
-    │   └── ...                          ← 共 16 个模块
+    │   └── ...                          ← 现共 19 个业务子应用（18 个注册于 INSTALLED_APPS + api 普通包）
     └── settings\
 ```
 
@@ -167,43 +167,46 @@ myblog/                                 # 工程根
     ├── bootstrap.py                     # 拟新增：标准库路径初始化
     ├── urls.py
     ├── wsgi.py
-    ├── asgi.py                          # 拟新增：标准 Django ASGI 入口
+    ├── (asgi.py 未创建：现行仓库仅使用 WSGI，无 ASGI 入口)
     ├── settings/
     │   ├── base.py
     │   ├── dev.py
-    │   ├── production.py
-    │   └── test.py                      # 拟新增：隔离验收配置
+    │   └── production.py                # (settings/test.py 未创建：通过 MYBLOG_ENV_FILE=.env.test 注入 base.py)
     ├── templates/                      # 项目级模板保持原位
     ├── static/                         # 项目级静态资源保持原位
     └── apps/
         ├── __init__.py                  # 容器包，不注册为 Django 应用
-        └── <上表中的 16 个模块>/
+        └── <上表 16 个模块，以及后续新增 analytics / captcha / markdown_import 共 19 个子应用>/
 ```
 
 根目录的 `.codex/`、Git 配置、输出目录，以及现有未纳入本次范围的本地文件均保持原位。不读取、移动或清理根目录的历史 `db.sqlite3`；它不成为本次 PostgreSQL 验收数据源。
+
+> **现行落地简化说明**：原规划的 `myblog/asgi.py`、`myblog/settings/test.py` 与 `scripts/run_tests.py` 在实际落地中未创建。仓库仅使用 `WSGI_APPLICATION = "myblog.wsgi.application"`，测试通过 `MYBLOG_ENV_FILE=.env.test` 注入 `myblog/settings/base.py` 并直接运行 `manage.py test`（由 `POSTGRES_TEST_DB` 默认 `test_myblog` 管理隔离自动测试库）。
 
 ### 4.3 单一的路径初始化实现
 
 推荐用一个仅依赖标准库的函数承载路径注入，settings 与各入口调用同一函数，避免出现五份逐渐不同的复制代码。
 
-拟新增 `myblog/bootstrap.py`：
+已落地 `myblog/bootstrap.py`（与现行源码一致）：
 
 ```python
 """让集中存放的自有应用继续使用既有顶层导入名称。"""
-from pathlib import Path
 import sys
-
-PROJECT_PACKAGE_DIR = Path(__file__).resolve().parent
-APPS_DIR = PROJECT_PACKAGE_DIR / "apps"
+from pathlib import Path
 
 
 def configure_app_imports() -> Path:
-    """可重复调用；保持唯一的应用搜索路径位于首位。"""
-    apps_path = str(APPS_DIR)
-    while apps_path in sys.path:
-        sys.path.remove(apps_path)
-    sys.path.insert(0, str(APPS_DIR))
-    return APPS_DIR
+    project_dir = Path(__file__).resolve().parent
+    base_dir = project_dir.parent
+    apps_dir = project_dir / "apps"
+
+    if str(base_dir) not in sys.path:
+        sys.path.insert(0, str(base_dir))
+
+    if str(apps_dir) not in sys.path:
+        sys.path.insert(0, str(apps_dir))
+
+    return apps_dir
 ```
 
 `base.py` 在定义 `PROJECT_DIR/BASE_DIR` 后、导入任何自有应用前调用：
@@ -227,10 +230,10 @@ APPS_DIR = configure_app_imports()
 | `myblog/settings/base.py` | 调用共享函数后才声明或使用应用；dev/production 继续继承 base | 分别加载 settings 时只有一个目标路径，且位于首位 |
 | `manage.py` | `main()` 中，在执行 Django 管理命令前调用函数；保留 `setdefault` | `check`、shell、管理命令统一使用目标目录 |
 | `myblog/wsgi.py` | 获取 WSGI application 前调用；保留现有 settings 默认选择 | 新进程直接导入 `myblog.wsgi` 能完成注册 |
-| `myblog/asgi.py` | 新增标准 Django ASGI 入口；初始化后调用 `get_asgi_application()` | 直接导入可完成注册；不等于已经安装 ASGI server 或完成部署 |
+| `myblog/asgi.py` | （实际未创建）现行项目仅启用 WSGI，无 ASGI 入口 | 未来若接入 ASGI 服务器时再补充并调用 `configure_app_imports()` |
 | Django `-m` / `django-admin` | 选择继承 base 的项目 settings；在 apps.populate 前由 base 初始化 | 未经过 manage.py 的 Django 启动同样正确 |
 | `tests/__init__.py` | 只调用共享函数，不初始化业务数据 | 以包方式加载 S2 等纯契约测试能顶层导入 |
-| `scripts/run_tests.py` | 先加入由 `__file__` 推导的工程根，再调用函数；之后才发现测试 | 不依赖测试文件字母排序，不靠先导入 S1 产生副作用 |
+| `scripts/run_tests.py` | （实际未创建）测试统一通过 `MYBLOG_ENV_FILE=.env.test` 配合 `manage.py test` 执行 | 直接依赖 `manage.py` 中调用的 `configure_app_imports()` |
 | `scripts/generate_qa_test_dataset.py` | 保留由 `__file__` 推导工程根的步骤，在 setup 前调用函数 | 只做语法与入口审查；脚本会清理/写入数据，不作为导入探针执行 |
 | `scripts/check_local_postgres.py` | 工程根进入路径后调用函数，再导入 base/home | 不改变既有连接授权；该脚本假定空库，不适合已建表库验收 |
 | 其他 `scripts/*.py` | 按是否导入项目逐一归类；纯基础设施脚本无须导入应用 | 每个脚本有明确结论，不能批量执行运维脚本做 smoke test |

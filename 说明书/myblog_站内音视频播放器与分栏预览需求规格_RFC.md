@@ -6,7 +6,7 @@
 
 作者写博客、指南或项目介绍时，可以像插入图片一样选择或上传 MP3、视频，并在右侧立即检查效果。读者看到统一的播放器。页面类型不需要分别写播放器。本期的「编辑」指调整素材与展示设置，不是剪辑、混音或转码。
 
-- **现有项目**：`CustomAudioBlock` 和 `CustomVideoBlock` 已在 `content_blocks` 公共积木集中。`media_library` 已提供 Wagtail 选择器和上传入口；正文播放目前使用原生 `<audio>`、`<video>`，由 `/media-gateway/` 交付。视频已有素材级封面字段；在文章里改预览不应修改全站共享封面。
+- **现有项目**：`CustomAudioBlock` 和 `CustomVideoBlock` 已在 `content_blocks` 公共积木集中。`media_library` 已提供 Wagtail 选择器和「上传并选用」入口；正文播放**已完成 Video.js 10 渐进增强，脚本加载或升级异常时自动降级保留原生 `<audio>`、`<video>`**，由 `/media-gateway/` 交付。视频已有素材级封面字段；在文章里改预览不应修改全站共享封面。
 - **旧项目 `wagtailblog2`**：文章模板从本机静态文件加载 Plyr，模板资源标注 `3.7.8`。音视频脚本各自管理同类播放器互斥、倍速与错误状态；视频还有全屏、画中画、放大与折叠。借鉴这些体验，不照搬博客专用脚本、存储地址或下载按钮。
 - **不改的部分**：第三方播放器仍由现有 `Embed` 管理；Spotify、网易云、Vimeo 等不换成站内播放器。Wagtail 草稿、发布、历史和回收规则不变。
 
@@ -37,7 +37,7 @@
 | **备选：Artplayer 视频 + APlayer 音频** | 各有浏览器可用的发布制品，适合明确需要播放器差异化或音乐歌单/歌词的项目；同时引入两个依赖，意味着维护两套控件、降级、权限接入和验收。首期不需要。 |
 | **参考：旧站 Plyr** | 上游现仅提供安全更新并推荐新项目采用 Video.js 10。复用旧站交互经验，不把 Plyr 加进新项目。 |
 
-预构建包应从官方发布渠道下载，实施时核对确切版本、包目录、许可证与校验值，再写入 `vendor.lock.json`。优先验证官方 npm 包能否由现有 `sync_vendor_assets.py` 直接恢复；保持所需入口与全部依赖的相对目录，避免只取入口。验证生产 `collectstatic` 后仍能解析所有模块，不为播放器关闭全站静态资源哈希。第三方产物只落在忽略目录 `myblog/static/vendor/`，运行时不请求公网 CDN，也不开启统计扩展。具体版本和同步规则以小样验证为准。
+当前已从官方 npm 归档锁定 **`@videojs/cdn@10.5.0`**（含 `audio.js`、`video.js`、`global.css`、`locales/zh-CN.js` 与相对导入分块，排除 `.map`/`.d.ts`/`.ts`/`.dev.*`），并写入 `myblog/static/vendor.lock.json` 由 `scripts/sync_vendor_assets.py` 校验恢复；生产 `collectstatic` 与隔离播放小样已验证可用，第三方产物仅落在忽略目录 `myblog/static/vendor/`，运行时不请求公网 CDN，也不开启统计扩展。
 
 参考资料：[Video.js 本地托管](https://videojs.org/docs/framework/html/guides/self-hosting)、[Plyr 官方仓库](https://github.com/sampotts/plyr)、[Artplayer 安装文档](https://artplayer.org/document/en/)、[APlayer 官方仓库](https://github.com/DIYgod/APlayer)、[Wagtail 8.1 自定义积木](https://docs.wagtail.org/en/stable/advanced_topics/customization/streamfield_blocks.html)。
 
@@ -49,4 +49,4 @@
 
 权限边界：网关按素材可见性鉴权。受限文件不能靠预览变公开；已经公开并被其他页面使用的共享素材，不因本次编辑被错误收回。播放、拖动和错误回退都继续通过现有网关；旧站直链和隐藏下载按钮都不能替代权限检查。
 
-**建议确认的范围**：采用 Video.js 10 预构建包；默认左侧表单、源码只读，右侧实时预览；先验收 MP3 和标准 MP4，字幕、歌词、转码与放大弹窗不列为首期功能。
+**已锁定实施范围**：采用已锁定的 **`@videojs/cdn@10.5.0`** 预构建包；默认左侧表单、源码只读，右侧实时预览；首期以 MP3 和标准 MP4 为验收基线，字幕、歌词、转码与放大弹窗不列为首期功能。

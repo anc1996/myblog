@@ -38,6 +38,35 @@ from .access import (
 from .models import Comment, CommentVersion, CommentReviewAction, PageCommentSettings
 from .services import CommentService
 
+
+def _get_comment_page_type_entries() -> list[dict[str, str]]:
+    """从 TypeAdapter 注册表动态收集支持评论的页面类型，零具体 Page 类硬编码。"""
+    from discovery.facets import get_type_display_label
+    from discovery.registry import list_type_adapters, resolve_adapter_model
+
+    preferred_order = {"blog_page": 0, "guide": 1, "project": 2}
+    entries: list[tuple[int, str, dict[str, str]]] = []
+    for adapter in list_type_adapters():
+        model_cls = resolve_adapter_model(adapter)
+        if model_cls is None or not getattr(model_cls, "supports_comments", False):
+            continue
+        tk = adapter.type_key
+        label = get_type_display_label(tk)
+        if label == tk:
+            label = str(getattr(model_cls._meta, "verbose_name", tk))
+        entries.append((
+            preferred_order.get(tk, 50),
+            tk,
+            {
+                "key": tk,
+                "label": label,
+                "app_label": model_cls._meta.app_label,
+                "model_name": model_cls._meta.model_name,
+            },
+        ))
+    entries.sort(key=lambda item: (item[0], item[1]))
+    return [item[2] for item in entries]
+
 logger = logging.getLogger(__name__)
 
 
@@ -106,12 +135,13 @@ class CommentIndexView(CommentViewPermissionMixin, generic.IndexView):
             "pending_version",
         )
         page_type = self.request.GET.get("page_type", "all")
-        if page_type == "blog_page":
-            qs = qs.filter(page__content_type__model="blogpage")
-        elif page_type == "guide":
-            qs = qs.filter(page__content_type__model="guidepage")
-        elif page_type == "project":
-            qs = qs.filter(page__content_type__model="projectpage")
+        type_entries = {e["key"]: e for e in _get_comment_page_type_entries()}
+        if page_type in type_entries:
+            entry = type_entries[page_type]
+            qs = qs.filter(
+                page__content_type__app_label=entry["app_label"],
+                page__content_type__model=entry["model_name"],
+            )
 
         page_id = self.request.GET.get("page_id")
         if page_id and page_id.isdigit():
@@ -143,20 +173,36 @@ class CommentIndexView(CommentViewPermissionMixin, generic.IndexView):
         context["current_ip"] = self.request.GET.get("ip", "")
         context["current_status"] = self.request.GET.get("status", "")
         context["current_pending_queue"] = self.request.GET.get("pending_queue") == "1"
-        agg = base_qs.aggregate(
-            all=Count("id"),
-            blog_page=Count("id", filter=Q(page__content_type__model="blogpage")),
-            guide=Count("id", filter=Q(page__content_type__model="guidepage")),
-            project=Count("id", filter=Q(page__content_type__model="projectpage")),
-            pending=Count("id", filter=Q(pending_version__isnull=False) | Q(status="pending")),
-        )
-        context["tab_counts"] = {
+        type_entries = _get_comment_page_type_entries()
+        agg_kwargs = {
+            "all": Count("id"),
+            "pending": Count("id", filter=Q(pending_version__isnull=False) | Q(status="pending")),
+        }
+        for entry in type_entries:
+            agg_kwargs[f"ct_{entry['key']}"] = Count(
+                "id",
+                filter=Q(
+                    page__content_type__app_label=entry["app_label"],
+                    page__content_type__model=entry["model_name"],
+                ),
+            )
+        agg = base_qs.aggregate(**agg_kwargs)
+        tab_counts = {
             "all": agg["all"] or 0,
-            "blog_page": agg["blog_page"] or 0,
-            "guide": agg["guide"] or 0,
-            "project": agg["project"] or 0,
             "pending": agg["pending"] or 0,
         }
+        page_type_tabs = []
+        for entry in type_entries:
+            cnt = agg.get(f"ct_{entry['key']}") or 0
+            tab_counts[entry["key"]] = cnt
+            page_type_tabs.append({
+                "key": entry["key"],
+                "label": entry["label"],
+                "count": cnt,
+                "is_active": context["current_page_type"] == entry["key"],
+            })
+        context["tab_counts"] = tab_counts
+        context["page_type_tabs"] = page_type_tabs
         return context
 
 

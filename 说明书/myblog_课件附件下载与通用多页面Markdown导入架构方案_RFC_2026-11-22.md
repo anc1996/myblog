@@ -1,6 +1,6 @@
 # 课件附件下载增强与通用多页面 Markdown 导入系统（含 10 万字超长文 AI 元数据引擎）架构与实现方案 RFC
 
-> **版本状态**：第一～三批功能已全部实现（2026-11-22），并通过 Sol 设计、Argon 生命周期审查、Terra 独立安全反例审查修复，以及自动隔离测试库 108 项单元与集成回归测试验证。
+> **版本状态**：第一～三批功能已全部实现（2026-11-22），并通过 Sol 设计、Argon 生命周期审查、Terra 独立安全反例审查修复，以及自动隔离测试库回归验证（2026-11-22 交付快照为 108 项通过；后续随站点演进，对应 17 份测试文件现含 110 项用例）。
 
 ---
 
@@ -32,7 +32,7 @@
 - **HTML 净化与公共积木**（[sanitizer.py](../myblog/apps/content_blocks/sanitizer.py)、[media.py](../myblog/apps/content_blocks/blocks/media.py)）：
   - 净化器对 `<a>` 放行 `"download"` 与 `"class"`，并通过结构化 `HTMLParser` 二次过滤，**仅保留站内 `/media-gateway/document/<UUID>/` 链接的 `download` 属性与 `doc-download-link` 样式**。
   - `CustomDocumentBlock` 展示格式徽标（如 `MD`、`ZIP`、`PDF`）与本地读取的文件大小（不请求对象存储）；新增 `CustomAttachmentListBlock`（`heading` + `items: ListBlock`），逐项按 `{path}.items.{idx}.document` 登记 `MediaReferenceRecord`。
-- 已将其加入 `get_common_stream_blocks()` 与 `PortfolioStreamBlock`（补齐 `document`/`audio`/`embed`/`attachment_list`），并已生成 `blog.0003`、`guides.0003`、`portfolio.0003` 迁移。
+- 已将其加入 `get_common_stream_blocks()` 与 `PortfolioStreamBlock`（补齐 `document`/`audio`/`embed`/`attachment_list`），当时已生成 `blog.0003`、`guides.0003`、`portfolio.0003` 迁移（三类页面后续又随主题系统 `CustomMermaidBlock` 更新演进至 `0004`）。
 
 ### 2.2 通用多页面导入框架与 Wagtail 8.1 生命周期加固
 
@@ -68,12 +68,11 @@
 
 ## 三、 已完成验证
 
-1. **离线与集成测试（隔离测试库 `test_myblog`）**：`tests.test_markdown_import_integration`、`tests.test_markdown_import_parser`、`tests.test_markdown_import_ai`、`tests.test_document_download_and_sanitizer`、`tests.test_s3_blocks` 及全站既有核心回归（`test_guides`、`test_portfolio`、`test_author_isolation`、`test_lifecycle_and_argon_fixes`、`test_s5_blog_models`、`test_s6_mongo_revision`、`test_s8_recycle_restore`、`test_p1_content_enhancements`、`test_admin_split_editors`、`test_embeds_and_av_uploads`、`test_vendor_sync`、`test_embed_playback`）共 **108 项全部通过**。
+1. **离线与集成测试（隔离测试库 `test_myblog`）**：`tests.test_markdown_import_integration`、`tests.test_markdown_import_parser`、`tests.test_markdown_import_ai`、`tests.test_document_download_and_sanitizer`、`tests.test_s3_blocks` 及全站既有核心回归（`test_guides`、`test_portfolio`、`test_author_isolation`、`test_lifecycle_and_argon_fixes`、`test_s5_blog_models`、`test_s6_mongo_revision`、`test_s8_recycle_restore`、`test_p1_content_enhancements`、`test_admin_split_editors`、`test_embeds_and_av_uploads`、`test_vendor_sync`、`test_embed_playback`）在 2026-11-22 快照 **108 项全部通过**（上述 17 份测试文件现行共含 110 项用例）。
 2. **系统检查**：`manage.py check` 无问题；`manage.py makemigrations --check --dry-run` 无未生成迁移；`git diff --check` 通过。
 
 ---
 
 ## 四、 还没解决与待实测项
 
-- 若后续在本地开发库（`.env.local`）启动服务体验新界面，需按授权在该库执行 `migrate` 并视需求启动测试服务。
 - 桌面 Tkinter GUI 窗口实操、后台界面上传 `.md`/50 MiB `.zip` 浏览器实操、生产环境 Nginx `X-Accel-Redirect` 最终响应头及真实外部大模型网关调用尚未在真实生产/桌面图形界面联合实测。

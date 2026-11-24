@@ -4,7 +4,7 @@
 |---|---|
 | **Subsystem Identifier** | `discovery.search` Hybrid Full-Text & Faceted Search Engine |
 | **Document Classification** | Google Engineering Architecture RFC / Production Specification |
-| **System Status** | **Production Ready** (96 Unit/Integration Tests PASS + 36 Wagtail Lifecycle Audits PASS) |
+| **System Status** | **Implemented & Verified** (已扩展支持多维作者/日期筛选与混合分页；全站现有 54 份 `tests/test_*.py` 测试模块，早期“96 项单测 + 36 项演练”为第一阶段历史基线) |
 | **Core Algorithms** | SEARCH-CHUNK-02 (256-Overlap Raw + Non-Overlap GIN), SEARCH-MODE-02 (Dual-Mode A/B Fallback) |
 | **Transaction Model** | MVCC Single-Snapshot `REPEATABLE READ READ ONLY` (Zero Ghost/Skew Reads) |
 | **Cache & Invalidation** | `ContentDiscoveryEpoch` Atomic Invalidation + RECYCLE-DISCOVERY-02 Auto-Reset Cursor |
@@ -92,13 +92,24 @@ flowchart TD
   - 当模式 A 命中数处于 `1 ~ 4` 条时，API 返回 `secondary_expansion_available=True`，前端界面底部渲染“展开包含相关分词的更多结果（模式 B）”按钮。
 
 ### 3.2 单快照只读事务 (REPEATABLE READ READ ONLY)
-- `ContentQuery.execute()` 核心执行块：
+- `ContentQuery.execute()` 核心执行块（必须在进入 `atomic()` 之前先判断 `not connection.in_atomic_block` 并处理 `TestCase` / 嵌套快照状态机，不可进入 `atomic()` 后再判断）：
   ```python
-  with transaction.atomic():
-      if connection.vendor == "postgresql" and not connection.in_atomic_block:
+  is_outer_testcase = False
+  if connection.in_atomic_block:
+      if all(getattr(b, "_from_testcase", False) for b in connection.atomic_blocks):
+          is_outer_testcase = True
+      elif getattr(connection, "_in_discovery_snapshot", False):
+          pass
+      else:
+          raise RuntimeError("ContentQuery cannot be called inside a foreign read-write atomic transaction block.")
+
+  should_manage_atomic = not connection.in_atomic_block
+  atomic_ctx = transaction.atomic() if should_manage_atomic else transaction.atomic(savepoint=is_outer_testcase)
+
+  with atomic_ctx:
+      if connection.vendor == "postgresql" and should_manage_atomic and not is_outer_testcase:
           with connection.cursor() as cur:
-              cur.execute("SET LOCAL TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;")
-      current_epoch = ContentDiscoveryEpoch.get_current_epoch_readonly()
+              cur.execute("SET LOCAL TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY; SET LOCAL statement_timeout = '2000ms';")
       # 执行查询、精确 Count 与 Facets 分桶聚合，严格基于同一 MVCC 快照
   ```
 - 杜绝传统 `READ COMMITTED` 隔离级别下，先查 Count 再查 Page 发生数据并发插入/删除导致的总数不匹配。
@@ -121,46 +132,61 @@ flowchart TD
 ## 5. 生产接口契约与数据结构 (API Specifications)
 
 ### 5.1 检索接口：`GET /api/v1/search/`
-- **限流策略**：60 次/分钟/IP（Redis 滑动窗口）。
+- **限流策略**：`myblog/apps/api/views.py:search_api` 挂载 `@ratelimit_api(scope="search", max_requests=60, window_seconds=60)`（Redis 故障时 Fail-Open 放行；前台网页路由 `/search/` 当前未挂载 `@ratelimit_api`）。
 - **查询参数 (QuerySpec)**：
   | 参数 | 类型 | 必填 | 默认值 | 说明 |
   |---|---|---|---|---|
-  | `q` | string | 否 | `""` | 搜索关键词 |
-  | `type` | string | 否 | `None` | 内容类型（如 `blog`, `guide`） |
-  | `tag` | string | 否 | `None` | 标签 slug 过滤 |
+  | `query` | string | 否 | `""` | 搜索关键词（注意接口参数名为 `query`，非 `q`） |
+  | `type` | string | 否 | `None` | 内部内容类型 `type_key`（如 `blog_page`、`guide`、`project`） |
+  | `tag` | int | 否 | `None` | 数字标签 ID（非字符串 slug，内部以 `isdigit()` 解析） |
   | `year` | int | 否 | `None` | 成文年份过滤 |
   | `month` | int | 否 | `None` | 成月份过滤（需搭配 year） |
-  | `cursor` | string | 否 | `None` | 翻页游标 |
+  | `cursor` | string | 否 | `None` | 翻页游标（未传时支持 `page` 参数自动折算 offset 游标） |
+  | `page_size` | int | 否 | `10` | 每页条数（上限 50） |
   | `secondary` | string | 否 | `"none"` | `"words"` 强制触发模式 B 手动展开 |
-- **响应载荷结构 (JSON)**：
+  | `expand` | string | 否 | `"auto"` | 控制模式 C 扩展（`auto` / `off` / `on`） |
+- **实际顶层响应结构 (JSON，无额外 `data` 嵌套层)**：
   ```json
   {
     "status": "success",
     "epoch": 28,
+    "query": "PostgreSQL",
+    "total_count": 42,
+    "page_size": 10,
+    "next_cursor": "ZXBvY2g9Mjgmb2Zmc2V0PTEw",
     "cursor_reset": false,
-    "next_cursor": "ZXBvY2g9Mjgmb2Zmc2V0PTIw",
-    "data": {
-      "total_count": 42,
-      "match_mode": "A",
-      "secondary_expansion_available": true,
-      "items": [
-        {
-          "page_id": 215,
-          "title": "PostgreSQL 18 存储引擎与事务隔离全景解析",
-          "url": "/tech/postgresql-18-architecture/",
-          "authored_on": "2026-11-01",
-          "summary": "PostgreSQL 18 是关系数据库领域的标杆之作...",
-          "tags": [{"id": 1, "name": "PostgreSQL", "slug": "postgresql"}]
-        }
-      ],
-      "facets": {
-        "types": [{"key": "blog", "label": "博客文章", "count": 30}],
-        "tags": [{"key": "postgresql", "label": "PostgreSQL", "count": 15}],
-        "years": [{"key": "2026", "label": "2026年", "count": 42}]
+    "expansion_used": false,
+    "secondary_used": false,
+    "show_expand_button": true,
+    "items": [
+      {
+        "id": 215,
+        "title": "PostgreSQL 18 存储引擎与事务隔离全景解析",
+        "url": "/tech/postgresql-18-architecture/",
+        "authored_on": "2026-11-01",
+        "type_key": "blog_page",
+        "summary": "PostgreSQL 18 是关系数据库领域的标杆之作...",
+        "match_mode": "A",
+        "highlights": ["..."],
+        "tags": [{"id": 1, "name": "PostgreSQL", "slug": "postgresql"}]
       }
-    }
+    ],
+    "facets": {
+      "types": [{"key": "blog_page", "label": "博客文章", "count": 30}],
+      "tags": [{"id": 1, "name": "PostgreSQL", "slug": "postgresql", "count": 15}],
+      "years": [{"year": 2026, "count": 42}]
+    },
+    "archive_groups": []
   }
   ```
+
+### 5.2 前台全站搜索页：`GET /search/` (`myblog/apps/search/views.py`)
+- 支持首屏 SSR 与 AJAX 局部刷新（`X-Listing-Response: fragment-v1` / `XMLHttpRequest` / `format=partial`），当前未挂载 `@ratelimit_api`。
+- 相比 `/api/v1/search/`，`/search/` 已进一步扩展支持：
+  - **搜索范围与多标签**：`query`（兼容 `q`）、`title_only`（`0`/`1` 仅搜标题）、多选 `tag`（支持数字 ID 或 slug/名称，多值重复或逗号分隔）；
+  - **多维作者筛选**：多选 `author`（规范作者 slug，最多 10 位）、`author_role`（`major` / `co_author` / `other_contrib`，受 `AUTHOR_DISCOVERY_ENABLED` 控制）；
+  - **时间快捷窗与精确区间**：`days`（`7` / `30` / `365`）、`date_from` / `date_to`（ISO 日期）、`year` / `month`、`sort`（`relevance` / `authored_desc` / `authored_asc`）；
+  - **混合分页与真双向游标**：支持 `v2:` 签名 Keyset 游标（兼容旧 Base64 offset 游标）、有界浅页直跳（`page`，超限返回 HTTP 422）、`seek_date` 与 `seek_direction="oldest"`。
 
 ---
 
@@ -168,6 +194,7 @@ flowchart TD
 
 | 验证项 | 验证命令与范围 | 实测结果 | 生产结论 |
 |---|---|---|---|
-| **搜索与分词单元测试** | `python -m unittest tests/test_s9_search.py` | 13 项测试全部 PASS (1.82s) | **完全合规** |
-| **搜索 RESTful API 验证** | `python -m unittest tests/test_api_v1.py` | 游标翻页、Epoch 失效、限流 100% 通过 | **完全合规** |
-| **全站自动化测试套件** | `python -m unittest discover -s tests` | **96 项全量测试 100% PASS (28.6s)** | **稳定就绪** |
+| **搜索与分词专项测试** | `tests/test_s9_search.py` | 早期 13 项基线通过；后续随通用发现演进持续扩充 | **核心能力已落地** |
+| **搜索 RESTful API 测试** | `tests/test_api_v1.py` | 覆盖 `/api/v1/search/` 游标翻页、Epoch 缓存失效与限流 | **核心能力已落地** |
+| **作者筛选与混合分页测试** | `tests/test_author_discovery.py`、`tests/test_pagination_and_calendar_archive.py` | 覆盖 `/search/` 多选作者、角色、`days`、`date_from/to`、`title_only` 与 `v2:` Keyset 游标 | **扩展能力已落地** |
+| **全站测试套件规模注记** | `tests/test_*.py` | 早期“96 项测试 PASS”为第一阶段历史基线记录；当前 `tests/` 已扩充至 54 份 `test_*.py` 模块（本轮仅作文档同步，未重跑全量测试） | **历史基线已标注** |

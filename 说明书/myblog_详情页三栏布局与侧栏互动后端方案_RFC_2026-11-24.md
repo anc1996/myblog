@@ -1,6 +1,6 @@
 # myblog 详情页三栏布局与侧栏互动后端方案（RFC）
 
-- **状态**：**Phase A 与 Phase B 均已编码落地，开发库 `.env.local` 已完成 `site_settings.0003` 与 `people.0006` 迁移，并通过 50 项隔离库回归测试及 Playwright 多视口（1440px / 1280px / 1024px / 375px）浅深色真实浏览器核验**（注：「作者发言」Tab 已通过 5 组隔离反例测试，开发库默认保持 `show_public_comments=False` 未开启）。
+- **状态**：**Phase A 与 Phase B 均已编码落地（核心实现提交 `691f375` 并完成全屏 `1800px` 容器排版与右侧栏去双滚动条优化），开发库 `.env.local` 已完成 `site_settings.0003` 与 `people.0006` 迁移，并通过 Phase A/B 专项 9 项（`4 + 5`）及详情/解耦/主题/分析/作者组合测试共 50 项隔离库回归与 Playwright 多视口（1440px / 1280px / 1024px / 375px）浅深色真实浏览器核验**（注：「作者发言」Tab 已通过 5 组隔离反例测试，开发库默认保持 `show_public_comments=False` 未开启）。
 - **日期**：2026-11-24
 - **适用范围**：全站所有继承 `detail_shell.html` 的内容详情页（现有 `BlogPage`、`GuidePage`、`ProjectPage` 及未来新增的任意 `XxPage`）。
 - **遵循规范**：严格遵守 `AGENTS.md` 中的四层解耦原则（共享层零具体页面模型导入）、YAGNI 克制原则（不加新库/队列/冗余缓存）与前端样式红线（零模板内联 `style=`、零业务 CSS 裸 `#hex`）。
@@ -28,19 +28,20 @@
 - **左侧固定栏**：可折叠树形目录大纲（`detail-toc-aside`，宽 `240px`，收起态 `56px`）；
 - **右侧固定栏（`310px`）**：依次放置「作者名片卡（Phase B）」「本文标签卡（Phase A）」「站点公告 / 同栏推荐（Phase A）」。
 
-### 2.1 三栏与窄屏网格拓扑（解决移动端评论顺序陷阱）
+### 2.1 三栏与窄屏网格拓扑（解决移动端评论顺序陷阱与右栏双滚动条）
 
-为避免手机/平板下侧栏卡片被压到几十条评论之后，且不复制两份标签/作者 HTML，将 `.detail-comments-wrap` 从 `<article class="detail-main">` 内部提升为 `.detail-shell` 的独立 Grid 区域（`grid-template-areas`）：
+为避免手机/平板下侧栏卡片被压到几十条评论之后，且不复制两份标签/作者 HTML，将 `.detail-comments-wrap` 从 `<article class="detail-main">` 内部提升为 `.detail-shell` 的独立 Grid 区域（`grid-template-areas`）；桌面宽屏容器最终放宽至 `min(1800px, calc(100vw - 48px))` 充分适配全屏宽屏，并将 `.detail-right-aside` 收口为 `position: static` 随主文档自然流展平（去除右侧栏内部嵌套滚动条，避免页面出现双滚动条）：
 
 ```text
-【桌面宽屏 >= 1280px】容器 max-width: min(1480px, calc(100vw - 40px))
+【桌面宽屏 >= 1280px】容器 max-width: min(1800px, calc(100vw - 48px))
 +-------------+------------------------------+--------------------+
 |  左栏 TOC   |  中间正文 (.detail-main)     |  右栏 (.detail-    |
 |   240px     |  面包屑/标题/正文/四档评价/  |  right-aside)      |
-|  (可收起    |  上一篇·下一篇               |   310px (sticky)   |
-|   至 56px)  +------------------------------+  - 作者名片(Ph B)  |
-|  (sticky)   |  评论区 (.detail-comments)   |  - 本文标签卡      |
-|             |  (与正文左对齐、同宽)        |  - 公告/同栏推荐   |
+|  (可收起    |  上一篇·下一篇               |   310px (static,   |
+|   至 56px)  +------------------------------+   无内部双滚动条)  |
+|  (sticky)   |  评论区 (.detail-comments)   |  - 作者名片(Ph B)  |
+|             |  (与正文左对齐、同宽)        |  - 本文标签卡      |
+|             |                              |  - 公告/同栏推荐   |
 +-------------+------------------------------+--------------------+
 
 【中等屏 1025px – 1279px】两栏（左 TOC + 右主列）
@@ -63,7 +64,7 @@
 
 ### 2.3 顶部导航与样式红线
 
-- `myblog/static/css/myblog.css`：将 `.site-nav-container` 最大宽度同步放宽至 `min(1480px, calc(100vw - 40px))`，为 `.site-nav .nav-link`、`button` 与 `.site-brand` 增加 `white-space: nowrap; flex-shrink: 0;`，防止中等宽屏下导航文字竖向折行。
+- `myblog/static/css/myblog.css`：将 `.site-nav-container` 与 `.site-footer-container` 最大宽度同步放宽至 `min(1800px, calc(100vw - 48px))`，为 `.site-nav .nav-link`、`button` 与 `.site-brand` 增加 `white-space: nowrap; flex-shrink: 0;`，防止中等宽屏下导航文字竖向折行。
 - 严禁在模板新增内联 `style=`；新增 CSS 全部引用 `myblog/static/css/themes/tokens.css` 语义变量（如 `--color-surface`、`--color-border`、`--color-primary-soft`、`--cal-heat-1..4`），并顺手把 `detail-layout.css`（`.detail-badge.is-topic` / `.is-status` / `.tutorial-lead-card .lead-title`）与 `myblog.css`（`.nav-badge`）中残留的旧裸 `#hex` 替换为语义变量。
 
 ---
@@ -103,7 +104,7 @@
   - 文章无标签时不渲染标签卡，不留空盒子。
 
 #### A3. 「站点公告」与「同栏推荐」互斥槽位（新增 1 张最小设置表）
-- **新模型 `SiteAnnouncementSettings`**（`myblog/apps/site_settings/models.py`，下一次迁移 `site_settings.0003`）：
+- **新模型 `SiteAnnouncementSettings`**（`myblog/apps/site_settings/models.py`，已通过迁移 `site_settings.0003_siteannouncementsettings` 落地）：
   - **直接继承 Wagtail 原生 `wagtail.contrib.settings.models.BaseSiteSetting`**（按站点隔离，**绝不继承**项目里会递增 `ContentDiscoveryEpoch` 且全局共用的自定义 `BaseSiteSetting`）；
   - 最小字段：
     - `is_enabled`（`BooleanField(default=False)`，默认关闭）
@@ -143,7 +144,7 @@
 - **克制边界**：首版不关联 `PageAnalyticsTotal` 或文章评分表，避免新站冷启动无数据或意外泄露未公开统计。
 
 #### B4. `作者发言` Tab（`people.Person` 新增 1 个布尔字段）
-- **最小模型改动**（`myblog/apps/people/models.py`，下一次迁移 `people.0006`）：
+- **最小模型改动**（`myblog/apps/people/models.py`，已通过迁移 `people.0006_person_show_public_comments` 落地）：
   - 新增 `show_public_comments = models.BooleanField(default=False, verbose_name="允许在作者名片公开聚合历史评论", help_text="仅对已绑定后台账号的非佚名作者生效；开启后将聚合该账号在公开页面下仍公开可见的历史评论。")`；
   - 权限与不变量（写入 `Person.clean()` 与 `Person.save()`）：
     1. 面板配置为 `FieldPanel("show_public_comments", permission="identity.change_user")`；
@@ -165,42 +166,41 @@
 
 ---
 
-## 四、 分批实施清单（供 `gemini-4-hydrogen` 执行）
+## 四、 分批实施记录（已完成落地）
 
 ### Phase A：三栏自适应布局 + 导航防换行 + 上下篇 + 标签卡 + 公告/同栏推荐
-- **修改/新增文件**：
-  1. `myblog/apps/site_settings/models.py` + `migrations/0003_siteannouncementsettings.py`（新增 `SiteAnnouncementSettings` 逐站只读设置模型）；
-  2. `myblog/apps/discovery/detail_navigation.py`（新增：同父栏目且仅详情类型的上下篇与同栏/同标签推荐只读服务）；
-  3. `myblog/apps/content_blocks/rendering/detail.py`（修复 `_resolve_tag_index_page` 站点与公开资格安检，组装 `prev_page / next_page / announcement / recommendations / has_right_sidebar`）；
-  4. `myblog/templates/detail/detail_shell.html` 及新增片段 `_detail_prev_next.html`、`_detail_right_sidebar.html`（调整 `.detail-comments-wrap` 网格区域，保留唯一 `analytics_rating_widget` 实例）；
-  5. `myblog/static/css/myblog.css`、`myblog/static/css/detail-layout.css`（放宽容器、导航防换行、四态三栏网格与窄屏顺序、清理旧裸 `#hex`）；
-  6. `tests/test_detail_phase_a_sidebar.py`（新增定向回归测试）。
-- **迁移授权**：生成 `site_settings.0003` 后，按 `AGENTS.md` 规范在开发库 `.env.local` 执行 `migrate` 前向用户确认。
+- **已修改/新增文件（基线 `691f375` + 后续 `1800px` 宽屏与右栏去双滚动条优化）**：
+  1. `myblog/apps/site_settings/models.py` + `migrations/0003_siteannouncementsettings.py`（已新增 `SiteAnnouncementSettings` 逐站只读设置模型并在 `.env.local` 完成迁移）；
+  2. `myblog/apps/discovery/detail_navigation.py`（已新增：同父栏目且仅详情类型的上下篇与同栏/同标签推荐只读服务）；
+  3. `myblog/apps/content_blocks/rendering/detail.py`（已修复 `_resolve_tag_index_page` 站点与公开资格安检，组装 `prev_page / next_page / announcement / recommendations / has_right_sidebar`）；
+  4. `myblog/templates/detail/detail_shell.html` 及新增片段 `_detail_prev_next.html`、`_detail_right_sidebar.html`（已调整 `.detail-comments-wrap` 网格区域，保留唯一 `analytics_rating_widget` 实例）；
+  5. `myblog/static/css/myblog.css`、`myblog/static/css/detail-layout.css`（已放宽容器至 `1800px`、导航防换行、四态三栏网格、右栏 `static` 去双滚动条、窄屏顺序调整并清理旧裸 `#hex`）；
+  6. `tests/test_detail_phase_a_sidebar.py`（已新增 4 项定向回归测试并全部通过）。
 
 ### Phase B：作者名片卡 + 本月热力图 + `作者好文 / 作者发言` Tab
-- **修改/新增文件**：
-  1. `myblog/apps/people/models.py` + `migrations/0006_person_show_public_comments.py`（新增 `show_public_comments` 字段与换绑/解绑自动归零不变量）；
-  2. `myblog/apps/comments/services.py`（新增 `get_public_comments_for_user` 严格线程/站点/祖先权限过滤与 `approved_version.safe_html` 纯文本截断）；
-  3. `myblog/apps/people/sidebar.py`（新增：主笔名片、合作者徽章、本月 SQL 热力图与最近 5 篇跨类型好文）；
-  4. `myblog/apps/content_blocks/rendering/detail.py`、`myblog/templates/detail/_detail_author_card.html`、`myblog/templates/detail/_detail_right_sidebar.html`、`myblog/static/css/detail-layout.css`（Tab 切换复用 Alpine.js 或极简无障碍按钮，零内联 `style=`、热力格复用 `--cal-heat-1..4`）；
-  5. `tests/test_detail_phase_b_author_card.py`（新增定向回归测试）。
+- **已修改/新增文件**：
+  1. `myblog/apps/people/models.py` + `migrations/0006_person_show_public_comments.py`（已新增 `show_public_comments` 字段与换绑/解绑自动归零不变量并在 `.env.local` 完成迁移）；
+  2. `myblog/apps/comments/services.py`（已新增 `get_public_comments_for_user` 严格线程/站点/祖先权限过滤与 `approved_version.safe_html` 纯文本截断）；
+  3. `myblog/apps/people/sidebar.py`（已新增：主笔名片、合作者徽章、本月 SQL 热力图与最近 5 篇跨类型好文）；
+  4. `myblog/apps/content_blocks/rendering/detail.py`、`myblog/templates/detail/_detail_author_card.html`、`myblog/templates/detail/_detail_right_sidebar.html`、`myblog/static/css/detail-layout.css`（已完成无障碍 Tab 切换，零内联 `style=`、热力格复用 `--cal-heat-1..4`）；
+  5. `tests/test_detail_phase_b_author_card.py`（已新增 5 项定向回归测试并全部通过）。
 
 ---
 
 ## 五、 怎么验证（验收标准）
 
-### 5.1 自动化测试门禁（WSL2 `wagtailblog-test` 环境）
+### 5.1 自动化测试门禁（WSL2 `wagtailblog-test` 环境；Phase A/B 专项 9 项 + 关联全站组合测试共 50 项通过）
 1. **架构与静态守卫**：
    - `tests/test_shared_layer_decoupling.py`（确认共享层 0 具体 Page 导入）；
    - `tests/test_theme_system_stage2.py`、`tests/test_theme_system_stage3.py`（确认零内联 `style=`、零裸 `#hex`）；
    - `MYBLOG_ENV_FILE=.env.test /root/anaconda3/envs/wagtailblog-test/bin/python -B manage.py check` 与 `makemigrations --check --dry-run`。
-2. **Phase A 必测用例**：
+2. **Phase A 必测用例（`tests/test_detail_phase_a_sidebar.py` 4 项 + `tests/test_detail_shell_and_toc.py`）**：
    - 上下篇同日 `authored_on` 按 `page_id` 稳定打破平局，首尾缺项隐藏；
    - 同级存在 `BlogIndexPage` / `GuideIndexPage` / `TagIndexPage` 时**绝不**混入上下篇或推荐；
    - 跨站移动子树（即使 `PublishedSearchDocument.site_id` 未同步）、受 `PageViewRestriction` 限制、已回收或未来成文日期文章均被拦截；
    - 公告空表 GET **零写入**，起止时间 `[starts_at, ends_at)` 边界生效，失效站内页与非 `https://` 外链降级为纯文本，公告有效时隐藏推荐、关闭时展示去重后的同栏/同标签推荐；
    - 标签卡本站无公开 `TagIndexPage` 时降级纯文本且不跨站泄漏；预览态跳过全部动态侧栏查询。
-3. **Phase B 必测用例**：
+3. **Phase B 必测用例（`tests/test_detail_phase_b_author_card.py` 5 项 + 作者/分析回归组合）**：
    - 佚名与未绑定账号表现正确；`linked_user` 变更/解绑后 `show_public_comments` 自动归零；停用账号隐藏核验徽章；
    - 本月热力图跨月界、排除审校与未来日期、同日多篇聚合准确；
    - `作者发言` 必测 4 类防漏反例：① 管理员隐藏根评论后其子回复**不可见**；② 待审编辑版本 V2 **绝不覆盖**已批准 V1 摘要（不读 `content_snippet`）；③ 祖先回收/受限页面评论**不可见**；④ 未开启 `show_public_comments` 时即使已绑定 `linked_user` 也不展示发言 Tab。

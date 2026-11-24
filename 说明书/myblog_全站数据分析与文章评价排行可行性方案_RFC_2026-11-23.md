@@ -63,23 +63,23 @@ class AnalyticsCapabilities:
 
 ---
 
-## 3. PostgreSQL 数据模型（10 张核心分析表 + 3 张配置/操作/导出审计表，共 13 个模型）
+## 3. PostgreSQL 数据模型（10 张核心业务表 + 3 张配置/审计表 = 13 个模型）
 
-> **实现补充说明（2026-11-24 核对）**：除下表列出的 10 张核心分析表外，`myblog/apps/analytics/models.py` 已随第 2–3 期实现补充了 `AnalyticsSettings`（后台可配冷启动/豁免阈值）、`CuratedRecommendationAction`（精选操作流水）与 `AnalyticsExportAudit`（导出审计记录），共 13 个模型。
+> **实现补充说明（2026-11-24 核对）**：`myblog/apps/analytics/models.py` 共包含 13 个模型，分为 **10 张核心业务表**（第 1 期 4 张：`PageAnalyticsDaily`、`PageAnalyticsTotal`、`ScopeAnalyticsDaily`、`AnalyticsBatchReceipt`；第 2 期 6 张：`ArticleRating`、`ArticleRatingAggregate`、`ArticleRatingReceipt`、`CuratedRecommendation`、`AnalyticsAlert`、`RankingSnapshot`）与 **3 张配置/审计表**（`AnalyticsSettings` 站点开关配置、`CuratedRecommendationAction` 精选审批操作审计流水、`AnalyticsExportAudit` 受控 CSV 导出审计留痕）。
 
-为避免表结构过度碎片化，全部需求收敛为 **第 1 期 5 张核心表 + 第 2 期 5 张核心表**（均用非负整数计数，带 `CheckConstraint` 防止负数漂移；所有页面级表使用真实 `ForeignKey(Page, on_delete=models.CASCADE)`）。
+为避免表结构过度碎片化，核心业务数据模型保持上述 10 张业务表 + 3 张配置/审计表的收敛结构（计数均用非负整数，带 `CheckConstraint` 防止负数漂移；所有页面级表使用真实 `ForeignKey(Page, on_delete=models.CASCADE)`）。
 
-### 第 1 期：流量采集与基础报表（5 张表）
+### 第 1 期：流量采集与基础报表（1 张站点配置表 + 4 张核心业务表）
 
 | 模型名 | 核心字段与唯一约束 | 作用说明 |
 | --- | --- | --- |
-| `AnalyticsSettings` | Wagtail `BaseSiteSetting`（每站点 1 行）：`collection_enabled`、`public_pv_display_enabled`（默认 False）、`rating_enabled`、`ranking_enabled`、`min_rating_votes`（默认 20）、`observe_rating_votes`（默认 5）、`high_pv_min`（默认 300）、`min_healthy_days_in_30d`（默认 25） | 站点级总开关与冷启动可调参数，避免写死常数 |
+| `AnalyticsSettings` | Wagtail `BaseSiteSetting`（每站点 1 行）：`collection_enabled`、`public_pv_display_enabled`（**`default=True`，`analytics.0002`**，支持后台一键关闭）、`rating_enabled`、`ranking_enabled`、`min_rating_votes`（默认 20）、`observe_rating_votes`（默认 5）、`high_pv_min`（默认 300）、`min_healthy_days_in_30d`（默认 25） | 站点级总开关与冷启动可调参数，避免写死常数 |
 | `PageAnalyticsDaily` | 唯一 `(site, page, stat_date, live_revision_id)`：`type_key`、`column_page_id`（记录当时所属栏目）、`pv`、`daily_uv`、`measurable_views`、`valid_views`、`completed_views`、`short_bounce_views`、`total_active_seconds`、`organic_pv`（剔除精选/榜单导流）、`conversions_json`（有限类型转化计数）、`health_status`（`normal / partial / missing`） | 单页按日按版本明细（保留 13 个月）；`page` 用 `CASCADE` 随 Purge 自动清理 |
 | `PageAnalyticsTotal` | 唯一 `(site, page)`：`total_pv`、`total_visitor_days`（每日 UV 之和，明确不是跨日独立人数）、`total_valid_views`、`total_completed_views`、`last_settled_date`、`updated_at` | 页面累计总表（保留至 Purge）；查询卡片直接读此表，零 N+1 |
 | `ScopeAnalyticsDaily` | 唯一 `(site, stat_date, scope_kind, scope_key)`（`scope_kind` 为 `site / type / entry / column / safe_search_term`）：`pv`、`daily_uv`、`entry_clicks`、`health_status` | 存放全站、分类型、入口导流和命中安全词表的热门/无结果搜索词计数；**不含 `page_id`**，历史站点总量不会泄露已 Purge 页面 |
 | `AnalyticsBatchReceipt` | 唯一 `batch_id`：`payload_hash`、`batch_kind`（`pv_reading / daily_uv`）、`settled_at`、`expires_at`（保留 7 天） | 批次幂等收据表（防止 worker 重试或 Redis ACK 丢失导致重复记账） |
 
-### 第 2 期：四档评价、降噪告警与精选投放（5 张表）
+### 第 2 期：四档评价、降噪告警与精选投放（6 张核心业务表 + 1 张审批流水审计表；第 3 期另增 `AnalyticsExportAudit`）
 
 | 模型名 | 核心字段与唯一约束 | 作用说明 |
 | --- | --- | --- |
@@ -119,7 +119,7 @@ class AnalyticsCapabilities:
    - 在**单个短 SQL 事务**内：先插 `AnalyticsBatchReceipt(batch_id, payload_hash)`，再按 `page_id` 升序增量更新 `PageAnalyticsDaily` 与 `PageAnalyticsTotal`（不锁全站，只更新本批涉及的行）；
    - **SQL 事务提交成功后**，才删除 Redis 中的冻结键 `analytics:sealed:{batch_id}`。如果提交后删除失败，下次重跑会因 `AnalyticsBatchReceipt` 命中而直接跳过并补删 Redis 键，保证精确一次入库。
 2. **日 UV 补跑封账（48 小时窗口内任意时间可跑）**：
-   - 对每一个已结束的自然日（`stat_date < today`）且尚未封账的日期，只要仍在 Redis 48 小时 TTL 内（无论是凌晨 02:00 定时任务，还是你第二天早上 09:00 打开笔记本开机触发），读取对应范围的 Redis UV 集合基数（同一页面同日多版本用 `SUNION` 合并，绝不把 V1 UV + V2 UV 相加），一次性写入 `PageAnalyticsDaily.daily_uv` 和 `ScopeAnalyticsDaily.daily_uv`，并按差值 `new_uv - old_uv` 同步更新 `PageAnalyticsTotal.visitor_days`。
+   - 对每一个已结束的自然日（`stat_date < today`）且尚未封账的日期，只要仍在 Redis 48 小时 TTL 内（无论是凌晨 02:00 定时任务，还是你第二天早上 09:00 打开笔记本开机触发），读取对应范围的 Redis UV 集合基数（同一页面同日多版本用 `SUNION` 合并，绝不把 V1 UV + V2 UV 相加），一次性写入 `PageAnalyticsDaily.daily_uv` 和 `ScopeAnalyticsDaily.daily_uv`，并按差值 `new_uv - old_uv` 同步更新 `PageAnalyticsTotal.total_visitor_days`。
 3. **故障与停机容错（不卡死 30 天精选）**：
    - Redis 故障时，前台页面与已有精选照常访问，接口快速降级返回，绝不写 SQL；
    - 若因长期关机（超过 48 小时未开机）或 Redis 清空导致某日 UV 丢失，将该日标为 `health_status="missing"`（部分丢失标 `partial`），后台报表清晰注明“当日缺测”，绝不用 `0` 覆盖；
@@ -201,7 +201,7 @@ class AnalyticsCapabilities:
 ### 8.1 权限与隐私
 - **权限分级**：新增 `analytics.view_site_analytics`（主编/超管）、`analytics.view_page_analytics`（受限作者）、`analytics.approve_curatedrecommendation`、`analytics.resolve_analyticsalert`。受限作者的所有单页/汇总/导出接口一律在服务端复用 `OwnershipPagePermissionTester`，绝不靠 `is_staff` 或 `Person` 同名授权；回收站历史数据还须同时具备既有回收查看权限。
 - **数据留存（D6-A）**：Redis 会话与日 UV 去重键 `≤ 48 小时`；评价幂等收据 `≤ 24 小时`；批次收据与无身份运维日志 `≤ 7 天`；榜单快照 `30 天`；`PageAnalyticsDaily` 保留 `13 个月`；`PageAnalyticsTotal` 保留至 Purge。绝不存储原始 IP、UA、Cookie、`session_key` 到分析或评价业务表。
-- **千万级（1,000 万篇）容量与分页红线**：大盘 KPI 与趋势全部下推至 PostgreSQL `aggregate()` / `annotate()`，严禁把全站页面 ID 或日明细拉入 Python 内存或构造超大 `IN (...)`；授权页面明细列表复用 `discovery.pagination` 千万级混合分页协议（`COUNT_PROBE_LIMIT = 5,000` 有界计数、浅页直跳上限 `100` 页、超限拒绝深 `OFFSET` 并改用双向 Keyset 游标或关键词搜索定位），每次最多回查当前页 `<= 20` 条明细。
+- **大数据集下推聚合与有界分页红线**：大盘 KPI 与趋势全部下推至 PostgreSQL `aggregate()` / `annotate()`，严禁把全站页面 ID 或日明细拉入 Python 内存或构造超大 `IN (...)`；授权页面明细列表复用 `discovery.pagination` 有界混合分页协议（`COUNT_PROBE_LIMIT = 5,000` 有界计数、浅页直跳上限 `100` 页、超限拒绝深 `OFFSET` 并改用双向 Keyset 游标或关键词搜索定位），每次最多回查当前页 `<= 20` 条明细。
 
 ### 8.2 分期落地与验收矩阵
 
@@ -217,11 +217,9 @@ class AnalyticsCapabilities:
 
 ## 9. 审查与修订记录
 
-- **历史审查背景**：初稿由 `sol`（`gpt-6.2-sol`）起草；原计划调度 `argon`（`gemini-4-neon`）审查，但 `argon` 等待超 16 分钟无返回已关闭（未获得也未虚构其意见）；随后由独立只读代理 `terra`（`gpt-6.1-terra`）对照仓库源码和本机 Wagtail 8.1 源码提出 4 项 P0、5 项 P1 及 2 项 P2 反例。
-- **本次务实瘦身修订（保留安全底线、砍掉过度设计）**：
+- **历史审查背景**：初稿由 `Sol`（`gpt-6.2-sol`）起草；原计划调度 `Gemini Argon (gemini-4-neon)` 审查，但等待超时无返回已关闭（未获得也未虚构其意见）；随后由独立只读代理 `Terra`（`gpt-6.1-terra`）对照仓库源码和本机 Wagtail 8.1 源码提出 4 项 P0、5 项 P1 及 2 项 P2 反例。
+- **务实瘦身修订（保留安全底线、砍掉过度设计）**：
   1. **去掉每分钟 SQL 预登记桶与单进程内存清单**：改用多进程无状态 Redis 活动桶 + 48 小时内随时可补跑的日 UV 封账命令，彻底适配非 24 小时开机的 WSL2 环境，并用“30 日中至少 25 个健康日”避免单日停机锁死整月精选；
   2. **去掉全站单一 Advisory Lock 与侵入式包裹十几个原生 Wagtail 写入口**：公开隔离靠读侧 `get_public_blocked_page_ids()` + `live_revision_id` 实时核验，Purge 防复活靠真实 `Page` 外键 + 结算前存在性校验，评价并发只用单页局部行锁，销户扣票并入现有 `account_lifecycle.py` 锁序；
-  3. **模型从 20+ 张收敛至 10 张核心表**，补齐需求书中“暂不入选 14 天冷却期（`rejected_cooldown_until`）”；
+  3. **模型从 20+ 张收敛至 10 张核心业务表 + 3 张配置/审计表**，补齐需求书中“暂不入选 14 天冷却期（`rejected_cooldown_until`）”；
   4. **新增冷启动友好机制**：阈值全部放进 `AnalyticsSettings` 可配，并新增不依赖投票数的“高 PV + 低完读/高短读”独立标题党预警。
-
-> 注：本轮仅修订设计文档，未编写应用代码、未执行 `migrate`、未进行真实服务压测或 Git 提交。
