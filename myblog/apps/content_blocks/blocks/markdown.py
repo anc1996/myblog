@@ -138,7 +138,7 @@ class CustomMarkdownBlock(blocks.TextBlock):
         # 6. 安全回填 Mermaid 图表容器（源码经严格转义）
         for idx, code in enumerate(mermaid_blocks):
             token = f"CBMERMAID_{nonce}_{idx}_X"
-            container = render_mermaid_dom(code, title="", theme="default")
+            container = render_mermaid_dom(code, title="", theme="follow-site")
             # 若被 Markdown 段落包裹成 <p>...</p>，整段替换为 <div> 容器避免非法嵌套
             p_pattern = re.compile(r"<p>\s*" + re.escape(token) + r"\s*</p>")
             if p_pattern.search(cleaned_html):

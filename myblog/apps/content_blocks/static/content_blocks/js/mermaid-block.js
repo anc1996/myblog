@@ -20,13 +20,19 @@
         var canvas = block.querySelector(".mermaid-diagram, .cb-mermaid-canvas");
         var statusEl = block.querySelector(".cb-mermaid-status");
         var sourceWrapper = block.querySelector(".cb-mermaid-source-wrapper");
-        var initialTheme = renderer.normalizeTheme(block.getAttribute("data-theme") || "default");
+        var declaredTheme = renderer.normalizeTheme(block.getAttribute("data-theme") || "default");
+        if (declaredTheme === "follow-site") {
+            block.setAttribute("data-mermaid-declared-theme", "follow-site");
+        }
+        var initialTheme = declaredTheme;
         var currentTheme = initialTheme;
+        var manualThemeOverride = null;
         var currentScale = 1.0;
         var currentSvgText = "";
         var renderSeq = 0;
         var hasRenderedSvg = false;
         var viewNotified = false;
+        var activeModalRefs = null;
 
         function getBlockTargetKey() {
             var root = block.closest("[data-cb-block-id]");
@@ -62,6 +68,10 @@
                 canvas.appendChild(res.svgNode);
                 if (statusEl) statusEl.hidden = true;
                 hasRenderedSvg = true;
+                if (activeModalRefs && document.body.contains(activeModalRefs.modal)) {
+                    activeModalRefs.modalContent.setAttribute("data-theme", res.theme);
+                    activeModalRefs.modalCanvas.innerHTML = res.svgHtml;
+                }
                 try {
                     var rect = canvas.getBoundingClientRect();
                     var vh = window.innerHeight || document.documentElement.clientHeight || 0;
@@ -83,6 +93,14 @@
         }
 
         renderDiagram(initialTheme);
+
+        if (declaredTheme === "follow-site") {
+            window.addEventListener("myblog:theme:change", function () {
+                if (!manualThemeOverride && block.isConnected) {
+                    renderDiagram("follow-site");
+                }
+            });
+        }
 
         if (canvas && typeof window.IntersectionObserver === "function") {
             try {
@@ -132,7 +150,8 @@
         }
         if (btnTheme) {
             btnTheme.addEventListener("click", function () {
-                var nextTheme = currentTheme === "dark" ? (initialTheme === "dark" ? "default" : initialTheme) : "dark";
+                var nextTheme = currentTheme === "dark" ? (declaredTheme === "follow-site" || declaredTheme === "dark" ? "default" : declaredTheme) : "dark";
+                manualThemeOverride = nextTheme;
                 renderDiagram(nextTheme);
             });
         }
@@ -220,8 +239,14 @@
                 modalContent.setAttribute("data-theme", currentTheme);
                 var modalCanvas = modal.querySelector(".cb-mermaid-modal-canvas");
                 modalCanvas.innerHTML = currentSvgText;
+                activeModalRefs = {
+                    modal: modal,
+                    modalContent: modalContent,
+                    modalCanvas: modalCanvas
+                };
 
                 function closeModal() {
+                    activeModalRefs = null;
                     modal.close();
                     modal.remove();
                     btnFullscreen.focus();

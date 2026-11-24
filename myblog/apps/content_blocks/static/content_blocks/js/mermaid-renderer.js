@@ -12,7 +12,7 @@
 
     var MAX_SOURCE_CHARS = 50000;
     var VENDOR_MERMAID_URL = "/static/vendor/mermaid/mermaid.min.js";
-    var ALLOWED_THEMES = { default: true, dark: true, forest: true, neutral: true };
+    var ALLOWED_THEMES = { "follow-site": true, default: true, dark: true, forest: true, neutral: true };
     var FORBIDDEN_TAGS = {
         script: true,
         foreignobject: true,
@@ -31,6 +31,26 @@
     function normalizeTheme(theme) {
         var t = String(theme || "default").trim().toLowerCase();
         return ALLOWED_THEMES[t] ? t : "default";
+    }
+
+    function isSiteDark() {
+        var root = document.documentElement;
+        if (!root) return false;
+        var dt = root.getAttribute("data-theme");
+        if (dt === "dark") return true;
+        if (dt === "light") return false;
+        if (root.classList.contains("w-theme-dark") || root.getAttribute("data-w-theme") === "dark") {
+            return true;
+        }
+        return Boolean(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    }
+
+    function resolveTheme(theme) {
+        var norm = normalizeTheme(theme);
+        if (norm === "follow-site") {
+            return isSiteDark() ? "dark" : "default";
+        }
+        return norm;
     }
 
     function stripDangerousDirectives(code) {
@@ -192,7 +212,8 @@
         var leadingWs = (cleanSource.match(/^\s*/) || [""])[0];
         var leadingOffsetLines = leadingWs ? (leadingWs.split("\n").length - 1) : 0;
         var trimmedForRender = cleanSource.trim();
-        var safeTheme = normalizeTheme(theme);
+        var requestedTheme = normalizeTheme(theme);
+        var safeTheme = resolveTheme(requestedTheme);
         if (!trimmedForRender) {
             var emptyErr = new Error("图表源码为空");
             emptyErr.cbLine = null;
@@ -222,7 +243,8 @@
             return {
                 svgNode: svgNode,
                 svgHtml: svgNode.outerHTML,
-                theme: safeTheme
+                theme: safeTheme,
+                requestedTheme: requestedTheme
             };
         }, function (renderErr) {
             throw extractDiagnosticError(renderErr, rawNormalized, leadingOffsetLines);
@@ -236,6 +258,7 @@
     window.CBMermaidRenderer = {
         MAX_SOURCE_CHARS: MAX_SOURCE_CHARS,
         normalizeTheme: normalizeTheme,
+        resolveTheme: resolveTheme,
         render: render,
         sanitizeSvgString: sanitizeSvgString,
         cloneSanitizedSvg: cloneSanitizedSvg,

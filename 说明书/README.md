@@ -4,7 +4,7 @@
 
 ## 建议阅读顺序
 
-0. [全站主题设计系统与昼夜跟随架构方案（RFC）](myblog_全站主题设计系统与昼夜跟随架构方案_RFC_2026-11-24.md)：**【阶段 1–2 已落地并推送 `a6be3ee`，阶段 3–4 推进中】** 以 `tokens.css` 为单一设计令牌真相源，实现 `mist-blue`/`moss-lab` 双色板、`system`/`light`/`dark` 三态同步、`SiteThemeSettings` 只读隔离及全站白块收敛。
+0. [全站主题设计系统与昼夜跟随架构方案（RFC）](myblog_全站主题设计系统与昼夜跟随架构方案_RFC_2026-11-24.md)：**【阶段 1–3 已实施并通过 51 项自动化回归与静态护栏】** 以 `tokens.css` 为单一设计令牌真相源，实现 `mist-blue`/`moss-lab` 双色板、`system`/`light`/`dark` 三态同步、`SiteThemeSettings` 只读隔离、全站白块收敛及 Highlight.js/Mermaid `follow-site`/Vendor 控件全联动。
 0. [全站数据分析与文章评价排行可行性方案（RFC）](myblog_全站数据分析与文章评价排行可行性方案_RFC_2026-11-23.md) 与 [需求规格](myblog_全站数据分析指标与排行精选需求规格说明书_2026-11-23.md)：**【第 1–3 期已落地（13 模型），冻结扩展，待收敛共享层注册表解耦】** 覆盖统计上报、四档评价、降噪告警与运营看板。
 0. [全站作者专栏与按作者搜索方案（RFC）](myblog_全站作者专栏与按作者搜索方案_RFC_2026-11-23.md)：**【已落地】** `/authors/` 大厅与 `/authors/<slug>/` 专栏、匿名/佚名归因及按作者组合检索。
 0. [会员体系、多角色创作权限与双轨防刷评论架构方案](myblog_会员体系与多角色创作权限架构方案_RFC_2026-11-11.md)：**【Phase 1–5 已实现并通过 `gemini-4-argon` 审核、全量测试与真实浏览器验收】** 前台会员中心（`/account/*`）、`MemberProfile` 独立头像与 `AvatarPurgeTask`、会话代次守卫与账号硬删过户（Phase 1）、全站公共图片验证码 `captcha`（Phase 2）、双轨防刷评论配额与 5 分钟内联编辑（Phase 3），以及基于 `CustomBasePage` 与 Wagtail 通用生命周期的作者隔离、图片/文档网关鉴权与回收站冲突恢复（Phase 4–5）均已落地。

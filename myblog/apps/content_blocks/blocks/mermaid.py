@@ -20,6 +20,7 @@ from content_blocks.rendering.mermaid import render_mermaid_dom, ALLOWED_THEMES
 
 
 THEME_CHOICES = [
+    ("follow-site", "跟随站点昼夜（默认）"),
     ("default", "默认浅色"),
     ("dark", "深色模式"),
     ("forest", "自然绿色"),
@@ -37,7 +38,7 @@ class CustomMermaidBlock(blocks.StructBlock):
         help_text="例如 graph TD; A[开始]-->B[结束];",
         rows=6,
     )
-    theme = blocks.ChoiceBlock(choices=THEME_CHOICES, default="default", label="图表主题")
+    theme = blocks.ChoiceBlock(choices=THEME_CHOICES, default="follow-site", label="图表主题")
 
     class Meta:
         icon = "resubmit"

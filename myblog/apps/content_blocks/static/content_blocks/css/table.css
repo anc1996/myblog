@@ -4,11 +4,11 @@
 
 .cb-table-block {
     margin: 1.5rem 0;
-    border: 1px solid #e2e8f0;
+    border: 1px solid var(--color-border);
     border-radius: 8px;
-    background: #ffffff;
+    background: var(--color-surface);
     overflow: hidden;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
 }
 
 .cb-table-toolbar {
@@ -18,14 +18,14 @@
     justify-content: space-between;
     gap: 8px;
     padding: 8px 14px;
-    background: #f8fafc;
-    border-bottom: 1px solid #e2e8f0;
+    background: var(--color-surface-subtle);
+    border-bottom: 1px solid var(--color-border);
 }
 
 .cb-table-toolbar-title {
     font-size: 13px;
     font-weight: 600;
-    color: #334155;
+    color: var(--color-text-secondary);
 }
 
 .cb-table-actions {
@@ -39,8 +39,8 @@
 }
 
 .cb-table-source-pane {
-    background: #0d1117;
-    border-right: 1px solid #30363d;
+    background: var(--code-bg);
+    border-right: 1px solid var(--code-border);
     min-width: 0;
     overflow: auto;
 }
@@ -55,8 +55,8 @@
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     font-size: 12px;
     line-height: 1.55;
-    color: #c9d1d9;
-    background: #0d1117;
+    color: var(--code-text);
+    background: var(--code-bg);
 }
 
 .cb-table-render-pane {
@@ -87,7 +87,7 @@
 
     .cb-table-block.is-split-view .cb-table-source-pane {
         border-right: none;
-        border-bottom: 1px solid #30363d;
+        border-bottom: 1px solid var(--code-border);
         max-height: 280px;
     }
 }
@@ -126,29 +126,30 @@
     caption-side: top;
     font-weight: 600;
     padding: 0.5rem 0;
-    color: #4b5563;
+    color: var(--color-muted);
     text-align: center;
 }
 
 .custom-table-block th,
 .custom-table-block td {
     padding: 0.75rem 1rem;
-    border: 1px solid #e5e7eb;
+    border: 1px solid var(--color-border);
+    color: var(--color-text);
     vertical-align: middle;
 }
 
 .custom-table-block thead th {
-    background-color: #f9fafb;
+    background-color: var(--table-head-bg);
     font-weight: 600;
-    color: #111827;
+    color: var(--table-head-text);
 }
 
 .custom-table-block tbody tr:nth-child(even) {
-    background-color: #fcfcfd;
+    background-color: var(--table-stripe-bg);
 }
 
 .custom-table-block tbody tr:hover {
-    background-color: #f3f4f6;
+    background-color: var(--color-surface-subtle);
 }
 
 /* 单元格内容防撑破与数学公式滚动 */
@@ -171,11 +172,11 @@ article table .cb-math {
 .custom-table-block code:not([class*="language-"]) {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     font-size: 0.85em;
-    background: #f1f5f9;
-    color: #b91c1c;
+    background: var(--color-surface-subtle);
+    color: var(--color-danger);
     padding: 2px 6px;
     border-radius: 4px;
-    border: 1px solid #e2e8f0;
+    border: 1px solid var(--color-border);
 }
 
 .cb-cell-code {

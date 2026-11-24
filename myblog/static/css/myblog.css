@@ -669,23 +669,108 @@ body {
   color: var(--color-primary);
 }
 
-:root[data-theme="dark"] .flatpickr-calendar {
-  background: var(--color-surface);
-  border-color: var(--color-border-strong);
+.ts-wrapper.focus .ts-control {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-focus-ring);
+}
+
+.ts-wrapper .ts-control > input::placeholder {
+  color: var(--color-muted);
+}
+
+.ts-wrapper.multi .ts-control > div {
+  background: var(--color-primary-soft);
+  color: var(--color-on-primary-soft);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+}
+
+.ts-wrapper.multi .ts-control > div.active {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.ts-wrapper.multi .ts-control .remove {
+  border-left-color: var(--color-border);
+}
+
+.ts-dropdown .option {
   color: var(--color-text);
+}
+
+.ts-dropdown .no-results {
+  color: var(--color-muted);
+}
+
+body > .flatpickr-calendar,
+.flatpickr-calendar {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  color: var(--color-text);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.16);
+}
+
+:root[data-theme="dark"] .flatpickr-calendar {
+  border-color: var(--color-border-strong);
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.45);
 }
 
-:root[data-theme="dark"] .flatpickr-day,
-:root[data-theme="dark"] .flatpickr-weekday,
-:root[data-theme="dark"] .flatpickr-months .flatpickr-month,
-:root[data-theme="dark"] .flatpickr-current-month input.cur-year {
+.flatpickr-day,
+.flatpickr-weekday,
+.flatpickr-months .flatpickr-month,
+.flatpickr-current-month input.cur-year,
+.flatpickr-current-month .flatpickr-monthDropdown-months {
   color: var(--color-text);
 }
 
-:root[data-theme="dark"] .flatpickr-day:hover {
+.flatpickr-current-month .flatpickr-monthDropdown-months,
+.flatpickr-current-month .flatpickr-monthDropdown-months option {
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.flatpickr-months .flatpickr-prev-month svg,
+.flatpickr-months .flatpickr-next-month svg {
+  fill: var(--color-text-secondary);
+}
+
+.flatpickr-months .flatpickr-prev-month:hover svg,
+.flatpickr-months .flatpickr-next-month:hover svg {
+  fill: var(--color-primary);
+}
+
+.flatpickr-day.prevMonthDay,
+.flatpickr-day.nextMonthDay,
+.flatpickr-day.flatpickr-disabled {
+  color: var(--color-muted);
+  opacity: 0.55;
+}
+
+.flatpickr-day:hover {
   background: var(--color-surface-subtle);
   border-color: var(--color-surface-subtle);
+}
+
+.flatpickr-day.today {
+  border-color: var(--color-primary);
+}
+
+.flatpickr-day.selected,
+.flatpickr-day.startRange,
+.flatpickr-day.endRange,
+.flatpickr-day.selected:hover,
+.flatpickr-day.startRange:hover,
+.flatpickr-day.endRange:hover {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.flatpickr-day.inRange {
+  background: var(--color-primary-soft);
+  border-color: var(--color-primary-soft);
+  color: var(--color-on-primary-soft);
+  box-shadow: -5px 0 0 var(--color-primary-soft), 5px 0 0 var(--color-primary-soft);
 }
 
 /* 公共 Splide 轮播外壳 */
@@ -756,6 +841,22 @@ body {
   border: 1px solid var(--color-border-strong);
   box-shadow: 0 2px 8px rgba(15, 23, 42, 0.12);
   opacity: 0.95;
+}
+
+.splide__arrow svg {
+  fill: var(--color-text);
+}
+
+.splide__arrow:hover {
+  border-color: var(--color-primary);
+}
+
+.splide__arrow:hover svg {
+  fill: var(--color-primary);
+}
+
+.splide__pagination__page {
+  background: var(--color-border-strong);
 }
 
 .ui-carousel-section .splide__track {

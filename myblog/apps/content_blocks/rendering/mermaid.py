@@ -8,10 +8,10 @@ Mermaid 流程图统一服务端 HTML 容器构建与契约规范。
 import html
 import textwrap
 
-ALLOWED_THEMES = {"default", "dark", "forest", "neutral"}
+ALLOWED_THEMES = {"follow-site", "default", "dark", "forest", "neutral"}
 
 
-def render_mermaid_dom(source_code: str, title: str = "", theme: str = "default") -> str:
+def render_mermaid_dom(source_code: str, title: str = "", theme: str = "follow-site") -> str:
     """
     生成统一的 Mermaid 图表容器 HTML。
     包含标题、版本徽标、控制工具栏（缩放/自适应/全屏/折叠/深浅主题/源码/复制/导出）与源码降级容器。
@@ -25,7 +25,7 @@ def render_mermaid_dom(source_code: str, title: str = "", theme: str = "default"
     if not dedented:
         return ""
 
-    safe_theme = theme if theme in ALLOWED_THEMES else "default"
+    safe_theme = theme if theme in ALLOWED_THEMES else "follow-site"
     safe_title = html.escape(title.strip()) if title else "Mermaid 图表"
     safe_source = html.escape(dedented)
 

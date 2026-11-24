@@ -7,8 +7,8 @@
 .media-document-card {
     margin: 1.5rem 0;
     padding: 14px 16px;
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
+    background: var(--color-surface-subtle, var(--w-color-surface-header));
+    border: 1px solid var(--color-border, var(--w-color-border-furniture));
     border-radius: 8px;
 }
 
@@ -16,7 +16,7 @@
 .media-video-player .video-title {
     font-size: 14px;
     font-weight: 600;
-    color: #0f172a;
+    color: var(--color-text, var(--w-color-text-label));
     margin-bottom: 10px;
     overflow-wrap: anywhere;
 }
@@ -37,7 +37,7 @@
     max-height: 72vh;
     height: auto;
     border-radius: 6px;
-    background: #0f172a;
+    background: var(--media-stage-bg, black);
     display: block;
 }
 
@@ -63,7 +63,7 @@
     aspect-ratio: 16 / 9;
     border-radius: 6px;
     overflow: hidden;
-    background: #0f172a;
+    background: var(--media-stage-bg, black);
 }
 
 .cb-vjs-video-skin video {
@@ -74,7 +74,7 @@
 .cb-media-stage :is(button, input, [tabindex]):focus-visible,
 .cb-vjs-audio-skin:focus-within,
 .cb-vjs-video-skin:focus-within {
-    outline: 2px solid #0284c7;
+    outline: 2px solid var(--color-focus, var(--w-color-focus));
     outline-offset: 2px;
 }
 
@@ -82,29 +82,11 @@
     margin-top: 8px;
     padding: 8px 12px;
     border-radius: 6px;
-    border: 1px solid #fecaca;
-    background: #fef2f2;
-    color: #991b1b;
+    border: 1px solid var(--color-danger-border);
+    background: var(--color-danger-soft);
+    color: var(--color-on-danger-soft);
     font-size: 13px;
     line-height: 1.5;
-}
-
-:root[data-theme="dark"] .media-audio-player,
-:root[data-theme="dark"] .media-video-player,
-:root[data-theme="dark"] .media-document-card,
-.w-theme-dark .media-audio-player,
-.w-theme-dark .media-video-player,
-.w-theme-dark .media-document-card {
-    background: #1e293b;
-    border-color: #334155;
-    color: #e2e8f0;
-}
-
-:root[data-theme="dark"] .media-audio-player .audio-title,
-:root[data-theme="dark"] .media-video-player .video-title,
-.w-theme-dark .media-audio-player .audio-title,
-.w-theme-dark .media-video-player .video-title {
-    color: #f8fafc;
 }
 
 .media-document-card {
@@ -127,7 +109,7 @@
 .media-document-card .doc-download-link {
     display: inline-block;
     font-weight: 600;
-    color: #0284c7;
+    color: var(--color-link, var(--w-color-secondary));
     text-decoration: none;
     word-break: break-word;
 }
@@ -139,7 +121,7 @@
 .media-document-card .doc-desc {
     margin: 4px 0 0;
     font-size: 13px;
-    color: #64748b;
+    color: var(--color-muted, var(--w-color-text-context));
 }
 
 /* 文档元信息（扩展名徽标与文件大小） */
@@ -161,33 +143,33 @@
     letter-spacing: 0.5px;
     line-height: 1.4;
     border-radius: 4px;
-    background: #e0f2fe;
-    color: #0369a1;
-    border: 1px solid #bae6fd;
+    background: var(--color-primary-soft);
+    color: var(--color-on-primary-soft);
+    border: 1px solid var(--color-border);
     text-transform: uppercase;
 }
 
 .doc-file-size {
     font-size: 12px;
-    color: #64748b;
+    color: var(--color-muted, var(--w-color-text-context));
 }
 
 /* 课件与附件下载列表积木 (CustomAttachmentListBlock) 容器及响应式布局 */
 .media-attachment-list {
     margin: 1.5rem 0;
     padding: 16px;
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
+    background: var(--color-surface-subtle, var(--w-color-surface-header));
+    border: 1px solid var(--color-border, var(--w-color-border-furniture));
     border-radius: 8px;
 }
 
 .media-attachment-list .attachment-list-heading {
     font-size: 15px;
     font-weight: 600;
-    color: #0f172a;
+    color: var(--color-text, var(--w-color-text-label));
     margin-bottom: 12px;
     padding-bottom: 8px;
-    border-bottom: 1px solid #e2e8f0;
+    border-bottom: 1px solid var(--color-border, var(--w-color-border-furniture));
     overflow-wrap: anywhere;
 }
 
@@ -202,14 +184,14 @@
 
 .media-attachment-list ul li {
     padding: 10px 12px;
-    background: #ffffff;
-    border: 1px solid #e2e8f0;
+    background: var(--color-surface, var(--w-color-surface-page));
+    border: 1px solid var(--color-border, var(--w-color-border-furniture));
     border-radius: 6px;
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .media-attachment-list ul li:hover {
-    border-color: #cbd5e1;
+    border-color: var(--color-border-strong, var(--w-color-border-field-default));
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
@@ -220,7 +202,7 @@
 .media-attachment-list .doc-download-link {
     display: inline-block;
     font-weight: 600;
-    color: #0284c7;
+    color: var(--color-link, var(--w-color-secondary));
     text-decoration: none;
     word-break: break-word;
 }
@@ -232,56 +214,5 @@
 .media-attachment-list .doc-desc {
     margin: 4px 0 0;
     font-size: 13px;
-    color: #64748b;
-}
-
-/* 深色模式适配 (Dark Mode) */
-:root[data-theme="dark"] .media-attachment-list,
-.w-theme-dark .media-attachment-list {
-    background: #1e293b;
-    border-color: #334155;
-    color: #e2e8f0;
-}
-
-:root[data-theme="dark"] .media-attachment-list .attachment-list-heading,
-.w-theme-dark .media-attachment-list .attachment-list-heading {
-    color: #f8fafc;
-    border-bottom-color: #334155;
-}
-
-:root[data-theme="dark"] .media-attachment-list ul li,
-.w-theme-dark .media-attachment-list ul li {
-    background: #0f172a;
-    border-color: #334155;
-}
-
-:root[data-theme="dark"] .media-attachment-list ul li:hover,
-.w-theme-dark .media-attachment-list ul li:hover {
-    border-color: #475569;
-}
-
-:root[data-theme="dark"] .doc-ext-badge,
-.w-theme-dark .doc-ext-badge {
-    background: #0c4a6e;
-    color: #7dd3fc;
-    border-color: #0369a1;
-}
-
-:root[data-theme="dark"] .doc-file-size,
-.w-theme-dark .doc-file-size {
-    color: #94a3b8;
-}
-
-:root[data-theme="dark"] .media-document-card .doc-desc,
-:root[data-theme="dark"] .media-attachment-list .doc-desc,
-.w-theme-dark .media-document-card .doc-desc,
-.w-theme-dark .media-attachment-list .doc-desc {
-    color: #94a3b8;
-}
-
-:root[data-theme="dark"] .media-document-card .doc-download-link,
-:root[data-theme="dark"] .media-attachment-list .doc-download-link,
-.w-theme-dark .media-document-card .doc-download-link,
-.w-theme-dark .media-attachment-list .doc-download-link {
-    color: #38bdf8;
+    color: var(--color-muted, var(--w-color-text-context));
 }

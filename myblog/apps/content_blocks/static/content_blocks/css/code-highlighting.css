@@ -10,12 +10,12 @@
     --code-line-height: 1.55;
     position: relative;
     margin: 1.5rem 0;
-    border: 1px solid #30363d;
+    border: 1px solid var(--code-border);
     border-radius: 8px;
-    background: #0d1117;
-    color: #c9d1d9;
+    background: var(--code-bg);
+    color: var(--code-text);
     overflow: hidden;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.14);
+    box-shadow: 0 2px 10px rgba(15, 23, 42, 0.08);
 }
 
 .code-block-toolbar,
@@ -27,9 +27,9 @@
     gap: 12px;
     min-height: 38px;
     padding: 6px 12px;
-    background: #161b22;
-    border-bottom: 1px solid #30363d;
-    color: #8b949e;
+    background: var(--code-header-bg);
+    border-bottom: 1px solid var(--code-border);
+    color: var(--code-gutter);
     font-size: 12px;
 }
 
@@ -43,7 +43,7 @@
 .code-language,
 .code-block .code-title,
 .step-code-container .code-lang-label {
-    color: #c9d1d9;
+    color: var(--code-text);
     font-weight: 600;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     white-space: nowrap;
@@ -52,14 +52,14 @@
 }
 
 .code-line-count {
-    color: #8b949e;
+    color: var(--code-gutter);
     font-size: 11px;
 }
 
 .code-line-count::before {
     content: "·";
     margin-right: 6px;
-    color: #484f58;
+    color: var(--code-gutter);
 }
 
 .code-block-actions {
@@ -73,9 +73,9 @@
 .code-toggle-btn {
     display: inline-flex;
     align-items: center;
-    background: #21262d;
-    border: 1px solid #30363d;
-    color: #c9d1d9;
+    background: var(--color-surface);
+    border: 1px solid var(--code-border);
+    color: var(--code-text);
     border-radius: 5px;
     padding: 3px 9px;
     font-size: 11px;
@@ -86,14 +86,14 @@
 
 .copy-code-btn:hover,
 .code-toggle-btn:hover {
-    background: #30363d;
-    border-color: #8b949e;
-    color: #ffffff;
+    background: var(--color-primary-soft);
+    border-color: var(--color-primary);
+    color: var(--color-on-primary-soft);
 }
 
 .copy-code-btn.is-copied {
-    border-color: #3fb950;
-    color: #3fb950;
+    border-color: var(--color-success);
+    color: var(--color-success);
 }
 
 /* 代码主体区域与行号列 */
@@ -103,16 +103,17 @@
     position: relative;
     padding: 0;
     margin: 0;
-    background: #0d1117;
+    background: var(--code-bg);
 }
 
 .code-highlight-pre {
-    display: flex !important;
-    flex-direction: row !important;
+    display: flex;
+    flex-direction: row;
     align-items: flex-start;
-    margin: 0 !important;
-    padding: 12px 0 !important;
-    background: #0d1117 !important;
+    margin: 0;
+    padding: 12px 0;
+    background: var(--code-bg);
+    color: var(--code-text);
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
@@ -128,8 +129,8 @@
     text-align: right;
     padding: 0 12px 0 14px;
     margin-right: 12px;
-    border-right: 1px solid #21262d;
-    color: #484f58;
+    border-right: 1px solid var(--code-border);
+    color: var(--code-gutter);
     white-space: pre;
     font-family: inherit;
     font-size: inherit;
@@ -140,9 +141,10 @@
     flex: 1 1 auto;
     min-width: 0;
     display: block;
-    padding: 0 16px 0 0 !important;
-    margin: 0 !important;
-    background: transparent !important;
+    padding: 0 16px 0 0;
+    margin: 0;
+    background: transparent;
+    color: var(--code-text);
     font-family: inherit;
     font-size: inherit;
     line-height: inherit;
@@ -163,7 +165,7 @@
     right: 0;
     bottom: 0;
     height: 44px;
-    background: linear-gradient(to bottom, rgba(13, 17, 23, 0), #0d1117);
+    background: linear-gradient(to bottom, transparent, var(--code-fade-to));
     pointer-events: none;
 }
 
@@ -171,39 +173,113 @@
     display: flex;
     justify-content: center;
     padding: 6px 12px;
-    background: #161b22;
-    border-top: 1px solid #21262d;
+    background: var(--code-header-bg);
+    border-top: 1px solid var(--code-border);
 }
 
-/* 无 JS / SSR Pygments 降级配色 */
-.hl-k, .hl-kd, .hl-kn, .hl-kp, .hl-kr, .hl-kt { color: #ff7b72; font-weight: 600; }
-.hl-s, .hl-s1, .hl-s2, .hl-sa, .hl-sb, .hl-sc, .hl-dl, .hl-sd, .hl-sh, .hl-si, .hl-sx { color: #a5d6ff; }
-.hl-nb, .hl-bp { color: #ffa657; }
-.hl-nf, .hl-fm, .hl-nc, .hl-nn { color: #d2a8ff; }
-.hl-c, .hl-c1, .hl-cm, .hl-ch, .hl-cp, .hl-cpf, .hl-cs { color: #8b949e; font-style: italic; }
-.hl-mi, .hl-mf, .hl-mh, .hl-mo, .hl-il { color: #79c0ff; }
-.hl-o, .hl-ow { color: #ff7b72; }
-.hl-na, .hl-nt { color: #7ee787; }
-.hl-nv, .hl-vi, .hl-vg { color: #ffa657; }
+/* Highlight.js 与无 JS Pygments 双主题语义语法令牌 */
+.hljs {
+    background: var(--code-bg);
+    color: var(--code-text);
+}
+
+.hljs-keyword,
+.hljs-doctag,
+.hljs-meta .hljs-keyword,
+.hljs-template-tag,
+.hljs-template-variable,
+.hljs-type,
+.hljs-variable.language_,
+.hl-k, .hl-kd, .hl-kn, .hl-kp, .hl-kr, .hl-kt {
+    color: var(--code-kw);
+    font-weight: 600;
+}
+
+.hljs-string,
+.hljs-regexp,
+.hljs-meta .hljs-string,
+.hl-s, .hl-s1, .hl-s2, .hl-sa, .hl-sb, .hl-sc, .hl-dl, .hl-sd, .hl-sh, .hl-si, .hl-sx {
+    color: var(--code-str);
+}
+
+.hljs-title,
+.hljs-title.class_,
+.hljs-title.class_.inherited__,
+.hljs-title.function_,
+.hljs-section,
+.hl-nf, .hl-fm, .hl-nc, .hl-nn {
+    color: var(--code-fn);
+}
+
+.hljs-comment,
+.hljs-code,
+.hljs-formula,
+.hl-c, .hl-c1, .hl-cm, .hl-ch, .hl-cp, .hl-cpf, .hl-cs {
+    color: var(--code-comment);
+    font-style: italic;
+}
+
+.hljs-number,
+.hljs-literal,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-link,
+.hljs-built_in,
+.hljs-meta,
+.hljs-params,
+.hl-nb, .hl-bp, .hl-mi, .hl-mf, .hl-mh, .hl-mo, .hl-il, .hl-nv, .hl-vi, .hl-vg {
+    color: var(--code-num);
+}
+
+.hljs-operator,
+.hljs-punctuation,
+.hl-o, .hl-ow {
+    color: var(--code-op);
+}
+
+.hljs-attr,
+.hljs-attribute,
+.hljs-name,
+.hljs-tag,
+.hljs-selector-tag,
+.hljs-selector-id,
+.hljs-selector-class,
+.hljs-quote,
+.hljs-addition,
+.hl-na, .hl-nt {
+    color: var(--code-attr);
+}
+
+.hljs-deletion {
+    color: var(--color-danger);
+    background: var(--color-danger-soft);
+}
+
+.hljs-addition {
+    background: var(--color-success-soft);
+}
+
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: 700; }
 
 /* Runner 交互模式提示面板兼容 */
 .code-block-runner .code-runner-panel {
     padding: 10px 14px;
-    background: #161b22;
-    border-top: 1px solid #30363d;
+    background: var(--code-header-bg);
+    border-top: 1px solid var(--code-border);
     display: flex;
     flex-wrap: wrap;
     justify-content: space-between;
     align-items: center;
     gap: 10px;
     font-size: 12px;
-    color: #8b949e;
+    color: var(--code-gutter);
 }
 
 .code-block-runner .runner-btn[disabled] {
-    background: #21262d;
-    border: 1px solid #30363d;
-    color: #6e7681;
+    background: var(--color-surface-subtle);
+    border: 1px solid var(--code-border);
+    color: var(--code-gutter);
     padding: 4px 10px;
     border-radius: 5px;
     cursor: not-allowed;

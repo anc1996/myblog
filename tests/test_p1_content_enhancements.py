@@ -343,7 +343,6 @@ img_path = "asset://image/{dummy_code_id}"
         js_html = render_to_string("content_blocks/includes/_block_assets_js.html")
 
         for needle in [
-            "highlightjs/styles/github-dark.min.css",
             "content_blocks/css/code-highlighting.css",
             "content_blocks/css/embed-block.css",
             "content_blocks/css/content-images.css",
@@ -351,6 +350,7 @@ img_path = "asset://image/{dummy_code_id}"
             "content_blocks/css/structured-blocks.css",
         ]:
             self.assertIn(needle, css_html)
+        self.assertNotIn("highlightjs/styles/github-dark.min.css", css_html)
 
         for needle in [
             "content_blocks/js/code-highlighting.js",

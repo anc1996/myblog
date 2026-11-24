@@ -10,6 +10,7 @@
     "use strict";
 
     var THEME_LABELS = {
+        "follow-site": "跟随站点昼夜 (follow-site)",
         default: "默认浅色 (default)",
         dark: "深色模式 (dark)",
         forest: "自然绿色 (forest)",
@@ -238,20 +239,21 @@
 
         _getTheme() {
             var sel = this._findThemeSelect();
-            var raw = (sel && sel.value) || "default";
+            var raw = (sel && sel.value) || "follow-site";
             return window.CBMermaidRenderer ? window.CBMermaidRenderer.normalizeTheme(raw) : raw;
         }
 
-        _updateThemeVisuals(theme) {
+        _updateThemeVisuals(requestedTheme, resolvedTheme) {
+            var visTheme = resolvedTheme || (window.CBMermaidRenderer && window.CBMermaidRenderer.resolveTheme ? window.CBMermaidRenderer.resolveTheme(requestedTheme) : requestedTheme);
             if (this.canvas) {
-                this.canvas.setAttribute("data-theme", theme);
+                this.canvas.setAttribute("data-theme", visTheme);
             }
             if (this.themeLabelEl) {
-                this.themeLabelEl.textContent = "主题: " + (THEME_LABELS[theme] || theme);
-                this.themeLabelEl.setAttribute("data-theme", theme);
+                this.themeLabelEl.textContent = "主题: " + (THEME_LABELS[requestedTheme] || requestedTheme);
+                this.themeLabelEl.setAttribute("data-theme", visTheme);
             }
-            if (this.expandedThemeSel && this.expandedThemeSel.value !== theme) {
-                this.expandedThemeSel.value = theme;
+            if (this.expandedThemeSel && this.expandedThemeSel.value !== requestedTheme) {
+                this.expandedThemeSel.value = requestedTheme;
             }
         }
 
@@ -272,7 +274,7 @@
                 this.lastSuccess &&
                 this.lastSuccess.svgNode &&
                 this.lastSuccess.code === currentCode &&
-                this.lastSuccess.theme === currentTheme
+                (this.lastSuccess.requestedTheme || this.lastSuccess.theme) === currentTheme
             );
             if (this.exportSvgBtn) this.exportSvgBtn.disabled = !ready;
             if (this.exportPngBtn) this.exportPngBtn.disabled = !ready;
@@ -545,7 +547,7 @@
 
         _exportSvg() {
             if (!this.lastSuccess || !this.lastSuccess.svgNode || !window.CBMermaidRenderer) return;
-            if (this.lastSuccess.code !== (this.input.value || "") || this.lastSuccess.theme !== this._getTheme()) {
+            if (this.lastSuccess.code !== (this.input.value || "") || (this.lastSuccess.requestedTheme || this.lastSuccess.theme) !== this._getTheme()) {
                 this._setStatusPill("源码已变更，请等待最新渲染完成后再导出", "error");
                 return;
             }
@@ -561,7 +563,7 @@
         _exportPng() {
             var self = this;
             if (!this.lastSuccess || !this.lastSuccess.svgNode || !window.CBMermaidRenderer) return;
-            if (this.lastSuccess.code !== (this.input.value || "") || this.lastSuccess.theme !== this._getTheme()) {
+            if (this.lastSuccess.code !== (this.input.value || "") || (this.lastSuccess.requestedTheme || this.lastSuccess.theme) !== this._getTheme()) {
                 this._setStatusPill("源码已变更，请等待最新渲染完成后再导出", "error");
                 return;
             }
@@ -1013,9 +1015,10 @@
                 self.errorEl.hidden = true;
                 self.errorLine = null;
                 if (self.jumpLineBtn) self.jumpLineBtn.hidden = true;
-                self._updateThemeVisuals(res.theme);
+                self._updateThemeVisuals(res.requestedTheme || theme, res.theme);
                 self.lastSuccess = {
                     code: rawCode,
+                    requestedTheme: res.requestedTheme || theme,
                     theme: res.theme,
                     svgNode: res.svgNode
                 };

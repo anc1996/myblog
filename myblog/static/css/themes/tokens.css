@@ -141,6 +141,8 @@
   --cal-heat-2: rgba(29, 78, 216, 0.16);
   --cal-heat-3: rgba(29, 78, 216, 0.25);
   --cal-heat-4: rgba(29, 78, 216, 0.36);
+  --media-stage-bg: #0f172a;
+  --mermaid-dark-canvas: #1f2430;
 
   color-scheme: light;
 }
@@ -220,6 +222,8 @@
   --cal-heat-2: rgba(147, 197, 253, 0.20);
   --cal-heat-3: rgba(147, 197, 253, 0.30);
   --cal-heat-4: rgba(147, 197, 253, 0.42);
+  --media-stage-bg: #0b1120;
+  --mermaid-dark-canvas: #1f2430;
 
   color-scheme: dark;
 }
