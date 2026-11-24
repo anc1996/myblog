@@ -137,10 +137,10 @@
   --table-head-text: #0f172a;
   --table-stripe-bg: rgba(232, 238, 246, 0.55);
 
-  --cal-heat-1: rgba(29, 78, 216, 0.09);
-  --cal-heat-2: rgba(29, 78, 216, 0.16);
-  --cal-heat-3: rgba(29, 78, 216, 0.25);
-  --cal-heat-4: rgba(29, 78, 216, 0.36);
+  --cal-heat-1: rgba(29, 78, 216, 0.14);
+  --cal-heat-2: rgba(29, 78, 216, 0.24);
+  --cal-heat-3: rgba(29, 78, 216, 0.36);
+  --cal-heat-4: rgba(29, 78, 216, 0.48);
   --media-stage-bg: #0f172a;
   --mermaid-dark-canvas: #1f2430;
 
@@ -218,10 +218,10 @@
   --table-head-text: #f1f5f9;
   --table-stripe-bg: rgba(41, 53, 69, 0.45);
 
-  --cal-heat-1: rgba(147, 197, 253, 0.12);
-  --cal-heat-2: rgba(147, 197, 253, 0.20);
-  --cal-heat-3: rgba(147, 197, 253, 0.30);
-  --cal-heat-4: rgba(147, 197, 253, 0.42);
+  --cal-heat-1: rgba(147, 197, 253, 0.16);
+  --cal-heat-2: rgba(147, 197, 253, 0.27);
+  --cal-heat-3: rgba(147, 197, 253, 0.38);
+  --cal-heat-4: rgba(147, 197, 253, 0.50);
   --media-stage-bg: #0b1120;
   --mermaid-dark-canvas: #1f2430;
 
@@ -262,10 +262,10 @@
   --hero-desc: #d5ede5;
   --hero-outline-border: rgba(255, 255, 255, 0.42);
 
-  --cal-heat-1: rgba(15, 102, 88, 0.09);
-  --cal-heat-2: rgba(15, 102, 88, 0.16);
-  --cal-heat-3: rgba(15, 102, 88, 0.25);
-  --cal-heat-4: rgba(15, 102, 88, 0.36);
+  --cal-heat-1: rgba(15, 102, 88, 0.14);
+  --cal-heat-2: rgba(15, 102, 88, 0.24);
+  --cal-heat-3: rgba(15, 102, 88, 0.36);
+  --cal-heat-4: rgba(15, 102, 88, 0.48);
 
   color-scheme: light;
 }
@@ -307,10 +307,10 @@
   --table-head-text: #edf4f1;
   --table-stripe-bg: rgba(42, 57, 51, 0.45);
 
-  --cal-heat-1: rgba(123, 217, 190, 0.12);
-  --cal-heat-2: rgba(123, 217, 190, 0.20);
-  --cal-heat-3: rgba(123, 217, 190, 0.30);
-  --cal-heat-4: rgba(123, 217, 190, 0.42);
+  --cal-heat-1: rgba(123, 217, 190, 0.16);
+  --cal-heat-2: rgba(123, 217, 190, 0.27);
+  --cal-heat-3: rgba(123, 217, 190, 0.38);
+  --cal-heat-4: rgba(123, 217, 190, 0.50);
 
   color-scheme: dark;
 }

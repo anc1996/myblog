@@ -1,6 +1,6 @@
 # myblog 全站主题设计系统与昼夜跟随架构方案（RFC）
 
-> **文档状态**：**阶段 1（`694aff5`）、阶段 2（`a6be3ee`）及阶段 3（代码块双主题令牌、Mermaid `follow-site` 联动与 `content_blocks`/Vendor 组件收敛，含 3 项非破坏性 StreamField 元数据迁移）均已实施完成。主题系统专项测试共 16 项（`test_theme_system_stage1~3.py`：7 + 4 + 5 项，阶段 4 的静态对比度与零裸 `#hex` 护栏已分别合入 `stage1` 与 `stage3`；后续并已将 `myblog.css` 与 `detail-layout.css` 一并收敛进 `stage3` 的 12 份 CSS 零裸 `#hex` 守卫，并删除 0 字节 `myblog.js`），与相关全站回归组合验证共计 51 项通过；待按需补充真实多视口全量截图验收。**
+> **文档状态**：**阶段 1（`694aff5`）、阶段 2（`a6be3ee`）及阶段 3（代码块双主题令牌、Mermaid `follow-site` 联动与 `content_blocks`/Vendor 组件收敛，含 3 项非破坏性 StreamField 元数据迁移）均已实施完成。后续（2026-11-24）已在 `myblog.css?v=20261124d` 与 `tokens.css?v=20261124b` 完成全站表单控件抬升底色、Tom Select 单/多选聚焦态、Flatpickr 星期与指示三角、浏览器 `:-webkit-autofill`、复选框 `accent-color` 及热力图 `--cal-heat-1..4` 阶梯对比收敛（`test_theme_system_stage1~3.py` 专项现共 17 项：7 + 4 + 6 项，阶段 4 静态对比度与 12 份 CSS 零裸 `#hex` 护栏均已合入并随 47 项关联组合测试及 Playwright 黑白主题交互核验通过）；待按需补充真实物理 iPad Safari 与全站全量页面截图存档。**
 
 ---
 

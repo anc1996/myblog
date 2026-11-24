@@ -162,3 +162,18 @@ class Stage3CssTokenGuardTests(TestCase):
             tpl_text = (PROJECT_ROOT / rel_tpl).read_text(encoding="utf-8")
             self.assertNotIn("mist-blue", tpl_text)
             self.assertNotIn("moss-lab", tpl_text)
+
+    def test_myblog_css_unifies_tomselect_flatpickr_and_form_controls_across_themes(self):
+        """全站公共表单、Tom Select 单/多选（含聚焦态）与 Flatpickr 必须覆盖厂商浅色渐变与黑字"""
+        myblog_css = (PROJECT_ROOT / "myblog/static/css/myblog.css").read_text(encoding="utf-8")
+        for required in (
+            ".ts-wrapper.single .ts-control",
+            ".ts-wrapper.single.input-active .ts-control",
+            "background-image: none;",
+            "span.flatpickr-weekday",
+            ".flatpickr-calendar.arrowTop::after",
+            ".flatpickr-calendar.arrowBottom::after",
+            ":-webkit-autofill",
+            "accent-color: var(--color-primary);",
+        ):
+            self.assertIn(required, myblog_css)

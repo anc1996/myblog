@@ -111,21 +111,29 @@ class DetailPhaseBAuthorCardTests(TestCase):
         self.assertFalse(p.show_public_comments)
 
     def test_anonymous_unlinked_suspended_and_preview_author_card_boundaries(self):
-        """系统佚名不展示名片卡；未绑定或停用账号不展示核验徽章和发言 Tab；预览态不查名片"""
+        """系统佚名展示站点归档名片与日历（不认证、不开作者发言）；未绑定或停用账号不展示核验徽章；预览态不查名片"""
         User = get_user_model()
         u_suspended = User.objects.create_user(
             username=f"susp_{uuid4().hex[:6]}",
             password="StrongPass123!",
             is_active=False,
         )
-        p_anon_post = BlogPage(title="佚名文章", slug=f"anon-{uuid4().hex[:6]}")
+        today = timezone.localdate()
+        p_anon_post = BlogPage(title="佚名文章", slug=f"anon-{uuid4().hex[:6]}", authored_on=today)
         self.home.add_child(instance=p_anon_post)
         p_anon_post.save_revision().publish()
         p_anon_post.refresh_from_db()
         self.created_pages.append(p_anon_post)
 
         d_anon = build_detail_presentation(p_anon_post, self.factory.get(p_anon_post.url_path))
-        self.assertIsNone(d_anon["author_card"])
+        anon_card = d_anon["author_card"]
+        self.assertIsNotNone(anon_card)
+        self.assertTrue(anon_card["is_anonymous"])
+        self.assertEqual(anon_card["role_label"], "站点归档 · 未单独署名")
+        self.assertEqual(anon_card["articles_tab_label"], "归档文章")
+        self.assertFalse(anon_card["is_verified"])
+        self.assertFalse(anon_card["show_comments_tab"])
+        self.assertGreaterEqual(anon_card["heatmap"]["month_total"], 1)
 
         # 未绑定作者与停用账号作者均不展示核验与发言 Tab
         person_susp = Person.objects.create(
@@ -143,6 +151,7 @@ class DetailPhaseBAuthorCardTests(TestCase):
 
         d_susp = build_detail_presentation(post, self.factory.get(post.url_path))
         self.assertIsNotNone(d_susp["author_card"])
+        self.assertFalse(d_susp["author_card"]["is_anonymous"])
         self.assertFalse(d_susp["author_card"]["is_verified"])
         self.assertFalse(d_susp["author_card"]["show_comments_tab"])
 
@@ -248,7 +257,16 @@ class DetailPhaseBAuthorCardTests(TestCase):
         self.assertIn("仅审校开源项目", art_titles)
         self.assertIn("上月旧博文", art_titles)
         self.assertIn("author-heatmap-grid", html)
+        self.assertIn("author-heatmap-legend", html)
         self.assertIn("主笔沈括", html)
+        active_cells = [
+            c
+            for week in ac["heatmap"]["weeks"]
+            for c in week
+            if c["count"] > 0
+        ]
+        self.assertTrue(active_cells)
+        self.assertIn(f"date_from={today.isoformat()}", active_cells[0]["url"])
 
     def test_author_comments_security_anti_leakage(self):
         """作者发言防漏：拦截隐藏根评论下的回复、待审V2不覆盖V1、祖先回收/受限拦截、未授权拦截"""

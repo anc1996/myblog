@@ -523,10 +523,29 @@ body {
   font-size: 0.9375rem;
   font-family: inherit;
   color: var(--color-text);
-  background: var(--color-surface);
+  background-color: var(--color-surface-raised);
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-sm);
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.ui-input::placeholder,
+.form-control::placeholder {
+  color: var(--color-muted);
+  opacity: 1;
+}
+
+.ui-select option,
+.form-select option,
+.ui-select optgroup,
+.form-select optgroup {
+  background-color: var(--color-surface);
+  color: var(--color-text);
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--color-primary);
 }
 
 .ui-input:focus,
@@ -536,6 +555,16 @@ body {
   border-color: var(--color-primary);
   box-shadow: 0 0 0 3px var(--color-focus-ring);
   outline: none;
+}
+
+/* 统一覆盖浏览器自动填充底色，避免深色模式下弹出刺眼浅黄/白底 */
+:is(.ui-input, .ui-select, .form-control, .form-select, .comment-input, .comment-textarea, .identity-form input, .identity-form textarea, .identity-form select):-webkit-autofill,
+:is(.ui-input, .ui-select, .form-control, .form-select, .comment-input, .comment-textarea, .identity-form input, .identity-form textarea, .identity-form select):-webkit-autofill:hover,
+:is(.ui-input, .ui-select, .form-control, .form-select, .comment-input, .comment-textarea, .identity-form input, .identity-form textarea, .identity-form select):-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--color-text);
+  caret-color: var(--color-text);
+  box-shadow: 0 0 0 1000px var(--color-surface-raised) inset;
+  transition: background-color 9999s ease-out 0s;
 }
 
 .ui-card {
@@ -650,73 +679,178 @@ body {
   min-height: auto;
 }
 
-.ts-wrapper .ts-control {
+/* 高优先级覆盖 tom-select.default.min.css 中的 .ts-wrapper.single .ts-control 与 .input-active 白底渐变 */
+.ts-wrapper .ts-control,
+.ts-wrapper.full .ts-control,
+.ts-wrapper.single .ts-control,
+.ts-wrapper.single.input-active .ts-control,
+.ts-wrapper.multi .ts-control {
   min-height: var(--touch-target);
   padding: 8px 12px;
   border-radius: var(--radius-sm);
-  border-color: var(--color-border-strong);
-  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  background-color: var(--color-surface-raised);
+  background-image: none;
   color: var(--color-text);
   font-size: 0.9375rem;
+  line-height: 1.5;
   display: flex;
   align-items: center;
+  box-shadow: none;
 }
 
-.ts-wrapper.single .ts-control {
+.ts-wrapper.single .ts-control,
+.ts-wrapper.single.input-active .ts-control {
+  flex-wrap: nowrap;
   padding-right: 32px;
+  cursor: pointer;
 }
 
+.ts-wrapper.single .ts-control > .item {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text);
+}
+
+.ts-wrapper .ts-control > input,
 .ts-wrapper .ts-control input {
   color: var(--color-text);
+  font-size: inherit;
 }
 
-.ts-dropdown {
+.ts-wrapper.single .ts-control > input {
+  min-width: 4px !important;
+  flex: 1 1 4px;
+}
+
+.ts-wrapper.single .ts-control::after {
+  border-color: var(--color-muted) transparent transparent transparent;
+}
+
+.ts-wrapper.single.dropdown-active .ts-control::after {
+  border-color: transparent transparent var(--color-primary) transparent;
+}
+
+.ts-wrapper .ts-dropdown,
+.ts-dropdown.single,
+.ts-dropdown.multi {
   background: var(--color-surface);
   color: var(--color-text);
-  border-color: var(--color-border-strong);
+  border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-sm);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.16);
   z-index: 1200;
 }
 
-.ts-dropdown .option {
+:root[data-theme="dark"] .ts-wrapper .ts-dropdown,
+:root[data-theme="dark"] .ts-dropdown.single,
+:root[data-theme="dark"] .ts-dropdown.multi {
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.45);
+}
+
+.ts-dropdown .option,
+.ts-dropdown .create {
   padding: 8px 12px;
+  color: var(--color-text);
 }
 
-.ts-dropdown .active {
+.ts-dropdown .optgroup-header {
   background: var(--color-surface-subtle);
-  color: var(--color-primary);
+  color: var(--color-text-secondary);
 }
 
-.ts-wrapper.focus .ts-control {
+.ts-dropdown .active,
+.ts-dropdown .active.create,
+.ts-dropdown .option:hover {
+  background-color: var(--color-primary-soft);
+  color: var(--color-on-primary-soft);
+}
+
+.ts-dropdown .selected {
+  background-color: var(--color-surface-subtle);
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.ts-dropdown [data-selectable] .highlight {
+  background: var(--color-primary-soft);
+  color: var(--color-on-primary-soft);
+  border-radius: 2px;
+}
+
+.ts-wrapper.focus .ts-control,
+.ts-wrapper.single.focus .ts-control,
+.ts-wrapper.single.input-active.focus .ts-control,
+.ts-wrapper.dropdown-active .ts-control {
   border-color: var(--color-primary);
+  background-color: var(--color-surface-raised);
+  background-image: none;
+  color: var(--color-text);
   box-shadow: 0 0 0 3px var(--color-focus-ring);
+}
+
+.ts-wrapper.disabled .ts-control,
+.ts-wrapper.single.disabled .ts-control {
+  background-color: var(--color-surface-subtle);
+  background-image: none;
+  opacity: 0.6;
 }
 
 .ts-wrapper .ts-control > input::placeholder {
   color: var(--color-muted);
+  opacity: 1;
 }
 
-.ts-wrapper.multi .ts-control > div {
-  background: var(--color-primary-soft);
+.ts-wrapper.multi .ts-control > div,
+.ts-wrapper.multi .ts-control [data-value] {
+  background-color: var(--color-primary-soft);
+  background-image: none;
   color: var(--color-on-primary-soft);
   border: 1px solid var(--color-border);
   border-radius: 4px;
+  text-shadow: none;
+  box-shadow: none;
 }
 
-.ts-wrapper.multi .ts-control > div.active {
-  background: var(--color-primary);
+.ts-wrapper.multi .ts-control > div.active,
+.ts-wrapper.multi .ts-control [data-value].active {
+  background-color: var(--color-primary);
+  background-image: none;
   color: var(--color-on-primary);
+  border-color: var(--color-primary);
 }
 
-.ts-wrapper.multi .ts-control .remove {
+.ts-wrapper.multi .ts-control .remove,
+.ts-wrapper.plugin-remove_button .item .remove {
+  color: inherit;
   border-left-color: var(--color-border);
 }
 
-.ts-dropdown .option {
+.ts-wrapper.plugin-remove_button .item .remove:hover {
+  background: var(--color-surface-subtle);
+}
+
+.ts-wrapper .dropdown-header {
+  background: var(--color-surface-subtle);
+  border-bottom-color: var(--color-border);
+  color: var(--color-text);
+}
+
+.ts-wrapper .dropdown-header-close,
+.ts-wrapper.plugin-clear_button .clear-button {
+  color: var(--color-muted);
+}
+
+.ts-wrapper .dropdown-header-close:hover,
+.ts-wrapper.plugin-clear_button .clear-button:hover {
   color: var(--color-text);
 }
 
 .ts-dropdown .no-results {
+  padding: 8px 12px;
   color: var(--color-muted);
 }
 
@@ -728,6 +862,22 @@ body > .flatpickr-calendar,
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.16);
 }
 
+.flatpickr-calendar.arrowTop::before {
+  border-bottom-color: var(--color-border-strong);
+}
+
+.flatpickr-calendar.arrowTop::after {
+  border-bottom-color: var(--color-surface);
+}
+
+.flatpickr-calendar.arrowBottom::before {
+  border-top-color: var(--color-border-strong);
+}
+
+.flatpickr-calendar.arrowBottom::after {
+  border-top-color: var(--color-surface);
+}
+
 :root[data-theme="dark"] .flatpickr-calendar {
   border-color: var(--color-border-strong);
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.45);
@@ -735,10 +885,36 @@ body > .flatpickr-calendar,
 
 .flatpickr-day,
 .flatpickr-weekday,
+span.flatpickr-weekday,
 .flatpickr-months .flatpickr-month,
 .flatpickr-current-month input.cur-year,
 .flatpickr-current-month .flatpickr-monthDropdown-months {
   color: var(--color-text);
+}
+
+span.flatpickr-weekday {
+  color: var(--color-muted);
+}
+
+.flatpickr-current-month span.cur-month:hover,
+.flatpickr-current-month .flatpickr-monthDropdown-months:hover,
+.numInputWrapper:hover,
+.numInputWrapper span:hover {
+  background: var(--color-surface-subtle);
+}
+
+.numInputWrapper span:active {
+  background: var(--color-primary-soft);
+}
+
+.flatpickr-current-month .numInputWrapper span.arrowUp::after,
+.flatpickr-time .numInputWrapper span.arrowUp::after {
+  border-bottom-color: var(--color-text-secondary);
+}
+
+.flatpickr-current-month .numInputWrapper span.arrowDown::after,
+.flatpickr-time .numInputWrapper span.arrowDown::after {
+  border-top-color: var(--color-text-secondary);
 }
 
 .flatpickr-current-month .flatpickr-monthDropdown-months,
@@ -759,18 +935,46 @@ body > .flatpickr-calendar,
 
 .flatpickr-day.prevMonthDay,
 .flatpickr-day.nextMonthDay,
-.flatpickr-day.flatpickr-disabled {
+.flatpickr-day.flatpickr-disabled,
+.flatpickr-day.flatpickr-disabled:hover,
+.flatpickr-day.notAllowed,
+.flatpickr-day.notAllowed.prevMonthDay,
+.flatpickr-day.notAllowed.nextMonthDay {
   color: var(--color-muted);
   opacity: 0.55;
 }
 
-.flatpickr-day:hover {
+.flatpickr-day:hover,
+.flatpickr-day:focus,
+.flatpickr-day.prevMonthDay:hover,
+.flatpickr-day.nextMonthDay:hover {
   background: var(--color-surface-subtle);
-  border-color: var(--color-surface-subtle);
+  border-color: var(--color-border-strong);
+  color: var(--color-text);
 }
 
 .flatpickr-day.today {
   border-color: var(--color-primary);
+}
+
+.flatpickr-day.today:hover,
+.flatpickr-day.today:focus {
+  background: var(--color-primary-soft);
+  border-color: var(--color-primary);
+  color: var(--color-on-primary-soft);
+}
+
+.flatpickr-time input,
+.flatpickr-time .flatpickr-time-separator,
+.flatpickr-time .flatpickr-am-pm {
+  color: var(--color-text);
+}
+
+.flatpickr-time input:hover,
+.flatpickr-time .flatpickr-am-pm:hover,
+.flatpickr-time input:focus,
+.flatpickr-time .flatpickr-am-pm:focus {
+  background: var(--color-surface-subtle);
 }
 
 .flatpickr-day.selected,

@@ -123,21 +123,21 @@
   - 规则：当 `announcement` 为 `None` 时触发，最多返回 **4 条**；
   - 优先级 1（同栏最新）：在同站点 + 同直接父栏目 + `type_key__in=get_archive_enabled_type_keys()` + 公开资格过滤下，排除当前页与已展示的上下篇，按 `-authored_on, -page_id` 取最新；
   - 优先级 2（同标签补齐）：若不足 4 条且当前页存在已发布标签（取自当前 `PublishedSearchDocument.search_tags`），在同站点 + `type_key__in=get_archive_enabled_type_keys()` + 公开资格过滤下按共享标签文章补齐去重，跨栏目补位条目标注 `source="tag"`（前端微标「同标签推荐」）；
-  - 若最终仍为 0 条，不渲染推荐卡片。
+  - 优先级 3（全站最新补齐）：若前两级仍不足 4 条，则在同站点 + `type_key__in=get_archive_enabled_type_keys()` + 公开资格过滤下按 `-authored_on, -page_id` 补足至多 4 条，跨栏目补位标注 `source="site"`（前端微标「全站推荐」），确保所有内容详情页均保持丰富右侧栏；仅当全站无其他合格文章时才不渲染推荐卡片。
 
 ### 3.3 Phase B 模块：作者名片卡、本月热力图与 `作者好文 / 作者发言` Tab
 
 #### B1. 作者名片与多作者策略
 - **归属模块**：`myblog/apps/people/sidebar.py`（新增纯只读聚合模块）。
 - **署名口径**：基于 `detail.py` 现有公开署名解析（优先匹配当前 `live_revision_id` 的 `PublishedSearchAuthor`，去重后主笔 `primary` 优先，同级按 `sort_order, id`）。
-- **系统佚名（`is_system_anonymous=True`）**：正文 meta 正常显示「佚名」，右侧栏**不渲染**作者名片卡、认证徽章、热力图和 Tab；GET 请求绝不创建佚名记录。
+- **系统佚名（`is_system_anonymous=True`）**：当文章未署名或仅署名系统 `佚名` 时，右侧栏渲染统一的「站点归档 · 未单独署名」匿名作者卡，展示「本月创作热力图」与「归档文章」Tab，同时**不显示**「站点核验署名」徽章与「作者发言」Tab；具名作者严格优先于 `佚名`，且 GET 请求绝不自动创建佚名记录。
 - **多作者极简展示（零新增 API）**：右侧栏完整展示第 1 位主笔的名片、热力图与 `作者好文 / 作者发言` Tab；若文章有其他合作作者（且非系统佚名），在名片底部以紧凑头像徽章列出并直链 `/authors/<slug>/`。（若后续需要页内点击切换第 2 位作者热力图，可平滑追加单个只读接口，无需改动主结构。）
 - **核验徽章**：当且仅当 `person.linked_user_id` 非空、非系统佚名、且 `linked_user.is_active=True` 时，显示「站点核验署名」徽章；**严禁输出**后台 `username`、账号邮箱或权限角色。头像仅在 `avatar.visibility == PUBLIC` 时通过 `/media-gateway/image/<public_id>/` 输出，否则显示首字占位徽章。
 
 #### B2. 本月创作热力图（零迁移、首版零缓存直查 SQL）
 - **统计口径**：统计该作者在**当前站点**下、公开合格、且 `authored_on` 落在 `[本月1日, site_today]` 内的去重作品数（`COUNT(DISTINCT document_id)`），纳入角色为主笔与共同作者（排除仅审校/佚名）。
 - **查询实现**：单条 ORM 聚合查询 `PublishedSearchAuthor` 关联 `PublishedSearchDocument`（施加 `apply_public_eligibility_filter`、`root_path__startswith=site.root_page.path`、`type_key__in=get_author_enabled_type_keys()`、`authored_on__gte=month_start`、`authored_on__lte=site_today`），按 `document__authored_on` 分组，最多返回 **31 行**。
-- **为什么首版不做缓存（YAGNI）**：现有 `discovery/signals.py` 各监听器内部存在异常捕获降级，不能假设 Epoch 在所有失败路径下都强一致；单作者单月聚合本身极轻量，直查数据库最简单且无权限撤销延迟。前端复用 `tokens.css` 既有的 `--cal-heat-1..4` 令牌渲染当月小日历网格，无文章日期填 0 档，未来日期置灰留空。
+- **为什么首版不做缓存（YAGNI）**：现有 `discovery/signals.py` 各监听器内部存在异常捕获降级，不能假设 Epoch 在所有失败路径下都强一致；单作者单月聚合本身极轻量，直查数据库最简单且无权限撤销延迟。前端复用 `tokens.css` 增强后的 `--cal-heat-1..4` 令牌渲染当月小日历网格，有产出日期在右上角显示篇数角标并直链 `/authors/<slug>/?date_from=YYYY-MM-DD&date_to=YYYY-MM-DD`，卡片底部附带 `图例(篇): 0 | 1 | 2 | 3+ | 今日` 说明条，无文章日期填 0 档，未来日期置灰留空。
 
 #### B3. `作者好文` Tab（零迁移）
 - **口径**：首版取该作者在当前站点下**最近 5 篇**公开作品（`authored_on DESC, page_id DESC`），排除当前正在阅读的文章，跨所有声明支持 `"author"` 维度的已注册类型；URL 由 `Page.get_url(request)` 统一解析。

@@ -48,6 +48,15 @@
                     <span class="author-heat-cell is-outside" aria-hidden="true"></span>
                     {% elif cell.is_future %}
                     <span class="author-heat-cell is-future" title="{{ cell.date }}">{{ cell.day }}</span>
+                    {% elif cell.url %}
+                    <a
+                        href="{{ cell.url }}"
+                        class="author-heat-cell is-active-day heat-{{ cell.heat_level }}{% if cell.is_today %} is-today{% endif %}"
+                        title="{{ cell.date }}：{{ cell.count }} 篇（点击查看当日作品）"
+                    >
+                        <span class="author-heat-day">{{ cell.day }}</span>
+                        <span class="author-heat-count" aria-hidden="true">{{ cell.count }}</span>
+                    </a>
                     {% else %}
                     <span
                         class="author-heat-cell heat-{{ cell.heat_level }}{% if cell.is_today %} is-today{% endif %}"
@@ -56,6 +65,14 @@
                     {% endif %}
                 {% endfor %}
             {% endfor %}
+        </div>
+        <div class="author-heatmap-legend" aria-label="日历色阶图例">
+            <span class="author-heatmap-legend-label">图例(篇):</span>
+            <span class="author-heat-swatch-wrap"><i class="author-heat-swatch heat-0" aria-hidden="true"></i>0</span>
+            <span class="author-heat-swatch-wrap"><i class="author-heat-swatch heat-1" aria-hidden="true"></i>1</span>
+            <span class="author-heat-swatch-wrap"><i class="author-heat-swatch heat-3" aria-hidden="true"></i>2</span>
+            <span class="author-heat-swatch-wrap"><i class="author-heat-swatch heat-4" aria-hidden="true"></i>3+</span>
+            <span class="author-heat-swatch-wrap"><i class="author-heat-swatch is-today" aria-hidden="true"></i>今日</span>
         </div>
     </div>
 
@@ -68,7 +85,7 @@
                 :class="{ 'is-active': tab === 'articles' }"
                 :aria-selected="tab === 'articles'"
                 @click="tab = 'articles'"
-            >作者好文</button>
+            >{{ ac.articles_tab_label|default:"作者好文" }}</button>
             {% if ac.show_comments_tab %}
             <button
                 type="button"

@@ -1495,7 +1495,8 @@ a.author-card-name:hover {
 }
 
 .author-heat-cell {
-  height: 24px;
+  position: relative;
+  min-height: 28px;
   border-radius: 4px;
   display: flex;
   align-items: center;
@@ -1504,7 +1505,29 @@ a.author-card-name:hover {
   color: var(--color-text-secondary);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
+  text-decoration: none;
   user-select: none;
+}
+
+.author-heat-cell.is-active-day {
+  border-color: var(--color-primary);
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+
+.author-heat-cell.is-active-day:hover {
+  transform: translateY(-1px);
+}
+
+.author-heat-count {
+  position: absolute;
+  top: 1px;
+  right: 2px;
+  font-size: 0.56rem;
+  line-height: 1;
+  color: var(--color-primary);
+  font-weight: 700;
 }
 
 .author-heat-cell.is-outside {
@@ -1541,6 +1564,54 @@ a.author-card-name:hover {
 }
 
 .author-heat-cell.is-today {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -1px;
+}
+
+.author-heatmap-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px dashed var(--color-border);
+  font-size: 0.68rem;
+  color: var(--color-muted);
+}
+
+.author-heat-swatch-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.author-heat-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.author-heat-swatch.heat-1 {
+  background: var(--cal-heat-1);
+  border-color: var(--color-primary);
+}
+
+.author-heat-swatch.heat-3 {
+  background: var(--cal-heat-3);
+  border-color: var(--color-primary);
+}
+
+.author-heat-swatch.heat-4 {
+  background: var(--cal-heat-4);
+  border-color: var(--color-primary);
+}
+
+.author-heat-swatch.is-today {
   outline: 2px solid var(--color-primary);
   outline-offset: -1px;
 }

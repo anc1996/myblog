@@ -34,6 +34,28 @@
 
     {{ block.super }}
 
+    {% if is_paginated and paginator.num_pages > 1 %}
+    <form method="get" class="comment-page-jump-form" style="margin-top: 14px; padding: 10px 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px;">
+        {% for k, v in request.GET.items %}
+            {% if k != "p" %}
+                <input type="hidden" name="{{ k }}" value="{{ v }}">
+            {% endif %}
+        {% endfor %}
+        <span style="color: #475569;">第 <strong>{{ page_obj.number }}</strong> / {{ paginator.num_pages }} 页（共 {{ items_count }} 条），跳转到第</span>
+        <input
+            type="number"
+            name="p"
+            min="1"
+            max="{{ paginator.num_pages }}"
+            value="{{ page_obj.number }}"
+            aria-label="跳转页码"
+            style="width: 76px; min-height: 32px; padding: 4px 8px; border: 1px solid #cbd5e1; border-radius: 4px;"
+        >
+        <span style="color: #475569;">页</span>
+        <button type="submit" class="button button-small button-secondary">跳转</button>
+    </form>
+    {% endif %}
+
     <script>
     (function() {
         function getCookie(name) {

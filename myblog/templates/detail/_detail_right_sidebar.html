@@ -33,8 +33,8 @@
                     <span class="detail-rec-title">{{ rec.title }}</span>
                     <span class="detail-rec-meta">
                         <span>{{ rec.type_label }} · {{ rec.authored_on|date:"Y-m-d" }}</span>
-                        {% if rec.source == "tag" %}
-                        <span class="detail-rec-badge">同标签推荐</span>
+                        {% if rec.source == "tag" or rec.source == "site" %}
+                        <span class="detail-rec-badge">{{ rec.source_label }}</span>
                         {% endif %}
                     </span>
                 </a>

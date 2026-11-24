@@ -48,6 +48,7 @@ _ROLE_PRIORITY = {
     "other": 6,
 }
 _HEATMAP_ROLES = ("primary_author", "core_dev", "co_author")
+_ANON_HEATMAP_ROLES = ("primary_author", "core_dev", "co_author", "anonymous")
 
 
 def _safe_avatar_url(person: Person | None) -> str:
@@ -71,23 +72,32 @@ def _author_profile_url(slug: str) -> str:
 def _compute_heat_level(count: int, max_count: int) -> int:
     if count <= 0:
         return 0
-    denom = max(int(max_count or 1), 3)
+    if count == 1:
+        return 1
+    if max_count <= 2:
+        return 3 if count == 2 else 4
+    denom = max(int(max_count), 3)
     ratio = count / denom
     if ratio >= 0.75:
         return 4
     if ratio >= 0.50:
         return 3
-    if ratio >= 0.25:
-        return 2
-    return 1
+    return 2
 
 
-def _build_month_heatmap(person_id: int, eligible_docs, site_today: date) -> dict[str, Any]:
+def _build_month_heatmap(
+    person_id: int,
+    eligible_docs,
+    site_today: date,
+    *,
+    roles: tuple[str, ...] = _HEATMAP_ROLES,
+    author_url: str = "",
+) -> dict[str, Any]:
     month_start = date(site_today.year, site_today.month, 1)
     rows = (
         PublishedSearchAuthor.objects.filter(
             person_id=person_id,
-            role__in=_HEATMAP_ROLES,
+            role__in=roles,
             document__in=eligible_docs.filter(
                 authored_on__gte=month_start,
                 authored_on__lte=site_today,
@@ -113,14 +123,21 @@ def _build_month_heatmap(person_id: int, eligible_docs, site_today: date) -> dic
             in_month = (d.year == site_today.year and d.month == site_today.month)
             is_future = in_month and d > site_today
             cnt = day_counts.get(d, 0) if (in_month and not is_future) else 0
+            iso_date = d.isoformat()
+            day_url = (
+                f"{author_url}?date_from={iso_date}&date_to={iso_date}"
+                if (author_url and cnt > 0)
+                else ""
+            )
             week_cells.append({
                 "day": d.day if in_month else 0,
-                "date": d.isoformat(),
+                "date": iso_date,
                 "in_month": in_month,
                 "is_future": is_future,
                 "is_today": d == site_today,
                 "count": cnt,
                 "heat_level": _compute_heat_level(cnt, max_count) if (in_month and not is_future) else 0,
+                "url": day_url,
             })
         weeks.append(week_cells)
 
@@ -223,33 +240,52 @@ def build_author_sidebar_card(page: Any, request: Any = None) -> dict[str, Any] 
             for p in Person.objects.select_related("avatar", "linked_user").filter(pk__in=person_ids)
         }
 
-        # 按 Person 去重并剔除系统内置「佚名」
+        # 按 Person 去重：优先选择真实作者；若全篇仅「佚名」，则展示站点佚名归档名片
         dedup_entries: list[dict[str, Any]] = []
+        anon_entry: dict[str, Any] | None = None
         seen_pids: set[int] = set()
         for seq, (pid, canon_role, role_label, sort_order) in enumerate(raw_entries):
             if pid in seen_pids:
                 continue
             person = persons_map.get(pid)
-            if person is None or person.is_system_anonymous or person.slug == "anonymous":
+            if person is None:
                 continue
             seen_pids.add(pid)
-            dedup_entries.append({
+            entry = {
                 "person": person,
                 "role": canon_role,
                 "role_label": role_label,
                 "priority": _ROLE_PRIORITY.get(canon_role, 6),
                 "order": (sort_order, seq),
-            })
+            }
+            if person.is_system_anonymous or person.slug == "anonymous":
+                if anon_entry is None:
+                    anon_entry = entry
+            else:
+                dedup_entries.append(entry)
 
-        if not dedup_entries:
+        if dedup_entries:
+            dedup_entries.sort(key=lambda x: (x["priority"], x["order"]))
+            lead_item = dedup_entries[0]
+            co_entries = dedup_entries[1:]
+        elif anon_entry is not None:
+            lead_item = anon_entry
+            co_entries = []
+        else:
             return None
 
-        dedup_entries.sort(key=lambda x: (x["priority"], x["order"]))
-        lead_item = dedup_entries[0]
         lead_person: Person = lead_item["person"]
+        is_anonymous = bool(lead_person.is_system_anonymous or lead_person.slug == "anonymous")
+        author_url = _author_profile_url(lead_person.slug)
 
         # 2. 本月创作热力图（零缓存直查 SQL）
-        heatmap = _build_month_heatmap(lead_person.pk, eligible_docs, site_today)
+        heatmap = _build_month_heatmap(
+            lead_person.pk,
+            eligible_docs,
+            site_today,
+            roles=_ANON_HEATMAP_ROLES if is_anonymous else _HEATMAP_ROLES,
+            author_url=author_url,
+        )
 
         # 3. 「作者好文」：跨支持作者维度的类型取最近 5 篇（排除当前页），真实 Page 解析 URL
         art_rows = list(
@@ -292,8 +328,13 @@ def build_author_sidebar_card(page: Any, request: Any = None) -> dict[str, Any] 
 
         # 4. 「作者发言」：仅当非佚名 + 已绑定激活后台账号 + 显式开启 show_public_comments 时聚合
         linked_user = getattr(lead_person, "linked_user", None)
-        linked_active = bool(lead_person.linked_user_id and linked_user and getattr(linked_user, "is_active", False))
-        show_comments_tab = bool(linked_active and lead_person.show_public_comments)
+        linked_active = bool(
+            not is_anonymous
+            and lead_person.linked_user_id
+            and linked_user
+            and getattr(linked_user, "is_active", False)
+        )
+        show_comments_tab = bool(not is_anonymous and linked_active and lead_person.show_public_comments)
         recent_comments = (
             get_public_comments_for_user(
                 lead_person.linked_user_id,
@@ -307,7 +348,7 @@ def build_author_sidebar_card(page: Any, request: Any = None) -> dict[str, Any] 
 
         # 5. 其他合作作者紧凑徽章
         other_authors: list[dict[str, Any]] = []
-        for co in dedup_entries[1:]:
+        for co in co_entries:
             cp: Person = co["person"]
             other_authors.append({
                 "name": cp.name,
@@ -321,10 +362,12 @@ def build_author_sidebar_card(page: Any, request: Any = None) -> dict[str, Any] 
         return {
             "name": lead_person.name,
             "slug": lead_person.slug,
-            "url": _author_profile_url(lead_person.slug),
+            "url": author_url,
             "avatar_url": _safe_avatar_url(lead_person),
             "initials": (lead_person.name or "作").strip()[:1].upper(),
-            "role_label": lead_item["role_label"],
+            "role_label": "站点归档 · 未单独署名" if is_anonymous else lead_item["role_label"],
+            "is_anonymous": is_anonymous,
+            "articles_tab_label": "归档文章" if is_anonymous else "作者好文",
             "bio": (lead_person.bio or "").strip(),
             "is_verified": linked_active,
             "verified_label": "站点核验署名" if linked_active else "",

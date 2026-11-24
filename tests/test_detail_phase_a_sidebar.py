@@ -5,14 +5,18 @@ Phase A 详情页三栏壳层、同父栏目上下篇、标签卡站点隔离与
 from datetime import date, timedelta
 from pathlib import Path
 import re
+from unittest.mock import patch
 from uuid import uuid4
 
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.test import RequestFactory, TestCase
 from django.utils import timezone
 from wagtail.models import Page, PageViewRestriction, Site
 
 from blog.models import BlogIndexPage, BlogPage
+from comments.services import CommentService
+from comments.wagtail_hooks import CommentIndexView
 from content_blocks.rendering.detail import build_detail_presentation
 from content_lifecycle.recycle import RecycleService
 from discovery.models import ContentDiscoveryEpoch, PublishedSearchDocument
@@ -327,3 +331,46 @@ class DetailPhaseASidebarTests(TestCase):
         self.assertIsNone(detail_prev["next_page"])
         self.assertIsNone(detail_prev["announcement"])
         self.assertEqual(detail_prev["recommendations"], [])
+
+    def test_site_wide_recommendation_tier_and_admin_comment_page_jump(self):
+        """孤立栏目无标签文章自动补全「全站推荐」；评论后台多页时渲染保留筛选参数的页码跳转框"""
+        col = BlogIndexPage(title="孤立栏目", slug=f"iso-col-{uuid4().hex[:6]}")
+        self.home.add_child(instance=col)
+        col.save_revision().publish()
+        self.created_pages.append(col)
+
+        solo_post = BlogPage(title="孤立无标签文章", slug=f"solo-{uuid4().hex[:6]}", authored_on=date(2026, 11, 20))
+        col.add_child(instance=solo_post)
+        solo_post.save_revision().publish()
+        solo_post.refresh_from_db()
+        self.created_pages.append(solo_post)
+
+        other_post = BlogPage(title="全站其他公开文章", slug=f"site-other-{uuid4().hex[:6]}", authored_on=date(2026, 11, 19))
+        self.home.add_child(instance=other_post)
+        other_post.save_revision().publish()
+        self.created_pages.append(other_post)
+
+        detail = build_detail_presentation(solo_post, self.factory.get(solo_post.url_path))
+        self.assertTrue(detail["has_right_sidebar"])
+        self.assertEqual([r["title"] for r in detail["recommendations"]], ["全站其他公开文章"])
+        self.assertEqual(detail["recommendations"][0]["source"], "site")
+        self.assertEqual(detail["recommendations"][0]["source_label"], "全站推荐")
+
+        User = get_user_model()
+        admin_user = User.objects.create_superuser(
+            username=f"adm_{uuid4().hex[:6]}",
+            email="adm@example.com",
+            password="AdminPass123!",
+        )
+        CommentService.post_comment(solo_post, admin_user, "第一条后台分页评论", auto_approve=True)
+        CommentService.post_comment(solo_post, admin_user, "第二条后台分页评论", auto_approve=True)
+
+        self.client.force_login(admin_user)
+        with patch.object(CommentIndexView, "get_paginate_by", lambda _self, _qs: 1):
+            resp = self.client.get("/admin/comments/?page_type=all&p=2")
+        self.assertEqual(resp.status_code, 200)
+        html = resp.content.decode("utf-8")
+        self.assertIn("comment-page-jump-form", html)
+        self.assertIn("第 <strong>2</strong> / 2 页", html)
+        self.assertIn('name="page_type" value="all"', html)
+        self.assertIn('name="p"', html)

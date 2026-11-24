@@ -234,6 +234,19 @@ def get_detail_navigation_and_recommendations(
                         r["source_label"] = "同标签推荐"
                         rec_rows.append(r)
 
+            remaining = rec_limit - len(rec_rows)
+            if remaining > 0:
+                used_ids = excluded_ids | {int(r["page_id"]) for r in rec_rows}
+                site_rows = list(
+                    eligible_docs.exclude(page_id__in=used_ids)
+                    .order_by("-authored_on", "-page_id")
+                    .values("page_id", "title", "type_key", "authored_on")[:remaining]
+                )
+                for r in site_rows:
+                    r["source"] = "site"
+                    r["source_label"] = "全站推荐"
+                    rec_rows.append(r)
+
         # 仅对最终极少量目标页（<=6）批量查基础 Page 解析真实 URL，绝不查 Mongo 正文
         target_ids: list[int] = []
         for row in (prev_row, next_row, *rec_rows):
