@@ -22,10 +22,10 @@ class HomePage(Page):
 
     def get_context(self, request, *args, **kwargs):
         context = super().get_context(request, *args, **kwargs)
-        from blog.models import BlogPage, BlogIndexPage
         from content_lifecycle.models import RecycleEntry
         from content_lifecycle.public_access import get_public_blocked_page_ids
         from discovery.models import PublishedSearchTag, PublishedSearchDocument
+        from discovery.registry import get_model_for_type_key
         from wagtail.models import PageViewRestriction, Site
 
         # 解析当前站点与根子树边界（严格防止跨站串联）
@@ -77,25 +77,28 @@ class HomePage(Page):
             status__in=("recycled", "restoring"),
         )
         restricted_subq = PageViewRestriction.objects.filter(page_id=OuterRef("id"))
-        latest_qs = (
-            BlogPage.objects.filter(
-                live=True,
-                is_recycled=False,
-                alias_of__isnull=True,
-                path__startswith=root_path,
-                depth__gt=root_depth,
+        article_model = get_model_for_type_key("blog_page")
+        latest_articles = []
+        if article_model is not None:
+            latest_qs = (
+                article_model.objects.filter(
+                    live=True,
+                    is_recycled=False,
+                    alias_of__isnull=True,
+                    path__startswith=root_path,
+                    depth__gt=root_depth,
+                )
+                .filter(~Exists(recycled_subq) & ~Exists(restricted_subq))
+                .order_by("-authored_on", "-id")
             )
-            .filter(~Exists(recycled_subq) & ~Exists(restricted_subq))
-            .order_by("-authored_on", "-id")
-        )
-        latest_ids = _select_public_pages(latest_qs, 6)
-        articles_by_id = {
-            a.id: a
-            for a in BlogPage.objects.filter(id__in=latest_ids)
-            .select_related("featured_image")
-            .prefetch_related("tags")
-        }
-        latest_articles = [articles_by_id[pid] for pid in latest_ids if pid in articles_by_id]
+            latest_ids = _select_public_pages(latest_qs, 6)
+            articles_by_id = {
+                a.id: a
+                for a in article_model.objects.filter(id__in=latest_ids)
+                .select_related("featured_image")
+                .prefetch_related("tags")
+            }
+            latest_articles = [articles_by_id[pid] for pid in latest_ids if pid in articles_by_id]
         context["latest_articles"] = latest_articles
 
         # 2. 编辑精选推荐位（仅从已批准池投放，无已批准内容时返回空列表，绝不用最新文章冒充精选）
@@ -118,20 +121,24 @@ class HomePage(Page):
             context["featured_projects"] = []
 
         # 3. 博客核心栏目（限定当前站点子树与公开资格）
-        col_qs = (
-            BlogIndexPage.objects.filter(
-                live=True,
-                is_recycled=False,
-                alias_of__isnull=True,
-                path__startswith=root_path,
-                depth__gt=root_depth,
+        column_model = get_model_for_type_key("blog_index")
+        if column_model is not None:
+            col_qs = (
+                column_model.objects.filter(
+                    live=True,
+                    is_recycled=False,
+                    alias_of__isnull=True,
+                    path__startswith=root_path,
+                    depth__gt=root_depth,
+                )
+                .filter(~Exists(recycled_subq) & ~Exists(restricted_subq))
+                .order_by("-id")
             )
-            .filter(~Exists(recycled_subq) & ~Exists(restricted_subq))
-            .order_by("-id")
-        )
-        col_ids = _select_public_pages(col_qs, 6)
-        cols_by_id = {c.id: c for c in BlogIndexPage.objects.filter(id__in=col_ids)}
-        context["columns"] = [cols_by_id[cid] for cid in col_ids if cid in cols_by_id]
+            col_ids = _select_public_pages(col_qs, 6)
+            cols_by_id = {c.id: c for c in column_model.objects.filter(id__in=col_ids)}
+            context["columns"] = [cols_by_id[cid] for cid in col_ids if cid in cols_by_id]
+        else:
+            context["columns"] = []
 
         # 4. 当前站点热门技术标签 (前 15 个活跃公开标签，过滤跨站与祖先受限/回收/未上线文档)
         doc_recycled_subq = RecycleEntry.objects.filter(

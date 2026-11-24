@@ -128,10 +128,9 @@ def _collect_author_capacity_rows(
     page_num: int,
     per_page: int,
 ) -> dict[str, Any]:
-    from blog.models import BlogPage, BlogPagePerson
-    from guides.models import GuidePage, GuidePageAuthor
+    from discovery.models import PublishedSearchAuthor, PublishedSearchDocument
+    from discovery.registry import get_author_enabled_type_keys, list_review_cycle_type_keys
     from people.models import Person
-    from portfolio.models import ProjectPage, ProjectPagePerson
 
     is_site_mgr = can_view_site_analytics(user)
     today = timezone.localdate()
@@ -176,28 +175,40 @@ def _collect_author_capacity_rows(
     persons_by_id = {p.id: p for p in Person.objects.filter(id__in=slice_person_ids)}
     ordered_persons = [persons_by_id[pid] for pid in slice_person_ids if pid in persons_by_id]
 
-    # 限定当前站点且非回收/非别名的有效页面；受限作者再用 Ownership 收口
-    def _eligible_page_filter(qs):
-        qs = qs.filter(live=True, is_recycled=False, alias_of__isnull=True)
-        if site is not None and site.root_page_id:
-            qs = qs.filter(path__startswith=site.root_page.path, depth__gt=site.root_page.depth)
-        if not is_site_mgr:
-            qs = filter_accessible_pages_for_analytics(user, qs)
-        return qs
+    # 通过共享索引与注册表能力查询公开有效文档，彻底解除对具体 Page 模型的硬编码依赖
+    author_types = get_author_enabled_type_keys()
+    docs_qs = PublishedSearchDocument.objects.filter(
+        is_live=True,
+        is_recycled=False,
+        index_generation=1,
+    )
+    if site is not None:
+        if site.id:
+            docs_qs = docs_qs.filter(Q(site_id=site.id) | Q(site_id__isnull=True))
+        if site.root_page_id:
+            docs_qs = docs_qs.filter(root_path__startswith=site.root_page.path, depth__gt=site.root_page.depth)
 
-    eligible_blog_ids = set(_eligible_page_filter(BlogPage.objects.all()).values_list("id", flat=True)[:5000])
-    eligible_guide_ids = set(_eligible_page_filter(GuidePage.objects.all()).values_list("id", flat=True)[:5000])
-    eligible_proj_ids = set(_eligible_page_filter(ProjectPage.objects.all()).values_list("id", flat=True)[:5000])
+    author_docs_qs = docs_qs.filter(type_key__in=author_types) if author_types else docs_qs.none()
+    candidate_rows = list(author_docs_qs.values_list("page_id", "root_path")[:5000])
+    blocked_page_ids = get_public_blocked_page_ids(candidate_rows) if candidate_rows else set()
+    eligible_page_ids = {pid for pid, _ in candidate_rows if pid not in blocked_page_ids}
+    if not is_site_mgr and eligible_page_ids:
+        eligible_page_ids = set(
+            filter_accessible_pages_for_analytics(
+                user,
+                Page.objects.filter(id__in=eligible_page_ids),
+            ).values_list("id", flat=True)
+        )
 
     # 按 (person_id, page_id) 去重汇总作品关系与角色
     person_pages: dict[int, dict[int, set[str]]] = defaultdict(lambda: defaultdict(set))
-    if slice_person_ids:
-        for row in BlogPagePerson.objects.filter(person_id__in=slice_person_ids, page_id__in=eligible_blog_ids).values("person_id", "page_id", "role"):
-            person_pages[int(row["person_id"])][int(row["page_id"])].add(row["role"] or "primary_author")
-        for row in GuidePageAuthor.objects.filter(person_id__in=slice_person_ids, page_id__in=eligible_guide_ids).values("person_id", "page_id", "role"):
-            person_pages[int(row["person_id"])][int(row["page_id"])].add(row["role"] or "primary_author")
-        for row in ProjectPagePerson.objects.filter(person_id__in=slice_person_ids, page_id__in=eligible_proj_ids).values("person_id", "page_id", "role"):
-            person_pages[int(row["person_id"])][int(row["page_id"])].add(str(row["role"] or "core_dev"))
+    if slice_person_ids and eligible_page_ids:
+        for row in PublishedSearchAuthor.objects.filter(
+            person_id__in=slice_person_ids,
+            document__index_generation=1,
+            document__page_id__in=eligible_page_ids,
+        ).values("person_id", "document__page_id", "role"):
+            person_pages[int(row["person_id"])][int(row["document__page_id"])].add(row["role"] or "primary_author")
 
     all_touched_pids = sorted({pid for pmap in person_pages.values() for pid in pmap.keys()})
 
@@ -207,19 +218,27 @@ def _collect_author_capacity_rows(
         for p in Page.objects.filter(id__in=all_touched_pids).values("id", "title", "url_path", "first_published_at", "last_published_at", "live_revision_id"):
             page_meta[int(p["id"])] = dict(p)
 
-    # 作品规模（按页面正文/字段统计，显式标明为作品规模，不做个人拆分）
-    blog_authored_map = {
-        int(r["id"]): r
-        for r in BlogPage.objects.filter(id__in=all_touched_pids).values("id", "authored_on")
-    }
-    guide_meta_map = {
-        int(r["id"]): r
-        for r in GuidePage.objects.filter(id__in=all_touched_pids).values("id", "authored_on", "last_reviewed_at")
-    }
-    proj_meta_map = {
-        int(r["id"]): r
-        for r in ProjectPage.objects.filter(id__in=all_touched_pids).values("id", "authored_on")
-    }
+    # 通过 PublishedSearchDocument 统一获取成文日期与技术复核元数据
+    review_cycles = list_review_cycle_type_keys()
+    doc_authored_map: dict[int, date] = {}
+    review_meta_map: dict[int, tuple[date | None, int]] = {}
+    if all_touched_pids:
+        for dr in PublishedSearchDocument.objects.filter(
+            index_generation=1,
+            page_id__in=all_touched_pids,
+        ).values("page_id", "type_key", "authored_on", "extra_data"):
+            pid = int(dr["page_id"])
+            if dr.get("authored_on"):
+                doc_authored_map[pid] = dr["authored_on"]
+            if dr["type_key"] in review_cycles:
+                raw_lra = (dr.get("extra_data") or {}).get("last_reviewed_at")
+                parsed_lra = None
+                if raw_lra:
+                    try:
+                        parsed_lra = date.fromisoformat(str(raw_lra)[:10])
+                    except ValueError:
+                        parsed_lra = None
+                review_meta_map[pid] = (parsed_lra, review_cycles[dr["type_key"]])
 
     # 真实发布日志统计窗口内首发/再发布事件（绝不按 authored_on 或草稿保存计数）
     pub_counts_by_pid: dict[int, int] = defaultdict(int)
@@ -323,12 +342,12 @@ def _collect_author_capacity_rows(
                     latest_pub_dt = ref_dt
                 if ref_dt.date() < stale_cutoff:
                     stale_90d_count += 1
-            elif pid in blog_authored_map and blog_authored_map[pid]["authored_on"] and blog_authored_map[pid]["authored_on"] < stale_cutoff:
+            elif pid in doc_authored_map and doc_authored_map[pid] < stale_cutoff:
                 stale_90d_count += 1
 
-            if pid in guide_meta_map:
-                lra = guide_meta_map[pid].get("last_reviewed_at")
-                if lra is None or lra <= overdue_cutoff:
+            if pid in review_meta_map:
+                lra, cycle_days = review_meta_map[pid]
+                if lra is None or lra <= (today - timedelta(days=cycle_days)):
                     overdue_guides += 1
 
             tr = tot_by_pid.get(pid)
@@ -383,26 +402,66 @@ def _collect_author_capacity_rows(
             }
         )
 
-    # 全站逾期指南责任清单（最多取前 30 条待维护，按审校/作者与未分派分组）
+    # 全站逾期复核页面责任清单（按注册表声明 review_cycle_days 的页面类型动态汇总，最多取前 30 条）
     overdue_list: list[dict[str, Any]] = []
-    overdue_qs = _eligible_page_filter(GuidePage.objects.all()).filter(
-        Q(last_reviewed_at__isnull=True) | Q(last_reviewed_at__lte=overdue_cutoff)
-    ).order_by("last_reviewed_at", "id")[:30]
-    og_ids = [g.id for g in overdue_qs]
+    overdue_candidates: list[tuple[date, int, dict[str, Any]]] = []
+    if review_cycles:
+        rev_rows = list(
+            docs_qs.filter(type_key__in=list(review_cycles.keys())).values(
+                "page_id", "type_key", "title", "url_path", "root_path", "extra_data"
+            )[:1000]
+        )
+        rev_blocked = get_public_blocked_page_ids([(int(r["page_id"]), r["root_path"]) for r in rev_rows])
+        rev_eligible_ids = {int(r["page_id"]) for r in rev_rows if int(r["page_id"]) not in rev_blocked}
+        if not is_site_mgr and rev_eligible_ids:
+            rev_eligible_ids = set(
+                filter_accessible_pages_for_analytics(
+                    user,
+                    Page.objects.filter(id__in=rev_eligible_ids),
+                ).values_list("id", flat=True)
+            )
+        for r in rev_rows:
+            pid = int(r["page_id"])
+            if pid not in rev_eligible_ids:
+                continue
+            cycle_days = review_cycles[r["type_key"]]
+            cutoff = today - timedelta(days=cycle_days)
+            raw_lra = (r.get("extra_data") or {}).get("last_reviewed_at")
+            lra_date = None
+            if raw_lra:
+                try:
+                    lra_date = date.fromisoformat(str(raw_lra)[:10])
+                except ValueError:
+                    lra_date = None
+            if lra_date is None or lra_date <= cutoff:
+                overdue_candidates.append((lra_date or date.min, pid, {**r, "_lra_date": lra_date}))
+        overdue_candidates.sort(key=lambda item: (item[0], item[1]))
+        overdue_candidates = overdue_candidates[:30]
+
+    og_ids = [pid for _, pid, _ in overdue_candidates]
     og_authors: dict[int, list[str]] = defaultdict(list)
     if og_ids:
-        for ga in GuidePageAuthor.objects.filter(page_id__in=og_ids).select_related("person").order_by("sort_order", "id"):
-            if ga.person_id and ga.person:
-                og_authors[int(ga.page_id)].append(f"{ga.person.name}({ga.role})")
-    for g in overdue_qs:
-        owners = og_authors.get(g.id, [])
+        for ga in (
+            PublishedSearchAuthor.objects.filter(
+                document__index_generation=1,
+                document__page_id__in=og_ids,
+            )
+            .exclude(author_slug="anonymous")
+            .select_related("document")
+            .order_by("sort_order", "id")
+        ):
+            if ga.author_name:
+                og_authors[int(ga.document.page_id)].append(f"{ga.author_name}({ga.role or 'author'})")
+    for _, pid, g in overdue_candidates:
+        owners = og_authors.get(pid, [])
+        lra_date = g["_lra_date"]
         overdue_list.append(
             {
-                "page_id": g.id,
-                "title": g.title,
-                "url_path": g.url_path,
-                "last_reviewed_at": g.last_reviewed_at.isoformat() if g.last_reviewed_at else "未记录",
-                "days_overdue": (today - g.last_reviewed_at).days if g.last_reviewed_at else None,
+                "page_id": pid,
+                "title": g["title"],
+                "url_path": g["url_path"],
+                "last_reviewed_at": lra_date.isoformat() if lra_date else "未记录",
+                "days_overdue": (today - lra_date).days if lra_date else None,
                 "assignees": "、".join(owners) if owners else "未分派维护人",
                 "is_unassigned": not bool(owners),
             }

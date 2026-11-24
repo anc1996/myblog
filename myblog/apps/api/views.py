@@ -29,8 +29,8 @@ from django.utils.safestring import mark_safe
 from discovery.contracts import QuerySpec
 from discovery.query import ContentQuery, _encode_cursor
 from discovery.models import ContentDiscoveryEpoch, PublishedSearchDocument
+from discovery.registry import get_adapter_by_public_type_slug, get_type_adapter, resolve_adapter_model
 from content_lifecycle.access import AccessContext, AccessMode
-from blog.models import BlogPage
 from .limiter import ratelimit_api
 
 logger = logging.getLogger(__name__)
@@ -159,89 +159,141 @@ def search_api(request):
     return _cors_json_response(response_payload, extra_headers={"X-Cache": "MISS", "X-Epoch": str(current_epoch)})
 
 
+def _parse_page_params(request) -> tuple[int, int]:
+    page_str = request.GET.get("page", "1").strip()
+    page_num = int(page_str) if page_str.isdigit() and int(page_str) > 0 else 1
+    page_size_str = request.GET.get("page_size", "10").strip()
+    page_size = max(1, min(int(page_size_str) if page_size_str.isdigit() else 10, 50))
+    return page_num, page_size
+
+
+def _serve_adapter_detail_api(
+    request,
+    *,
+    type_key: str,
+    slug: str,
+    cache_prefix: str,
+    not_found_message: str,
+    raise_http404: bool = False,
+    readonly_epoch: bool = False,
+):
+    """通用注册表详情 API：通过 TypeAdapter 动态解析模型与水合序列化，消除业务 Page 导入。"""
+    adapter = get_type_adapter(type_key)
+    model_cls = resolve_adapter_model(adapter) if adapter is not None else None
+    if adapter is None or model_cls is None or not hasattr(adapter, "serialize_api_detail"):
+        return _cors_json_response({"status": "error", "code": 404, "message": not_found_message}, status=404)
+
+    current_epoch = (
+        ContentDiscoveryEpoch.get_current_epoch_readonly()
+        if readonly_epoch
+        else ContentDiscoveryEpoch.get_current_epoch()
+    )
+    cache_key = f"{cache_prefix}:{current_epoch}:{slug}"
+    cached_payload = cache.get(cache_key)
+    if cached_payload is not None:
+        return _cors_json_response(cached_payload, extra_headers={"X-Cache": "HIT", "X-Epoch": str(current_epoch)})
+
+    page = model_cls.objects.filter(slug=slug, live=True).first()
+    if not page or getattr(page, "is_recycled", False):
+        if raise_http404:
+            raise Http404(not_found_message)
+        return _cors_json_response({"status": "error", "code": 404, "message": not_found_message}, status=404)
+
+    if hasattr(page, "hydrate_from_mongo"):
+        access_context = AccessContext(user=request.user, mode=AccessMode.PUBLIC)
+        page.hydrate_from_mongo(access_context=access_context)
+
+    payload = {
+        "status": "success",
+        "epoch": current_epoch,
+        "data": adapter.serialize_api_detail(page),
+    }
+    cache.set(cache_key, payload, timeout=600)
+    return _cors_json_response(payload, extra_headers={"X-Cache": "MISS", "X-Epoch": str(current_epoch)})
+
+
+def _serve_adapter_list_api(
+    request,
+    *,
+    type_key: str,
+    cache_key: str,
+    cache_timeout: int = 180,
+    envelope: str = "items",
+    readonly_epoch: bool = False,
+):
+    """通用注册表列表 API：通过 TypeAdapter 动态构建查询与序列化条目。"""
+    adapter = get_type_adapter(type_key)
+    model_cls = resolve_adapter_model(adapter) if adapter is not None else None
+    if adapter is None or model_cls is None or not hasattr(adapter, "serialize_api_list_item"):
+        return _cors_json_response({"status": "error", "code": 404, "message": "未找到对应内容类型"}, status=404)
+
+    page_num, page_size = _parse_page_params(request)
+    current_epoch = (
+        ContentDiscoveryEpoch.get_current_epoch_readonly()
+        if readonly_epoch
+        else ContentDiscoveryEpoch.get_current_epoch()
+    )
+    cached_payload = cache.get(cache_key)
+    if cached_payload is not None:
+        return _cors_json_response(cached_payload, extra_headers={"X-Cache": "HIT", "X-Epoch": str(current_epoch)})
+
+    if hasattr(adapter, "get_api_list_queryset"):
+        qs = adapter.get_api_list_queryset(model_cls, request)
+    else:
+        qs = model_cls.objects.filter(live=True, is_recycled=False).order_by("-authored_on", "-id")
+
+    total_count = qs.count()
+    offset = (page_num - 1) * page_size
+    pages = qs[offset : offset + page_size]
+    items = [adapter.serialize_api_list_item(p) for p in pages]
+    total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 1
+    has_next = offset + page_size < total_count
+    has_prev = page_num > 1
+
+    if envelope == "pagination":
+        payload = {
+            "status": "success",
+            "epoch": current_epoch,
+            "pagination": {
+                "total_count": total_count,
+                "page": page_num,
+                "page_size": page_size,
+                "total_pages": total_pages,
+                "has_next": has_next,
+                "has_prev": has_prev,
+            },
+            "data": items,
+        }
+    else:
+        payload = {
+            "status": "success",
+            "epoch": current_epoch,
+            "total_count": total_count,
+            "current_page": page_num,
+            "page_size": page_size,
+            "total_pages": total_pages,
+            "has_next": has_next,
+            "has_prev": has_prev,
+            "items": items,
+        }
+
+    cache.set(cache_key, payload, timeout=cache_timeout)
+    return _cors_json_response(payload, extra_headers={"X-Cache": "MISS", "X-Epoch": str(current_epoch)})
+
+
 @ratelimit_api(scope="post_detail", max_requests=120, window_seconds=60)
 def post_detail_api(request, slug):
     """
     文章详情 JSON API（双形态积木输出）
     GET /api/v1/posts/<slug>/
     """
-    current_epoch = ContentDiscoveryEpoch.get_current_epoch()
-    cache_key = f"api:post:{current_epoch}:{slug}"
-    cached_payload = cache.get(cache_key)
-
-    if cached_payload is not None:
-        return _cors_json_response(cached_payload, extra_headers={"X-Cache": "HIT", "X-Epoch": str(current_epoch)})
-
-    # 查询已发布的正式页面
-    page = BlogPage.objects.filter(slug=slug, live=True).first()
-    if not page or getattr(page, "is_recycled", False):
-        return _cors_json_response(
-            {"status": "error", "code": 404, "message": "文章不存在或已下架"},
-            status=404,
-        )
-
-    # 从 MongoDB 精准水合正式生效版本
-    access_context = AccessContext(user=request.user, mode=AccessMode.PUBLIC)
-    page.hydrate_from_mongo(access_context=access_context)
-
-    # 1. 结构化积木列表 (blocks)
-    blocks_data = []
-    for b in page.body:
-        val = b.block.get_prep_value(b.value) if hasattr(b.block, "get_prep_value") else b.value
-        blocks_data.append({
-            "type": b.block_type,
-            "value": val,
-        })
-
-    # 2. 预渲染安全 HTML (safe_html)
-    safe_html_str = str(page.body)
-    intro_html_str = str(page.intro) if page.intro else ""
-
-    # 3. 关联元数据 (作者、标签、封面)
-    authors_data = []
-    for a in page.authors.select_related("person").all():
-        if a.person:
-            authors_data.append({
-                "id": a.person.id,
-                "name": a.person.name,
-                "role": a.role or "作者",
-                "bio": a.person.bio or "",
-                "avatar_url": a.person.avatar.file.url if getattr(a.person, "avatar", None) else None,
-            })
-
-    tags_data = [{"id": t.id, "name": t.name, "slug": t.slug} for t in page.tags.all()]
-
-    cover_data = None
-    if page.featured_image:
-        cover_data = {
-            "id": page.featured_image.id,
-            "title": page.featured_image.title,
-            "public_id": str(page.featured_image.public_id),
-            "url": page.featured_image.file.url,
-            "width": page.featured_image.width,
-            "height": page.featured_image.height,
-        }
-
-    post_payload = {
-        "status": "success",
-        "epoch": current_epoch,
-        "data": {
-            "id": page.id,
-            "title": page.title,
-            "slug": page.slug,
-            "url": page.url,
-            "authored_on": page.authored_on.strftime("%Y-%m-%d") if page.authored_on else None,
-            "intro": intro_html_str,
-            "featured_image": cover_data,
-            "authors": authors_data,
-            "tags": tags_data,
-            "blocks": blocks_data,
-            "safe_html": safe_html_str,
-        },
-    }
-
-    cache.set(cache_key, post_payload, timeout=600)
-    return _cors_json_response(post_payload, extra_headers={"X-Cache": "MISS", "X-Epoch": str(current_epoch)})
+    return _serve_adapter_detail_api(
+        request,
+        type_key="blog_page",
+        slug=slug,
+        cache_prefix="api:post",
+        not_found_message="文章不存在或已下架",
+    )
 
 
 @ratelimit_api(scope="post_list", max_requests=60, window_seconds=60)
@@ -250,62 +302,11 @@ def post_list_api(request):
     文章列表分页 JSON API
     GET /api/v1/posts/
     """
-    page_str = request.GET.get("page", "1").strip()
-    page_num = int(page_str) if page_str.isdigit() and int(page_str) > 0 else 1
-
-    page_size_str = request.GET.get("page_size", "10").strip()
-    page_size = max(1, min(int(page_size_str) if page_size_str.isdigit() else 10, 50))
-
+    page_num, page_size = _parse_page_params(request)
     tag_slug = request.GET.get("tag", "").strip()
-
     current_epoch = ContentDiscoveryEpoch.get_current_epoch()
     cache_key = f"api:posts_list:{current_epoch}:p{page_num}_s{page_size}_t{tag_slug}"
-    cached_payload = cache.get(cache_key)
-
-    if cached_payload is not None:
-        return _cors_json_response(cached_payload, extra_headers={"X-Cache": "HIT", "X-Epoch": str(current_epoch)})
-
-    qs = BlogPage.objects.filter(live=True).order_by("-authored_on", "-first_published_at")
-    if tag_slug:
-        qs = qs.filter(tags__slug=tag_slug)
-
-    total_count = qs.count()
-    offset = (page_num - 1) * page_size
-    pages = qs.select_related("featured_image").prefetch_related("tags", "authors__person")[offset : offset + page_size]
-
-    items = []
-    for p in pages:
-        authors = [{"id": a.person.id, "name": a.person.name, "role": a.role} for a in p.authors.all() if a.person]
-        tags = [{"id": t.id, "name": t.name, "slug": t.slug} for t in p.tags.all()]
-        items.append({
-            "id": p.id,
-            "title": p.title,
-            "slug": p.slug,
-            "url": p.url,
-            "authored_on": p.authored_on.strftime("%Y-%m-%d") if p.authored_on else None,
-            "cover_url": p.featured_image.file.url if p.featured_image else None,
-            "authors": authors,
-            "tags": tags,
-        })
-
-    total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 1
-    has_next = page_num < total_pages
-    has_prev = page_num > 1
-
-    payload = {
-        "status": "success",
-        "epoch": current_epoch,
-        "total_count": total_count,
-        "current_page": page_num,
-        "page_size": page_size,
-        "total_pages": total_pages,
-        "has_next": has_next,
-        "has_prev": has_prev,
-        "items": items,
-    }
-
-    cache.set(cache_key, payload, timeout=180)
-    return _cors_json_response(payload, extra_headers={"X-Cache": "MISS", "X-Epoch": str(current_epoch)})
+    return _serve_adapter_list_api(request, type_key="blog_page", cache_key=cache_key, cache_timeout=180, envelope="items")
 
 
 @ratelimit_api(scope="guide_list", max_requests=60, window_seconds=60)
@@ -314,75 +315,12 @@ def guides_list_api(request):
     专题指南专栏列表 API
     GET /api/v1/guides/
     """
-    from guides.models import GuidePage, GuideTopic
-
-    page_str = request.GET.get("page", "1").strip()
-    page_num = int(page_str) if page_str.isdigit() and int(page_str) > 0 else 1
-
-    page_size_str = request.GET.get("page_size", "10").strip()
-    page_size = max(1, min(int(page_size_str) if page_size_str.isdigit() else 10, 50))
-
+    page_num, page_size = _parse_page_params(request)
     topic_slug = request.GET.get("topic", "").strip()
     difficulty = request.GET.get("difficulty", "").strip()
-
     current_epoch = ContentDiscoveryEpoch.get_current_epoch()
     cache_key = f"api:guides_list:{current_epoch}:p{page_num}_s{page_size}_t{topic_slug}_d{difficulty}"
-    cached_payload = cache.get(cache_key)
-
-    if cached_payload is not None:
-        return _cors_json_response(cached_payload, extra_headers={"X-Cache": "HIT", "X-Epoch": str(current_epoch)})
-
-    qs = GuidePage.objects.filter(live=True, is_recycled=False).order_by("-last_reviewed_at", "-first_published_at")
-    if topic_slug:
-        qs = qs.filter(topic__slug=topic_slug)
-    if difficulty:
-        qs = qs.filter(difficulty=difficulty)
-
-    total_count = qs.count()
-    offset = (page_num - 1) * page_size
-    pages = qs.select_related("topic", "featured_image").prefetch_related("tags", "authors__person")[offset : offset + page_size]
-
-    items = []
-    for g in pages:
-        is_outdated, _, warning_msg = g.is_outdated()
-        authors = [{"id": a.person.id, "name": a.person.name, "role": a.role} for a in g.authors.all() if a.person]
-        tags = [{"id": t.id, "name": t.name, "slug": t.slug} for t in g.tags.all()]
-        items.append({
-            "id": g.id,
-            "title": g.title,
-            "slug": g.slug,
-            "url": g.url,
-            "topic": {"name": g.topic.name, "slug": g.topic.slug} if g.topic else None,
-            "difficulty": g.difficulty,
-            "difficulty_label": g.get_difficulty_display(),
-            "estimated_minutes": g.estimated_minutes,
-            "authored_on": g.authored_on.strftime("%Y-%m-%d") if g.authored_on else None,
-            "last_reviewed_at": g.last_reviewed_at.strftime("%Y-%m-%d") if g.last_reviewed_at else None,
-            "is_outdated": is_outdated,
-            "summary": g.summary,
-            "cover_url": f"/media-gateway/image/{g.featured_image.public_id}/" if g.featured_image else None,
-            "authors": authors,
-            "tags": tags,
-        })
-
-    total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 1
-    has_next = page_num < total_pages
-    has_prev = page_num > 1
-
-    payload = {
-        "status": "success",
-        "epoch": current_epoch,
-        "total_count": total_count,
-        "current_page": page_num,
-        "page_size": page_size,
-        "total_pages": total_pages,
-        "has_next": has_next,
-        "has_prev": has_prev,
-        "items": items,
-    }
-
-    cache.set(cache_key, payload, timeout=180)
-    return _cors_json_response(payload, extra_headers={"X-Cache": "MISS", "X-Epoch": str(current_epoch)})
+    return _serve_adapter_list_api(request, type_key="guide", cache_key=cache_key, cache_timeout=180, envelope="items")
 
 
 @ratelimit_api(scope="guide_detail", max_requests=120, window_seconds=60)
@@ -391,100 +329,13 @@ def guide_detail_api(request, slug):
     专题指南详情 API（双形态积木输出与技术复核告警）
     GET /api/v1/guides/<slug>/
     """
-    from guides.models import GuidePage
-
-    current_epoch = ContentDiscoveryEpoch.get_current_epoch()
-    cache_key = f"api:guide:{current_epoch}:{slug}"
-    cached_payload = cache.get(cache_key)
-
-    if cached_payload is not None:
-        return _cors_json_response(cached_payload, extra_headers={"X-Cache": "HIT", "X-Epoch": str(current_epoch)})
-
-    page = GuidePage.objects.filter(slug=slug, live=True).first()
-    if not page or getattr(page, "is_recycled", False):
-        return _cors_json_response(
-            {"status": "error", "code": 404, "message": "专栏指南不存在或已下架"},
-            status=404,
-        )
-
-    access_context = AccessContext(user=request.user, mode=AccessMode.PUBLIC)
-    page.hydrate_from_mongo(access_context=access_context)
-
-    # 1. 结构化积木列表 (blocks)
-    blocks_data = []
-    steps_toc = []
-    for b in page.body:
-        val = b.block.get_prep_value(b.value) if hasattr(b.block, "get_prep_value") else b.value
-        blocks_data.append({
-            "type": b.block_type,
-            "value": val,
-        })
-        if b.block_type == "step":
-            num = str(val.get("step_number") or len(steps_toc) + 1)
-            steps_toc.append({
-                "step_number": num,
-                "title": str(val.get("title") or f"步骤 {num}"),
-                "anchor": f"step-{num}",
-            })
-
-    safe_html_str = str(page.body)
-    is_outdated, _, warning_msg = page.is_outdated()
-
-    authors_data = []
-    for a in page.authors.select_related("person").all():
-        if a.person:
-            authors_data.append({
-                "id": a.person.id,
-                "name": a.person.name,
-                "role": a.role,
-                "bio": a.person.bio or "",
-            })
-
-    tags_data = [{"id": t.id, "name": t.name, "slug": t.slug} for t in page.tags.all()]
-    related_data = [
-        {"id": r.related_page.id, "title": r.related_page.title, "url": r.related_page.url}
-        for r in page.related_guides.select_related("related_page").all()
-        if r.related_page.live and not getattr(r.related_page.specific, "is_recycled", False)
-    ]
-
-    cover_data = None
-    if page.featured_image:
-        cover_data = {
-            "id": page.featured_image.id,
-            "title": page.featured_image.title,
-            "public_id": str(page.featured_image.public_id),
-            "url": f"/media-gateway/image/{page.featured_image.public_id}/",
-        }
-
-    guide_payload = {
-        "status": "success",
-        "epoch": current_epoch,
-        "data": {
-            "id": page.id,
-            "title": page.title,
-            "slug": page.slug,
-            "url": page.url,
-            "topic": {"name": page.topic.name, "slug": page.topic.slug} if page.topic else None,
-            "difficulty": page.difficulty,
-            "difficulty_label": page.get_difficulty_display(),
-            "estimated_minutes": page.estimated_minutes,
-            "authored_on": page.authored_on.strftime("%Y-%m-%d") if page.authored_on else None,
-            "last_reviewed_at": page.last_reviewed_at.strftime("%Y-%m-%d") if page.last_reviewed_at else None,
-            "is_outdated": is_outdated,
-            "outdated_warning": warning_msg if is_outdated else None,
-            "summary": page.summary,
-            "featured_image": cover_data,
-            "authors": authors_data,
-            "tags": tags_data,
-            "steps_toc": steps_toc,
-            "blocks": blocks_data,
-            "safe_html": safe_html_str,
-            "related_guides": related_data,
-        },
-    }
-
-    cache.set(cache_key, guide_payload, timeout=600)
-    return _cors_json_response(guide_payload, extra_headers={"X-Cache": "MISS", "X-Epoch": str(current_epoch)})
+    return _serve_adapter_detail_api(
+        request,
+        type_key="guide",
+        slug=slug,
+        cache_prefix="api:guide",
+        not_found_message="专栏指南不存在或已下架",
+    )
 
 
 @ratelimit_api(scope="archives", max_requests=120, window_seconds=60)
@@ -622,85 +473,20 @@ def project_list_api(request):
     开源作品集与项目列表 API
     GET /api/v1/projects/
     """
-    from portfolio.models import ProjectPage
-
-    page_str = request.GET.get("page", "1").strip()
-    page_num = int(page_str) if page_str.isdigit() and int(page_str) > 0 else 1
-
-    page_size_str = request.GET.get("page_size", "10").strip()
-    page_size = max(1, min(int(page_size_str) if page_size_str.isdigit() else 10, 50))
-
+    page_num, page_size = _parse_page_params(request)
     status_filter = request.GET.get("status", "").strip()
     lang_filter = request.GET.get("language", "").strip()
     tag_slug = request.GET.get("tag", "").strip()
-
     current_epoch = ContentDiscoveryEpoch.get_current_epoch_readonly()
     cache_key = f"api:projects_list:{current_epoch}:p{page_num}_s{page_size}_st{status_filter}_l{lang_filter}_t{tag_slug}"
-    cached_payload = cache.get(cache_key)
-
-    if cached_payload is not None:
-        return _cors_json_response(cached_payload, extra_headers={"X-Cache": "HIT", "X-Epoch": str(current_epoch)})
-
-    qs = ProjectPage.objects.filter(live=True, is_recycled=False).order_by("-authored_on", "-id")
-    if status_filter:
-        qs = qs.filter(project_status=status_filter)
-    if lang_filter:
-        qs = qs.filter(primary_language__iexact=lang_filter)
-    if tag_slug:
-        qs = qs.filter(tags__slug=tag_slug)
-
-    total_count = qs.count()
-    offset = (page_num - 1) * page_size
-    pages = qs.select_related("featured_image").prefetch_related("tags", "authors__person")[offset : offset + page_size]
-
-    items = []
-    for p in pages:
-        authors = [{"id": a.person.id, "name": a.person.name, "role": a.role} for a in p.authors.all() if a.person]
-        tags = [{"id": t.id, "name": t.name, "slug": t.slug} for t in p.tags.all()]
-        cover_data = None
-        if p.featured_image:
-            cover_data = {
-                "id": p.featured_image.id,
-                "public_id": str(p.featured_image.public_id),
-                "title": p.featured_image.title,
-                "url": f"/media-gateway/image/{p.featured_image.public_id}/",
-            }
-        items.append({
-            "id": p.id,
-            "title": p.title,
-            "slug": p.slug,
-            "url": p.url,
-            "project_status": p.project_status,
-            "project_status_label": p.get_project_status_display(),
-            "summary": p.summary,
-            "primary_language": p.primary_language,
-            "star_count": p.star_count,
-            "license_name": p.license_name,
-            "repo_url": p.repo_url,
-            "demo_url": p.demo_url,
-            "started_on": p.started_on.strftime("%Y-%m-%d") if p.started_on else None,
-            "completed_on": p.completed_on.strftime("%Y-%m-%d") if p.completed_on else None,
-            "authored_on": p.authored_on.strftime("%Y-%m-%d") if p.authored_on else None,
-            "featured_image": cover_data,
-            "authors": authors,
-            "tags": tags,
-        })
-
-    payload = {
-        "status": "success",
-        "epoch": current_epoch,
-        "pagination": {
-            "total_count": total_count,
-            "page": page_num,
-            "page_size": page_size,
-            "total_pages": (total_count + page_size - 1) // page_size if total_count > 0 else 1,
-            "has_next": offset + page_size < total_count,
-            "has_prev": page_num > 1,
-        },
-        "data": items,
-    }
-    cache.set(cache_key, payload, timeout=600)
-    return _cors_json_response(payload, extra_headers={"X-Cache": "MISS", "X-Epoch": str(current_epoch)})
+    return _serve_adapter_list_api(
+        request,
+        type_key="project",
+        cache_key=cache_key,
+        cache_timeout=600,
+        envelope="pagination",
+        readonly_epoch=True,
+    )
 
 
 @ratelimit_api(scope="project_detail", max_requests=120, window_seconds=60)
@@ -709,88 +495,51 @@ def project_detail_api(request, slug):
     开源作品集与项目详情 API
     GET /api/v1/projects/<slug>/
     """
-    from portfolio.models import ProjectPage
+    return _serve_adapter_detail_api(
+        request,
+        type_key="project",
+        slug=slug,
+        cache_prefix="api:project_detail",
+        not_found_message="项目不存在或已下架",
+        raise_http404=True,
+        readonly_epoch=True,
+    )
 
+
+@ratelimit_api(scope="content_list", max_requests=60, window_seconds=60)
+def content_list_api(request, type_slug):
+    """通用已注册内容类型列表接口：GET /api/v1/content/<type_slug>/"""
+    adapter = get_adapter_by_public_type_slug(type_slug)
+    if adapter is None:
+        return _cors_json_response({"status": "error", "code": 404, "message": "未知内容类型"}, status=404)
+    page_num, page_size = _parse_page_params(request)
+    tag_slug = request.GET.get("tag", "").strip()
     current_epoch = ContentDiscoveryEpoch.get_current_epoch_readonly()
-    cache_key = f"api:project_detail:{current_epoch}:{slug}"
-    cached_payload = cache.get(cache_key)
+    cache_key = f"api:content_list:{adapter.type_key}:{current_epoch}:p{page_num}_s{page_size}_t{tag_slug}"
+    return _serve_adapter_list_api(
+        request,
+        type_key=adapter.type_key,
+        cache_key=cache_key,
+        cache_timeout=180,
+        envelope="items",
+        readonly_epoch=True,
+    )
 
-    if cached_payload is not None:
-        return _cors_json_response(cached_payload, extra_headers={"X-Cache": "HIT", "X-Epoch": str(current_epoch)})
 
-    page = get_object_or_404(ProjectPage, slug=slug, live=True, is_recycled=False)
-    page.hydrate_from_mongo()
-
-    authors_data = []
-    for a in page.authors.select_related("person").all():
-        if a.person:
-            authors_data.append({
-                "id": a.person.id,
-                "name": a.person.name,
-                "role": a.role,
-                "bio": a.person.bio,
-            })
-
-    tags_data = [{"id": t.id, "name": t.name, "slug": t.slug} for t in page.tags.all()]
-
-    cover_data = None
-    if page.featured_image:
-        cover_data = {
-            "id": page.featured_image.id,
-            "public_id": str(page.featured_image.public_id),
-            "title": page.featured_image.title,
-            "url": f"/media-gateway/image/{page.featured_image.public_id}/",
-        }
-
-    blocks_data = []
-    rendered_html_parts = []
-    if page.body:
-        for child in page.body:
-            block_type = child.block_type
-            block_val = child.value
-            rendered_chunk = ""
-            if hasattr(child.block, "render_clean"):
-                res = child.block.render_clean(block_val)
-                rendered_chunk = res.html
-            else:
-                rendered_chunk = child.render()
-            rendered_html_parts.append(rendered_chunk)
-            blocks_data.append({
-                "type": block_type,
-                "value": child.block.get_prep_value(block_val) if hasattr(child.block, "get_prep_value") else str(block_val),
-            })
-
-    safe_html_str = mark_safe("\n".join(rendered_html_parts))
-
-    project_payload = {
-        "status": "success",
-        "epoch": current_epoch,
-        "data": {
-            "id": page.id,
-            "title": page.title,
-            "slug": page.slug,
-            "url": page.url,
-            "project_status": page.project_status,
-            "project_status_label": page.get_project_status_display(),
-            "summary": page.summary,
-            "primary_language": page.primary_language,
-            "star_count": page.star_count,
-            "license_name": page.license_name,
-            "repo_url": page.repo_url,
-            "demo_url": page.demo_url,
-            "started_on": page.started_on.strftime("%Y-%m-%d") if page.started_on else None,
-            "completed_on": page.completed_on.strftime("%Y-%m-%d") if page.completed_on else None,
-            "authored_on": page.authored_on.strftime("%Y-%m-%d") if page.authored_on else None,
-            "featured_image": cover_data,
-            "authors": authors_data,
-            "tags": tags_data,
-            "blocks": blocks_data,
-            "safe_html": safe_html_str,
-        },
-    }
-
-    cache.set(cache_key, project_payload, timeout=600)
-    return _cors_json_response(project_payload, extra_headers={"X-Cache": "MISS", "X-Epoch": str(current_epoch)})
+@ratelimit_api(scope="content_detail", max_requests=120, window_seconds=60)
+def content_detail_api(request, type_slug, slug):
+    """通用已注册内容类型详情接口：GET /api/v1/content/<type_slug>/<slug>/"""
+    adapter = get_adapter_by_public_type_slug(type_slug)
+    if adapter is None:
+        return _cors_json_response({"status": "error", "code": 404, "message": "未知内容类型"}, status=404)
+    return _serve_adapter_detail_api(
+        request,
+        type_key=adapter.type_key,
+        slug=slug,
+        cache_prefix=f"api:content_detail:{adapter.type_key}",
+        not_found_message="内容不存在或已下架",
+        readonly_epoch=True,
+    )
 
 
 @ratelimit_api(scope="site_settings", max_requests=120, window_seconds=60)

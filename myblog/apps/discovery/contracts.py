@@ -36,6 +36,7 @@ class AnalyticsCapabilities:
     curation_eligible: bool = False
     entry_kind: str = ""
     body_markers: tuple[str, ...] = ()
+    review_cycle_days: int | None = None
 
     def __post_init__(self) -> None:
         if self.kind not in ("detail", "entry"):

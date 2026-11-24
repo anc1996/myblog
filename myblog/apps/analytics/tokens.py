@@ -298,54 +298,51 @@ def match_safe_search_term(raw_query: str) -> tuple[str, bool]:
     except Exception as exc:
         logger.debug("Safe search tag lookup error: %s", exc)
 
-    # 3. 公开已发布指南关联的 GuideTopic
+    # 3. 公开已发布内容关联的主题词（extra_data.topic_name / topic_slug）与技术栈主语言（extra_data.primary_language）
     try:
         from content_lifecycle.public_access import get_public_blocked_page_ids
-        from guides.models import GuidePage, GuideTopic
+        from discovery.models import PublishedSearchDocument
 
-        topic = (
-            GuideTopic.objects.filter(
-                guides__live=True,
-                guides__is_recycled=False,
+        topic_rows = list(
+            PublishedSearchDocument.objects.filter(
+                is_live=True,
+                is_recycled=False,
+                index_generation=1,
             )
-            .filter(Q(name__iexact=normalized) | Q(slug__iexact=normalized))
-            .distinct()
-            .first()
+            .filter(
+                Q(extra_data__topic_name__iexact=normalized)
+                | Q(extra_data__topic_slug__iexact=normalized)
+            )
+            .values_list("page_id", "root_path", "extra_data")[:20]
         )
-        if topic is not None:
-            guide_rows = list(
-                GuidePage.objects.filter(
-                    topic=topic,
-                    live=True,
-                    is_recycled=False,
-                    alias_of__isnull=True,
-                ).values_list("id", "path")[:20]
-            )
-            if guide_rows:
-                blocked = get_public_blocked_page_ids(guide_rows)
-                if any(pid not in blocked for pid, _ in guide_rows):
-                    return (str(topic.name)[:128], True)
+        if topic_rows:
+            blocked = get_public_blocked_page_ids([(pid, rpath) for pid, rpath, _ in topic_rows])
+            for pid, _, extra in topic_rows:
+                topic_name = (extra or {}).get("topic_name")
+                if pid not in blocked and topic_name:
+                    return (str(topic_name)[:128], True)
     except DatabaseError:
         pass
     except Exception as exc:
         logger.debug("Safe search topic lookup error: %s", exc)
 
-    # 4. 公开已发布项目的技术栈语言
+    # 4. 公开已发布项目的技术栈语言（通过 PublishedSearchDocument 统一查询，不直接导入具体 Page 模型）
     try:
         from content_lifecycle.public_access import get_public_blocked_page_ids
-        from portfolio.models import ProjectPage
+        from discovery.models import PublishedSearchDocument
 
         proj_rows = list(
-            ProjectPage.objects.filter(
-                live=True,
+            PublishedSearchDocument.objects.filter(
+                is_live=True,
                 is_recycled=False,
-                alias_of__isnull=True,
-                primary_language__iexact=normalized,
-            ).values_list("id", "path", "primary_language")[:20]
+                index_generation=1,
+                extra_data__primary_language__iexact=normalized,
+            ).values_list("page_id", "root_path", "extra_data")[:20]
         )
         if proj_rows:
-            blocked = get_public_blocked_page_ids([(pid, ppath) for pid, ppath, _ in proj_rows])
-            for pid, _, lang in proj_rows:
+            blocked = get_public_blocked_page_ids([(pid, rpath) for pid, rpath, _ in proj_rows])
+            for pid, _, extra in proj_rows:
+                lang = (extra or {}).get("primary_language")
                 if pid not in blocked and lang:
                     return (str(lang).strip()[:128], True)
     except DatabaseError:

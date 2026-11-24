@@ -1779,15 +1779,25 @@ def get_project_tech_stack_heat(
     days: int = 30,
 ) -> dict[str, Any]:
     """
-    第 3 期 ProjectPage 技术栈热度统计（按 primary_language 与技术标签分组）。
-    严格仅统计公开非回收 ProjectPage 的站内有效阅读与仓库/演示点击，不把 star_count 纳入站内流量。
+    第 3 期技术栈热度统计（按 primary_language 与技术标签分组）。
+    通过 TypeAdapter 注册表与 PublishedSearchDocument/PublishedSearchTag 统一查询，
+    不反向 import 具体项目页面模型，且不把 star_count 纳入站内流量。
     """
     if site is None:
         return {"languages": [], "tags": []}
 
-    try:
-        from portfolio.models import ProjectPage
-    except ImportError:
+    from discovery.models import PublishedSearchDocument, PublishedSearchTag
+    from discovery.registry import list_analytics_adapters
+
+    tech_type_keys = [
+        adapter.type_key
+        for adapter in list_analytics_adapters()
+        if (
+            "repo_click" in (getattr(adapter.analytics_capabilities, "conversion_keys", ()) or ())
+            or "demo_click" in (getattr(adapter.analytics_capabilities, "conversion_keys", ()) or ())
+        )
+    ]
+    if not tech_type_keys:
         return {"languages": [], "tags": []}
 
     days = 7 if int(days or 30) <= 7 else 30
@@ -1795,22 +1805,25 @@ def get_project_tech_stack_heat(
     end_date = today - timedelta(days=1)
     start_date = end_date - timedelta(days=days - 1)
 
-    proj_qs = ProjectPage.objects.filter(
-        live=True,
+    proj_qs = PublishedSearchDocument.objects.filter(
+        is_live=True,
         is_recycled=False,
-        alias_of__isnull=True,
+        index_generation=1,
+        type_key__in=tech_type_keys,
     )
+    if site.id:
+        proj_qs = proj_qs.filter(Q(site_id=site.id) | Q(site_id__isnull=True))
     if site.root_page_id:
-        proj_qs = proj_qs.filter(path__startswith=site.root_page.path, depth__gt=site.root_page.depth)
+        proj_qs = proj_qs.filter(root_path__startswith=site.root_page.path, depth__gt=site.root_page.depth)
 
     # 按有界批次过滤祖先受限/回收页，避免大表内存膨胀
-    proj_rows = list(proj_qs.values_list("id", "path", "primary_language")[:1000])
+    proj_rows = list(proj_qs.values_list("page_id", "root_path", "extra_data")[:1000])
     if not proj_rows:
         return {"languages": [], "tags": []}
     blocked = get_public_blocked_page_ids([(pid, path) for pid, path, _ in proj_rows])
     eligible_map: dict[int, str] = {
-        int(pid): (str(lang or "").strip() or "未标注语言")
-        for pid, _, lang in proj_rows
+        int(pid): (str((extra or {}).get("primary_language") or "").strip() or "未标注语言")
+        for pid, _, extra in proj_rows
         if pid not in blocked
     }
     if not eligible_map:
@@ -1818,9 +1831,12 @@ def get_project_tech_stack_heat(
 
     eligible_ids = sorted(eligible_map.keys())
     tags_by_pid: dict[int, list[str]] = defaultdict(list)
-    for pt in ProjectPage.tags.through.objects.filter(content_object_id__in=eligible_ids).select_related("tag"):
-        if pt.tag_id and getattr(pt.tag, "name", None):
-            tags_by_pid[int(pt.content_object_id)].append(str(pt.tag.name))
+    for pid, tag_name in PublishedSearchTag.objects.filter(
+        document__page_id__in=eligible_ids,
+        document__index_generation=1,
+    ).values_list("document__page_id", "tag_name"):
+        if tag_name:
+            tags_by_pid[int(pid)].append(str(tag_name))
 
     metrics_by_pid: dict[int, dict[str, int]] = defaultdict(lambda: {"valid": 0, "meas": 0, "repo": 0, "demo": 0})
     for dr in (

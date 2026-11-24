@@ -142,6 +142,113 @@ class ProjectPageAdapter:
             parts.append(clean.strip())
         return " \n".join(parts)
 
+    def get_api_list_queryset(self, model_cls: Any, request: Any):
+        qs = model_cls.objects.filter(live=True, is_recycled=False).order_by("-authored_on", "-id")
+        status_filter = request.GET.get("status", "").strip()
+        lang_filter = request.GET.get("language", "").strip()
+        tag_slug = request.GET.get("tag", "").strip()
+        if status_filter:
+            qs = qs.filter(project_status=status_filter)
+        if lang_filter:
+            qs = qs.filter(primary_language__iexact=lang_filter)
+        if tag_slug:
+            qs = qs.filter(tags__slug=tag_slug)
+        return qs.select_related("featured_image").prefetch_related("tags", "authors__person")
+
+    def serialize_api_list_item(self, page: Any) -> dict[str, Any]:
+        authors = [{"id": a.person.id, "name": a.person.name, "role": a.role} for a in page.authors.all() if a.person]
+        tags = [{"id": t.id, "name": t.name, "slug": t.slug} for t in page.tags.all()]
+        cover_data = None
+        if page.featured_image:
+            cover_data = {
+                "id": page.featured_image.id,
+                "public_id": str(page.featured_image.public_id),
+                "title": page.featured_image.title,
+                "url": f"/media-gateway/image/{page.featured_image.public_id}/",
+            }
+        return {
+            "id": page.id,
+            "title": page.title,
+            "slug": page.slug,
+            "url": page.url,
+            "project_status": page.project_status,
+            "project_status_label": page.get_project_status_display(),
+            "summary": page.summary,
+            "primary_language": page.primary_language,
+            "star_count": page.star_count,
+            "license_name": page.license_name,
+            "repo_url": page.repo_url,
+            "demo_url": page.demo_url,
+            "started_on": page.started_on.strftime("%Y-%m-%d") if page.started_on else None,
+            "completed_on": page.completed_on.strftime("%Y-%m-%d") if page.completed_on else None,
+            "authored_on": page.authored_on.strftime("%Y-%m-%d") if page.authored_on else None,
+            "featured_image": cover_data,
+            "authors": authors,
+            "tags": tags,
+        }
+
+    def serialize_api_detail(self, page: Any) -> dict[str, Any]:
+        from django.utils.safestring import mark_safe
+
+        authors_data = []
+        for a in page.authors.select_related("person").all():
+            if a.person:
+                authors_data.append({
+                    "id": a.person.id,
+                    "name": a.person.name,
+                    "role": a.role,
+                    "bio": a.person.bio,
+                })
+
+        tags_data = [{"id": t.id, "name": t.name, "slug": t.slug} for t in page.tags.all()]
+        cover_data = None
+        if page.featured_image:
+            cover_data = {
+                "id": page.featured_image.id,
+                "public_id": str(page.featured_image.public_id),
+                "title": page.featured_image.title,
+                "url": f"/media-gateway/image/{page.featured_image.public_id}/",
+            }
+
+        blocks_data = []
+        rendered_html_parts = []
+        if page.body:
+            for child in page.body:
+                block_type = child.block_type
+                block_val = child.value
+                if hasattr(child.block, "render_clean"):
+                    rendered_chunk = child.block.render_clean(block_val).html
+                else:
+                    rendered_chunk = child.render()
+                rendered_html_parts.append(rendered_chunk)
+                blocks_data.append({
+                    "type": block_type,
+                    "value": child.block.get_prep_value(block_val) if hasattr(child.block, "get_prep_value") else str(block_val),
+                })
+
+        return {
+            "id": page.id,
+            "title": page.title,
+            "slug": page.slug,
+            "url": page.url,
+            "project_status": page.project_status,
+            "project_status_label": page.get_project_status_display(),
+            "summary": page.summary,
+            "primary_language": page.primary_language,
+            "star_count": page.star_count,
+            "license_name": page.license_name,
+            "repo_url": page.repo_url,
+            "demo_url": page.demo_url,
+            "started_on": page.started_on.strftime("%Y-%m-%d") if page.started_on else None,
+            "completed_on": page.completed_on.strftime("%Y-%m-%d") if page.completed_on else None,
+            "authored_on": page.authored_on.strftime("%Y-%m-%d") if page.authored_on else None,
+            "featured_image": cover_data,
+            "authors": authors_data,
+            "tags": tags_data,
+            "blocks": blocks_data,
+            "safe_html": mark_safe("\n".join(rendered_html_parts)),
+        }
+
 
 class PortfolioIndexPageAdapter:
     type_key = "portfolio_index"

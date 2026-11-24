@@ -45,6 +45,7 @@ class GuidePageAdapter:
         rank_eligible=True,
         curation_eligible=True,
         body_markers=("article-start", "article-end"),
+        review_cycle_days=365,
     )
 
     def extract(self, page: Any) -> PublishedPayload:
@@ -146,6 +147,102 @@ class GuidePageAdapter:
             clean = re.sub(r"<[^>]+>", " ", v_str)
             parts.append(clean.strip())
         return " \n".join(parts)
+
+    def get_api_list_queryset(self, model_cls: Any, request: Any):
+        qs = model_cls.objects.filter(live=True, is_recycled=False).order_by("-last_reviewed_at", "-first_published_at")
+        topic_slug = request.GET.get("topic", "").strip()
+        difficulty = request.GET.get("difficulty", "").strip()
+        if topic_slug:
+            qs = qs.filter(topic__slug=topic_slug)
+        if difficulty:
+            qs = qs.filter(difficulty=difficulty)
+        return qs.select_related("topic", "featured_image").prefetch_related("tags", "authors__person")
+
+    def serialize_api_list_item(self, page: Any) -> dict[str, Any]:
+        is_outdated, _, _ = page.is_outdated()
+        authors = [{"id": a.person.id, "name": a.person.name, "role": a.role} for a in page.authors.all() if a.person]
+        tags = [{"id": t.id, "name": t.name, "slug": t.slug} for t in page.tags.all()]
+        return {
+            "id": page.id,
+            "title": page.title,
+            "slug": page.slug,
+            "url": page.url,
+            "topic": {"name": page.topic.name, "slug": page.topic.slug} if page.topic else None,
+            "difficulty": page.difficulty,
+            "difficulty_label": page.get_difficulty_display(),
+            "estimated_minutes": page.estimated_minutes,
+            "authored_on": page.authored_on.strftime("%Y-%m-%d") if page.authored_on else None,
+            "last_reviewed_at": page.last_reviewed_at.strftime("%Y-%m-%d") if page.last_reviewed_at else None,
+            "is_outdated": is_outdated,
+            "summary": page.summary,
+            "cover_url": f"/media-gateway/image/{page.featured_image.public_id}/" if page.featured_image else None,
+            "authors": authors,
+            "tags": tags,
+        }
+
+    def serialize_api_detail(self, page: Any) -> dict[str, Any]:
+        blocks_data = []
+        steps_toc = []
+        for b in page.body:
+            val = b.block.get_prep_value(b.value) if hasattr(b.block, "get_prep_value") else b.value
+            blocks_data.append({"type": b.block_type, "value": val})
+            if b.block_type == "step":
+                num = str(val.get("step_number") or len(steps_toc) + 1)
+                steps_toc.append({
+                    "step_number": num,
+                    "title": str(val.get("title") or f"步骤 {num}"),
+                    "anchor": f"step-{num}",
+                })
+
+        is_outdated, _, warning_msg = page.is_outdated()
+        authors_data = []
+        for a in page.authors.select_related("person").all():
+            if a.person:
+                authors_data.append({
+                    "id": a.person.id,
+                    "name": a.person.name,
+                    "role": a.role,
+                    "bio": a.person.bio or "",
+                })
+
+        tags_data = [{"id": t.id, "name": t.name, "slug": t.slug} for t in page.tags.all()]
+        related_data = [
+            {"id": r.related_page.id, "title": r.related_page.title, "url": r.related_page.url}
+            for r in page.related_guides.select_related("related_page").all()
+            if r.related_page.live and not getattr(r.related_page.specific, "is_recycled", False)
+        ]
+
+        cover_data = None
+        if page.featured_image:
+            cover_data = {
+                "id": page.featured_image.id,
+                "title": page.featured_image.title,
+                "public_id": str(page.featured_image.public_id),
+                "url": f"/media-gateway/image/{page.featured_image.public_id}/",
+            }
+
+        return {
+            "id": page.id,
+            "title": page.title,
+            "slug": page.slug,
+            "url": page.url,
+            "topic": {"name": page.topic.name, "slug": page.topic.slug} if page.topic else None,
+            "difficulty": page.difficulty,
+            "difficulty_label": page.get_difficulty_display(),
+            "estimated_minutes": page.estimated_minutes,
+            "authored_on": page.authored_on.strftime("%Y-%m-%d") if page.authored_on else None,
+            "last_reviewed_at": page.last_reviewed_at.strftime("%Y-%m-%d") if page.last_reviewed_at else None,
+            "is_outdated": is_outdated,
+            "outdated_warning": warning_msg if is_outdated else None,
+            "summary": page.summary,
+            "featured_image": cover_data,
+            "authors": authors_data,
+            "tags": tags_data,
+            "steps_toc": steps_toc,
+            "blocks": blocks_data,
+            "safe_html": str(page.body),
+            "related_guides": related_data,
+        }
 
 
 class GuideIndexPageAdapter:

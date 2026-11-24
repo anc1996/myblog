@@ -9,6 +9,7 @@
 
 import logging
 from typing import Any
+from django.apps import apps as django_apps
 from discovery.contracts import AnalyticsCapabilities, EntryAnalyticsSpec, TypeAdapterContract
 
 logger = logging.getLogger(__name__)
@@ -34,6 +35,46 @@ def get_type_adapter(type_key: str) -> TypeAdapterContract | None:
 def list_type_adapters() -> list[TypeAdapterContract]:
     """获取所有已注册的适配器列表"""
     return list(_ADAPTER_REGISTRY.values())
+
+
+def resolve_adapter_model(adapter: Any) -> type | None:
+    """根据适配器声明的 model_label 动态解析 Django 模型类，避免共享层反向 import"""
+    model_label = getattr(adapter, "model_label", "") or ""
+    if "." not in model_label:
+        return None
+    app_label, model_name = model_label.split(".", 1)
+    try:
+        return django_apps.get_model(app_label, model_name)
+    except LookupError:
+        return None
+
+
+def get_model_for_type_key(type_key: str) -> type | None:
+    """根据 type_key 动态解析对应的 Wagtail Page 模型类"""
+    adapter = get_type_adapter(type_key)
+    if adapter is None:
+        return None
+    return resolve_adapter_model(adapter)
+
+
+def get_model_for_public_slug(slug: str) -> type | None:
+    """根据 public_type_slug 动态解析对应的 Wagtail Page 模型类"""
+    adapter = get_adapter_by_public_type_slug(slug)
+    if adapter is None:
+        return None
+    return resolve_adapter_model(adapter)
+
+
+def list_registered_page_models() -> list[type]:
+    """获取所有已在 TypeAdapter 注册表中登记的去重页面模型列表"""
+    models_out: list[type] = []
+    seen: set[type] = set()
+    for adapter in _ADAPTER_REGISTRY.values():
+        model_cls = resolve_adapter_model(adapter)
+        if model_cls is not None and model_cls not in seen:
+            seen.add(model_cls)
+            models_out.append(model_cls)
+    return models_out
 
 
 def get_feed_enabled_type_keys() -> list[str]:
@@ -120,6 +161,17 @@ def list_analytics_adapters() -> list[TypeAdapterContract]:
         for adapter in _ADAPTER_REGISTRY.values()
         if getattr(adapter, "analytics_capabilities", None) is not None
     ]
+
+
+def list_review_cycle_type_keys() -> dict[str, int]:
+    """获取声明了内容技术复核周期（review_cycle_days）的页面类型映射"""
+    out: dict[str, int] = {}
+    for type_key, adapter in _ADAPTER_REGISTRY.items():
+        caps = getattr(adapter, "analytics_capabilities", None)
+        cycle = getattr(caps, "review_cycle_days", None) if caps else None
+        if cycle and int(cycle) > 0:
+            out[type_key] = int(cycle)
+    return out
 
 
 def register_entry_analytics(spec: EntryAnalyticsSpec) -> None:

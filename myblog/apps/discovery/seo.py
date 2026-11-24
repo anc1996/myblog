@@ -29,19 +29,17 @@ class PublicOnlySitemap(Sitemap):
     def items(self):
         qs = super().items()
         from content_lifecycle.models import RecycleEntry
+        from discovery.registry import list_registered_page_models
         from wagtail.models import Page
 
         recycled_ids = set(
             RecycleEntry.objects.filter(status__in=["recycled", "restoring"]).values_list("page_id", flat=True)
         )
 
-        from blog.models import BlogPage, BlogIndexPage
-        from guides.models import GuidePage, GuideIndexPage
-        from portfolio.models import ProjectPage, PortfolioIndexPage
-        from taxonomy.models import TagIndexPage
-
-        for model in (BlogPage, BlogIndexPage, GuidePage, GuideIndexPage, ProjectPage, PortfolioIndexPage, TagIndexPage):
-            recycled_ids.update(model.objects.filter(is_recycled=True).values_list("id", flat=True))
+        # 通过 TypeAdapter 注册表动态遍历所有页面模型，消除共享层对具体业务页面的硬编码依赖
+        for model in list_registered_page_models():
+            if hasattr(model, "is_recycled"):
+                recycled_ids.update(model.objects.filter(is_recycled=True).values_list("id", flat=True))
 
         if recycled_ids:
             qs = qs.exclude(id__in=recycled_ids)

@@ -9,11 +9,14 @@ class GuidesConfig(AppConfig):
     def ready(self):
         # 注册指南与聚合页到 discovery 全站搜索适配器表
         from discovery.registry import register_type_adapter
+        from discovery.signals import register_epoch_dimension_model
         from .adapters import GuidePageAdapter, GuideIndexPageAdapter
         from .listing import register_guide_listing_filters
         from markdown_import.registry import register_import_adapter
         from .import_adapter import GuidePageImportAdapter
+        from .models import GuideTopic
         register_type_adapter(GuidePageAdapter())
         register_type_adapter(GuideIndexPageAdapter())
+        register_epoch_dimension_model(GuideTopic)
         register_guide_listing_filters()
         register_import_adapter(GuidePageImportAdapter())

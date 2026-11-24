@@ -142,6 +142,70 @@ class BlogPageAdapter:
             parts.append(clean.strip())
         return " \n".join(parts)
 
+    def get_api_list_queryset(self, model_cls: Any, request: Any):
+        qs = model_cls.objects.filter(live=True, is_recycled=False).order_by("-authored_on", "-first_published_at")
+        tag_slug = request.GET.get("tag", "").strip()
+        if tag_slug:
+            qs = qs.filter(tags__slug=tag_slug)
+        return qs.select_related("featured_image").prefetch_related("tags", "authors__person")
+
+    def serialize_api_list_item(self, page: Any) -> dict[str, Any]:
+        authors = [{"id": a.person.id, "name": a.person.name, "role": a.role} for a in page.authors.all() if a.person]
+        tags = [{"id": t.id, "name": t.name, "slug": t.slug} for t in page.tags.all()]
+        return {
+            "id": page.id,
+            "title": page.title,
+            "slug": page.slug,
+            "url": page.url,
+            "authored_on": page.authored_on.strftime("%Y-%m-%d") if page.authored_on else None,
+            "cover_url": page.featured_image.file.url if page.featured_image else None,
+            "authors": authors,
+            "tags": tags,
+        }
+
+    def serialize_api_detail(self, page: Any) -> dict[str, Any]:
+        blocks_data = []
+        for b in page.body:
+            val = b.block.get_prep_value(b.value) if hasattr(b.block, "get_prep_value") else b.value
+            blocks_data.append({"type": b.block_type, "value": val})
+
+        authors_data = []
+        for a in page.authors.select_related("person").all():
+            if a.person:
+                authors_data.append({
+                    "id": a.person.id,
+                    "name": a.person.name,
+                    "role": a.role or "作者",
+                    "bio": a.person.bio or "",
+                    "avatar_url": a.person.avatar.file.url if getattr(a.person, "avatar", None) else None,
+                })
+
+        tags_data = [{"id": t.id, "name": t.name, "slug": t.slug} for t in page.tags.all()]
+        cover_data = None
+        if page.featured_image:
+            cover_data = {
+                "id": page.featured_image.id,
+                "title": page.featured_image.title,
+                "public_id": str(page.featured_image.public_id),
+                "url": page.featured_image.file.url,
+                "width": page.featured_image.width,
+                "height": page.featured_image.height,
+            }
+
+        return {
+            "id": page.id,
+            "title": page.title,
+            "slug": page.slug,
+            "url": page.url,
+            "authored_on": page.authored_on.strftime("%Y-%m-%d") if page.authored_on else None,
+            "intro": str(page.intro) if page.intro else "",
+            "featured_image": cover_data,
+            "authors": authors_data,
+            "tags": tags_data,
+            "blocks": blocks_data,
+            "safe_html": str(page.body),
+        }
+
 
 class BlogIndexPageAdapter:
     type_key = "blog_index"

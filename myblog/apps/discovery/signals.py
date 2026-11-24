@@ -183,13 +183,20 @@ try:
 except Exception:
     pass
 
-try:
-    from guides.models import GuideTopic
-    @receiver([post_save, post_delete], sender=GuideTopic)
-    def on_guide_topic_changed(sender, instance, **kwargs):
-        try:
-            ContentDiscoveryEpoch.increment_epoch()
-        except Exception as exc:
-            logger.exception("Failed to increment epoch on GuideTopic mutation: %s", exc)
-except Exception:
-    pass
+_REGISTERED_EPOCH_DIM_MODELS: set[type] = set()
+
+
+def _on_dimension_model_changed(sender, instance, **kwargs):
+    try:
+        ContentDiscoveryEpoch.increment_epoch()
+    except Exception as exc:
+        logger.exception("Failed to increment epoch on dimension mutation (%s): %s", sender, exc)
+
+
+def register_epoch_dimension_model(model_cls: type) -> None:
+    """由业务 App 在 ready() 中主动注册会触发 ContentDiscoveryEpoch 递增的维度模型（如 GuideTopic）。"""
+    if model_cls in _REGISTERED_EPOCH_DIM_MODELS:
+        return
+    _REGISTERED_EPOCH_DIM_MODELS.add(model_cls)
+    post_save.connect(_on_dimension_model_changed, sender=model_cls, weak=False)
+    post_delete.connect(_on_dimension_model_changed, sender=model_cls, weak=False)

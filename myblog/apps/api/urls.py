@@ -20,6 +20,9 @@ urlpatterns = [
     # 开源作品集与项目展示
     path("projects/", views.project_list_api, name="project_list"),
     path("projects/<slug:slug>/", views.project_detail_api, name="project_detail"),
+    # 通用注册表内容接口（供未来新增页面类型零改动接入）
+    path("content/<slug:type_slug>/", views.content_list_api, name="content_list"),
+    path("content/<slug:type_slug>/<slug:slug>/", views.content_detail_api, name="content_detail"),
     # 全局站点与导航设置
     path("site/settings/", views.site_settings_api, name="site_settings"),
     # 时间线归档
