@@ -7,8 +7,8 @@
     max-width: 768px;
     margin: 0 auto;
     padding: 32px 20px 64px 20px;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    color: #24292f;
+    font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif);
+    color: var(--color-text);
     line-height: 1.8;
     font-size: 16px;
     box-sizing: border-box;
@@ -24,7 +24,7 @@
 /* 2. 真实祖先链面包屑导航 */
 .blog-breadcrumbs {
     font-size: 13px;
-    color: #64748b;
+    color: var(--color-muted);
     margin-bottom: 20px;
     display: flex;
     flex-wrap: wrap;
@@ -33,7 +33,7 @@
 }
 
 .blog-breadcrumbs a {
-    color: #2563eb;
+    color: var(--color-link);
     text-decoration: none;
 }
 
@@ -42,7 +42,7 @@
 }
 
 .breadcrumb-separator {
-    color: #cbd5e1;
+    color: var(--color-border-strong);
     user-select: none;
 }
 
@@ -73,7 +73,7 @@
     font-weight: 700;
     line-height: 1.3;
     margin: 0 0 16px 0;
-    color: #0f172a;
+    color: var(--color-text);
     word-break: break-word;
 }
 
@@ -89,9 +89,9 @@
     gap: 16px;
     align-items: center;
     font-size: 14px;
-    color: #64748b;
+    color: var(--color-muted);
     padding-bottom: 16px;
-    border-bottom: 1px solid #e2e8f0;
+    border-bottom: 1px solid var(--color-border);
 }
 
 .blog-authors {
@@ -105,11 +105,12 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    background: #f1f5f9;
+    background: var(--color-surface-subtle);
+    border: 1px solid var(--color-border);
     padding: 3px 10px;
     border-radius: 16px;
     font-size: 13px;
-    color: #334155;
+    color: var(--color-text-secondary);
 }
 
 .author-avatar {
@@ -120,7 +121,7 @@
 }
 
 .author-role {
-    color: #94a3b8;
+    color: var(--color-muted);
     font-size: 12px;
     margin-left: 2px;
 }
@@ -132,8 +133,9 @@
 }
 
 .tag-pill {
-    background: #e2e8f0;
-    color: #334155;
+    background: var(--color-surface-subtle);
+    border: 1px solid var(--color-border);
+    color: var(--color-text-secondary);
     padding: 2px 10px;
     border-radius: 12px;
     font-size: 12px;
@@ -142,14 +144,15 @@
 }
 
 .tag-pill:hover {
-    background: #2563eb;
-    color: #ffffff;
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+    color: var(--color-on-primary);
 }
 
 /* 5. 简介区渐进增强折叠 (Intro) */
 .blog-intro-card {
-    background: #f8fafc;
-    border-left: 4px solid #3b82f6;
+    background: var(--color-surface-subtle);
+    border-left: 4px solid var(--color-primary);
     border-radius: 6px;
     padding: 16px 20px;
     margin-bottom: 32px;
@@ -159,7 +162,7 @@
 .intro-header {
     font-weight: 600;
     font-size: 13px;
-    color: #475569;
+    color: var(--color-text-secondary);
     margin-bottom: 8px;
     letter-spacing: 0.5px;
 }
@@ -182,7 +185,7 @@
     left: 0;
     width: 100%;
     height: 48px;
-    background: linear-gradient(to bottom, transparent, #f8fafc);
+    background: linear-gradient(to bottom, transparent, var(--color-surface-subtle));
     pointer-events: none;
 }
 
@@ -191,7 +194,7 @@
     margin-top: 8px;
     background: none;
     border: none;
-    color: #2563eb;
+    color: var(--color-link);
     font-size: 13px;
     font-weight: 500;
     cursor: pointer;
@@ -212,14 +215,14 @@
     font-size: 1.6rem;
     margin: 36px 0 16px 0;
     padding-bottom: 8px;
-    border-bottom: 1px solid #f1f5f9;
-    color: #0f172a;
+    border-bottom: 1px solid var(--color-border);
+    color: var(--color-text);
 }
 
 .blog-body-section h3 {
     font-size: 1.3rem;
     margin: 28px 0 12px 0;
-    color: #1e293b;
+    color: var(--color-text);
 }
 
 .blog-body-section p {
@@ -228,28 +231,30 @@
 
 /* 7. 代码块 (CodeBlock) 样式 */
 .code-block {
-    background: #1e1e1e;
-    color: #d4d4d4;
+    background: var(--code-bg);
+    color: var(--code-text);
+    border: 1px solid var(--code-border);
     border-radius: 6px;
     overflow: hidden;
     margin: 24px 0;
-    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
 }
 
 .code-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    background: #2d2d2d;
+    background: var(--code-header-bg);
+    border-bottom: 1px solid var(--code-border);
     padding: 8px 16px;
     font-size: 12px;
-    color: #9cdcfe;
+    color: var(--color-primary);
 }
 
 .copy-code-btn {
     background: transparent;
-    border: 1px solid #555;
-    color: #bbb;
+    border: 1px solid var(--color-border-strong);
+    color: var(--color-text-secondary);
     border-radius: 4px;
     padding: 3px 8px;
     font-size: 11px;
@@ -258,8 +263,9 @@
 }
 
 .copy-code-btn:hover {
-    background: #3e3e42;
-    color: #fff;
+    background: var(--color-primary-soft);
+    border-color: var(--color-primary);
+    color: var(--color-on-primary-soft);
 }
 
 .code-body {
@@ -276,12 +282,12 @@
 }
 
 /* Pygments 语法高亮基调 */
-.hl-k { color: #569cd6; font-weight: bold; }
-.hl-s, .hl-s1, .hl-s2 { color: #ce9178; }
-.hl-nb { color: #dcdcaa; }
-.hl-nf { color: #dcdcaa; }
-.hl-c, .hl-c1 { color: #6a9955; font-style: italic; }
-.hl-mi, .hl-mf { color: #b5cea8; }
+.hl-k { color: var(--code-kw); font-weight: bold; }
+.hl-s, .hl-s1, .hl-s2 { color: var(--code-str); }
+.hl-nb { color: var(--code-fn); }
+.hl-nf { color: var(--code-fn); }
+.hl-c, .hl-c1 { color: var(--code-comment); font-style: italic; }
+.hl-mi, .hl-mf { color: var(--code-num); }
 
 /* 8. 复杂表格自适应容器 */
 .custom-table-container,
@@ -290,7 +296,7 @@
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
     margin: 24px 0;
-    border: 1px solid #e2e8f0;
+    border: 1px solid var(--color-border);
     border-radius: 6px;
 }
 
@@ -306,11 +312,12 @@
 .responsive-table-wrapper th,
 .responsive-table-wrapper td {
     padding: 10px 14px;
-    border: 1px solid #e2e8f0;
+    border: 1px solid var(--color-border);
 }
 
 .custom-table-container thead {
-    background: #f8fafc;
+    background: var(--table-head-bg);
+    color: var(--table-head-text);
     font-weight: 600;
 }
 
@@ -328,7 +335,7 @@
 
 .media-caption {
     font-size: 13px;
-    color: #64748b;
+    color: var(--color-muted);
     margin-top: 8px;
 }
 
@@ -337,9 +344,9 @@
     align-items: center;
     gap: 14px;
     padding: 14px 18px;
-    border: 1px solid #e2e8f0;
+    border: 1px solid var(--color-border);
     border-radius: 8px;
-    background: #f8fafc;
+    background: var(--color-surface-subtle);
     margin: 20px 0;
 }
 
@@ -349,7 +356,7 @@
 
 .media-document-card .doc-download-link {
     font-weight: 600;
-    color: #2563eb;
+    color: var(--color-link);
     text-decoration: none;
 }
 
@@ -369,13 +376,13 @@
 .blog-gallery-section {
     margin-top: 48px;
     padding-top: 24px;
-    border-top: 2px solid #edf2f7;
+    border-top: 2px solid var(--color-border);
 }
 
 .gallery-title {
     font-size: 1.3rem;
     font-weight: 600;
-    color: #1e293b;
+    color: var(--color-text);
     margin-bottom: 16px;
 }
 
@@ -386,10 +393,10 @@
 }
 
 .gallery-card {
-    border: 1px solid #e2e8f0;
+    border: 1px solid var(--color-border);
     border-radius: 6px;
     overflow: hidden;
-    background: #ffffff;
+    background: var(--color-surface);
     cursor: pointer;
     transition: transform 0.2s, box-shadow 0.2s;
 }
@@ -409,9 +416,9 @@
 .gallery-caption {
     padding: 8px 10px;
     font-size: 12px;
-    color: #64748b;
+    color: var(--color-muted);
     text-align: center;
-    background: #fafafa;
+    background: var(--color-surface-subtle);
 }
 
 /* 灯箱弹出层 (Lightbox) */

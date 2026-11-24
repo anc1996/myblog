@@ -2191,8 +2191,9 @@ body {
   transform: translateY(-1px);
 }
 .author-badge--anonymous {
-  background: rgba(245, 158, 11, 0.12);
-  border-color: rgba(245, 158, 11, 0.35);
+  background: var(--color-warning-soft);
+  border-color: var(--color-warning-border);
+  color: var(--color-on-warning-soft);
 }
 .search-author-filter-group {
   display: flex;
@@ -2213,4 +2214,41 @@ body {
 }
 .search-result-author-link:hover {
   text-decoration: underline;
+}
+
+/* 公共图片验证码组件与标签推荐框 */
+.captcha-widget-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.captcha-widget-image {
+  width: 160px;
+  height: 52px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm, 6px);
+  cursor: pointer;
+  background: #ffffff;
+}
+
+.captcha-widget-refresh {
+  padding: 7px 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  cursor: pointer;
+  font-size: 0.86rem;
+  font-weight: 500;
+}
+
+.captcha-widget-refresh:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.tag-recommendations-box {
+  max-width: 600px;
 }

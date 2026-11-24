@@ -6,12 +6,12 @@
   </p>
 
   {% if data.recommended_tags %}
-    <div class="tag-recommendations mb-4 text-start p-3 bg-light rounded border mx-auto" style="max-width: 600px;">
+    <div class="tag-recommendations tag-recommendations-box mb-4 text-start p-3 bg-light rounded border mx-auto">
       <h6 class="fw-bold text-secondary mb-3">为您推荐以下活跃技术标签：</h6>
       <div class="d-flex flex-wrap gap-2">
         {% for rec in data.recommended_tags %}
           <a href="{{ rec.url }}" class="btn btn-sm btn-outline-primary rounded-pill text-decoration-none">
-            #{{ rec.name }} <span class="badge bg-primary text-white ms-1">{{ rec.count }}</span>
+            #{{ rec.name }} <span class="badge bg-primary ms-1">{{ rec.count }}</span>
           </a>
         {% endfor %}
       </div>

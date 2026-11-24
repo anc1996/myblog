@@ -1,7 +1,7 @@
 {% load static comment_tags %}
 {% get_page_comment_policy page as comment_policy %}
 {% if comment_policy.supported %}
-<link rel="stylesheet" type="text/css" href="{% static 'comments/css/comments_widget.css' %}">
+<link rel="stylesheet" type="text/css" href="{% static 'comments/css/comments_widget.css' %}?v=20261124a">
 <section class="site-comments-widget" id="comments-section" aria-label="读者评论区"
          data-page-id="{{ page.id|default:'' }}"
          data-allow-comments="{{ comment_policy.allow_comments|yesno:'true,false' }}"

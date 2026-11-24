@@ -337,3 +337,42 @@ html.w-theme-dark .admin-wb-shell,
     overflow-y: auto;
     flex: 1;
 }
+
+.admin-wb-card {
+    background: var(--wb-surface);
+    border: 1px solid var(--wb-border);
+    color: var(--wb-text);
+    padding: 20px;
+    border-radius: 6px;
+    margin-bottom: 20px;
+}
+
+.admin-wb-card--danger {
+    background: var(--wb-danger-bg);
+    border-color: var(--wb-danger-border);
+}
+
+.admin-wb-danger-heading {
+    color: var(--wb-danger);
+}
+
+.admin-wb-inline-input {
+    padding: 6px 10px;
+    width: 260px;
+    max-width: 100%;
+    margin-right: 8px;
+    border: 1px solid var(--wb-border);
+    border-radius: 4px;
+    background: var(--wb-surface-elevated);
+    color: var(--wb-text);
+}
+
+.admin-wb-inline-select {
+    padding: 6px 10px;
+    min-width: 220px;
+    max-width: 100%;
+    border: 1px solid var(--wb-border);
+    border-radius: 4px;
+    background: var(--wb-surface-elevated);
+    color: var(--wb-text);
+}

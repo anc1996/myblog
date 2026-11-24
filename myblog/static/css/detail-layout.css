@@ -516,15 +516,9 @@
   border-radius: 999px;
   font-size: 0.8125rem;
   font-weight: 500;
-  background: rgba(2, 132, 199, 0.08);
-  color: var(--color-text, #1e293b);
-  border: 1px solid rgba(2, 132, 199, 0.22);
-}
-
-[data-theme="dark"] .detail-stat-pill {
-  background: rgba(56, 189, 248, 0.14);
-  color: #e2e8f0;
-  border-color: rgba(56, 189, 248, 0.28);
+  background: var(--color-primary-soft);
+  color: var(--color-on-primary-soft);
+  border: 1px solid var(--color-border);
 }
 
 .detail-header .blog-meta {
@@ -551,20 +545,14 @@
 }
 
 .detail-outdated-alert {
-  background: #fffbeb;
-  border: 1px solid #fde68a;
+  background: var(--color-warning-soft);
+  border: 1px solid var(--color-warning-border);
   border-left: 5px solid var(--color-warning);
   padding: 14px 18px;
   border-radius: var(--radius-sm);
   margin-bottom: 20px;
-  color: #92400e;
+  color: var(--color-on-warning-soft);
   font-size: 0.9rem;
-}
-
-:root[data-theme="dark"] .detail-outdated-alert {
-  background: rgba(217, 119, 6, 0.16);
-  border-color: rgba(251, 191, 36, 0.45);
-  color: #fde68a;
 }
 
 .detail-action-links {
@@ -594,8 +582,9 @@
 .detail-body-section :not(.code-block-shell):not(.code-block):not(.step-code-container):not(.cb-mermaid-source-wrapper):not(.cb-cell-code):not(.code-body) > pre {
   padding: 14px 16px;
   border-radius: var(--radius-sm);
-  background: #0d1117;
-  color: #c9d1d9;
+  background: var(--code-bg);
+  color: var(--code-text);
+  border: 1px solid var(--code-border);
 }
 
 .detail-body-section :not(pre) > code {
@@ -759,7 +748,7 @@
 .portfolio-cover-tag {
   display: inline-block;
   background: var(--color-primary);
-  color: #ffffff;
+  color: var(--color-on-primary);
   padding: 1px 6px;
   border-radius: 4px;
   font-size: 0.72rem;
@@ -908,13 +897,195 @@
 }
 
 .guide-step-complete-btn.is-completed {
-  background: #ecfdf5;
-  border-color: #10b981;
-  color: #047857;
+  background: var(--color-success-soft);
+  border-color: var(--color-success-border);
+  color: var(--color-on-success-soft);
 }
 
-:root[data-theme="dark"] .guide-step-complete-btn.is-completed {
-  background: rgba(16, 185, 129, 0.18);
-  border-color: rgba(52, 211, 153, 0.5);
-  color: #6ee7b7;
+/* 指南专栏积木公共双主题样式（guides/blocks/*.html） */
+.guide-faq-card {
+  background: var(--color-surface-subtle);
+  border: 1px solid var(--color-border);
+  padding: 16px 20px;
+  border-radius: var(--radius-sm);
+  margin: 16px 0;
+}
+.guide-faq-title {
+  margin: 0 0 8px 0;
+  color: var(--color-text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.guide-faq-badge {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.guide-faq-answer {
+  color: var(--color-text-secondary);
+  font-size: 0.92rem;
+  line-height: 1.6;
+  margin-top: 8px;
+}
+
+.guide-lead-card {
+  background: var(--color-primary-soft);
+  border: 1px solid var(--color-border);
+  border-left: 5px solid var(--color-primary);
+  padding: 20px;
+  border-radius: var(--radius-md);
+  margin: 24px 0;
+}
+.guide-lead-title {
+  margin-top: 0;
+  color: var(--color-on-primary-soft);
+}
+.guide-lead-prereq {
+  margin-bottom: 12px;
+  font-size: 0.92rem;
+  color: var(--color-text);
+}
+.guide-lead-overview {
+  color: var(--color-text-secondary);
+}
+
+.guide-ref-card {
+  background: var(--color-surface);
+  border: 1px dashed var(--color-border-strong);
+  padding: 12px 18px;
+  border-radius: var(--radius-sm);
+  margin: 12px 0;
+}
+.guide-ref-link {
+  color: var(--color-link);
+  font-weight: 600;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.guide-ref-link:hover {
+  text-decoration: underline;
+}
+.guide-ref-desc {
+  color: var(--color-muted);
+  font-size: 0.85rem;
+  margin-left: 8px;
+}
+
+.guide-step-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  margin: 28px 0;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+}
+.guide-step-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.guide-step-num {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-weight: 700;
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+.guide-step-title {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 1.25rem;
+}
+.guide-step-content {
+  color: var(--color-text-secondary);
+  line-height: 1.7;
+}
+.guide-step-code {
+  margin-top: 16px;
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.guide-step-code-lang {
+  padding: 6px 12px;
+  background: var(--code-header-bg);
+  border-bottom: 1px solid var(--code-border);
+  color: var(--code-gutter);
+  font-size: 12px;
+  font-family: monospace;
+}
+.guide-step-code pre {
+  margin: 0;
+  padding: 16px;
+  color: var(--code-text);
+  font-family: monospace;
+  font-size: 13px;
+  overflow-x: auto;
+}
+.guide-step-image {
+  margin-top: 16px;
+  text-align: center;
+}
+.guide-step-image img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-strong);
+}
+.guide-step-image-caption {
+  color: var(--color-muted);
+  font-size: 0.85rem;
+  margin-top: 6px;
+}
+
+.guide-tip-card {
+  padding: 16px 20px;
+  border-radius: var(--radius-sm);
+  margin: 20px 0;
+  border: 1px solid var(--color-border);
+  border-left-width: 5px;
+}
+.guide-tip-card.danger {
+  background: var(--color-danger-soft);
+  border-color: var(--color-danger-border);
+  border-left-color: var(--color-danger);
+  color: var(--color-on-danger-soft);
+}
+.guide-tip-card.warning {
+  background: var(--color-warning-soft);
+  border-color: var(--color-warning-border);
+  border-left-color: var(--color-warning);
+  color: var(--color-on-warning-soft);
+}
+.guide-tip-card.info {
+  background: var(--color-primary-soft);
+  border-color: var(--color-border);
+  border-left-color: var(--color-primary);
+  color: var(--color-on-primary-soft);
+}
+.guide-tip-card.tip {
+  background: var(--color-success-soft);
+  border-color: var(--color-success-border);
+  border-left-color: var(--color-success);
+  color: var(--color-on-success-soft);
+}
+.guide-tip-title {
+  margin: 0 0 8px 0;
+}
+.guide-tip-body {
+  line-height: 1.6;
+  font-size: 0.92rem;
 }

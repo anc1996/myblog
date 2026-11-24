@@ -1,0 +1,400 @@
+/* ============================================================================
+   全站会员身份前台页面公共样式 (login / register / force_password_change / profile)
+   全部使用 tokens.css 语义令牌，完整支持 mist-blue / moss-lab 及白天 / 黑夜模式。
+   ============================================================================ */
+
+.identity-shell {
+  max-width: 480px;
+  margin: 44px auto;
+  padding: 0 20px;
+}
+
+.identity-shell--wide {
+  max-width: 520px;
+  margin: 36px auto;
+}
+
+.identity-card,
+.profile-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg, 12px);
+  padding: 28px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+}
+
+.profile-card {
+  padding: 24px;
+}
+
+.identity-title {
+  margin: 0 0 6px 0;
+  font-size: 1.45rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.identity-subtitle {
+  margin: 0 0 22px 0;
+  font-size: 0.92rem;
+  color: var(--color-muted);
+}
+
+.identity-alert {
+  padding: 10px 14px;
+  border-radius: var(--radius-sm, 6px);
+  font-size: 0.9rem;
+  margin-bottom: 16px;
+}
+
+.identity-alert-error {
+  background: var(--color-danger-soft);
+  border: 1px solid var(--color-danger-border);
+  color: var(--color-on-danger-soft);
+}
+
+.identity-alert-warning {
+  background: var(--color-warning-soft);
+  border: 1px solid var(--color-warning-border);
+  color: var(--color-on-warning-soft);
+}
+
+.identity-alert-success {
+  background: var(--color-success-soft);
+  border: 1px solid var(--color-success-border);
+  color: var(--color-on-success-soft);
+}
+
+.identity-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.identity-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.identity-label {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+.identity-form input[type="text"],
+.identity-form input[type="password"],
+.identity-form input[type="email"],
+.identity-form input[type="file"],
+.identity-form textarea,
+.identity-form select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  font-size: 0.95rem;
+  font-family: inherit;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+}
+
+.identity-form input::placeholder,
+.identity-form textarea::placeholder {
+  color: var(--color-muted);
+}
+
+.identity-form input:focus,
+.identity-form textarea:focus,
+.identity-form select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-focus-ring);
+}
+
+.identity-help {
+  font-size: 0.82rem;
+  color: var(--color-muted);
+}
+
+.identity-error-list {
+  margin: 2px 0 0 0;
+  padding-left: 18px;
+  color: var(--color-danger);
+  font-size: 0.85rem;
+}
+
+.identity-error-list--flush {
+  margin: 0;
+}
+
+.identity-captcha-box {
+  padding: 14px;
+  background: var(--color-surface-subtle);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 8px);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.identity-captcha-tip {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--color-on-warning-soft);
+  background: var(--color-warning-soft);
+  border: 1px solid var(--color-warning-border);
+  border-radius: var(--radius-sm, 6px);
+  padding: 8px 12px;
+}
+
+.identity-btn {
+  width: 100%;
+  padding: 11px 16px;
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  font-size: 0.96rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.identity-btn:hover {
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+}
+
+.identity-btn--inline {
+  width: auto;
+  padding: 9px 16px;
+  font-size: 0.92rem;
+  align-self: flex-start;
+}
+
+.identity-btn-secondary {
+  padding: 8px 14px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--color-surface-subtle);
+  color: var(--color-text-secondary);
+  font-size: 0.86rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.identity-btn-secondary:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.identity-footer-link {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--color-border);
+  font-size: 0.88rem;
+  color: var(--color-muted);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.identity-footer-link a {
+  color: var(--color-link);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.identity-footer-link a:hover {
+  color: var(--color-link-hover);
+  text-decoration: underline;
+}
+
+.identity-logout-bar {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.88rem;
+  color: var(--color-muted);
+}
+
+.identity-honeypot {
+  display: none !important;
+}
+
+/* 个人中心 (profile.html) */
+.profile-shell {
+  max-width: 960px;
+  margin: 32px auto;
+  padding: 0 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.profile-hero {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+}
+
+.profile-identity {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.identity-avatar-img,
+.identity-avatar-placeholder {
+  width: 72px;
+  height: 72px;
+  border-radius: 9999px;
+  border: 1px solid var(--color-border-strong);
+  flex-shrink: 0;
+}
+
+.identity-avatar-img {
+  object-fit: cover;
+  background: var(--color-surface-subtle);
+}
+
+.identity-avatar-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-primary-soft);
+  color: var(--color-on-primary-soft);
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.profile-name {
+  margin: 0 0 4px 0;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.profile-meta {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--color-muted);
+}
+
+.profile-bio-preview {
+  margin: 6px 0 0 0;
+  font-size: 0.92rem;
+  color: var(--color-text-secondary);
+}
+
+.profile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 20px;
+}
+
+.profile-section-title {
+  margin: 0 0 14px 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.comment-history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.comment-history-item {
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-surface-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.comment-history-top {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.comment-page-link {
+  font-weight: 600;
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+a.comment-page-link:hover {
+  color: var(--color-link);
+  text-decoration: underline;
+}
+
+.comment-status-badge {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 9999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.status-published {
+  background: var(--color-success-soft);
+  color: var(--color-on-success-soft);
+}
+
+.status-pending {
+  background: var(--color-warning-soft);
+  color: var(--color-on-warning-soft);
+}
+
+.status-rejected {
+  background: var(--color-danger-soft);
+  color: var(--color-on-danger-soft);
+}
+
+.status-deleted {
+  background: var(--color-surface-raised);
+  color: var(--color-muted);
+  border: 1px solid var(--color-border);
+}
+
+.comment-snippet {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--color-text-secondary);
+  word-break: break-word;
+}
+
+.comment-time {
+  font-size: 0.8rem;
+  color: var(--color-muted);
+}
+
+.profile-bottom-notice {
+  margin: 0;
+  padding: 12px 16px;
+  background: var(--color-surface-subtle);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 8px);
+  font-size: 0.9rem;
+  color: var(--color-text-secondary);
+  text-align: center;
+}

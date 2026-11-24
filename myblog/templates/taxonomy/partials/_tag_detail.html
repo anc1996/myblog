@@ -5,10 +5,10 @@
         <h1 class="fw-bold text-dark mb-1 d-inline-flex align-items-center">
           #{{ data.tag.name }}
         </h1>
-        <span class="badge bg-primary text-white ms-2">{{ data.scope_total_count }} 篇公开内容</span>
+        <span class="badge bg-primary ms-2">{{ data.scope_total_count }} 篇公开内容</span>
       </div>
       {% if data.feed_url %}
-        <a href="{{ data.feed_url }}" class="btn btn-sm btn-outline-warning text-dark d-inline-flex align-items-center" title="订阅该标签 RSS 动态">
+        <a href="{{ data.feed_url }}" class="btn btn-sm btn-outline-warning d-inline-flex align-items-center" title="订阅该标签 RSS 动态">
           <span>📡 RSS 订阅</span>
         </a>
       {% endif %}
@@ -27,7 +27,7 @@
           <a class="nav-link {% if tab.is_active %}active fw-bold text-primary{% else %}text-muted{% endif %}"
              href="?type={{ tab.slug }}"
              data-type="{{ tab.slug }}">
-            {{ tab.label }} <span class="badge rounded-pill {% if tab.is_active %}bg-primary text-white{% else %}bg-light text-muted border{% endif %} ms-1">{{ tab.count }}</span>
+            {{ tab.label }} <span class="badge rounded-pill {% if tab.is_active %}bg-primary{% else %}bg-light text-muted border{% endif %} ms-1">{{ tab.count }}</span>
           </a>
         </li>
       {% endfor %}
