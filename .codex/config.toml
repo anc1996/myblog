@@ -18,5 +18,9 @@ description = "只读独立审查发布、权限、回收、并发与补偿的�
 config_file = "agents/terra.toml"
 
 [agents.argon]
-description = "经指派攻坚 Wagtail 生命周期、多文件深度调试与复杂编辑器问题（gemini-4-neon）"
+description = "架构方案反例审查、Wagtail生命周期状态机与深度排错（gemini-4-neon / argon）"
 config_file = "agents/argon.toml"
+
+[agents.runner]
+description = "批量自动化测试套件执行、日志探针与高频数据验证（gemini-3.8-flash-tiered）"
+config_file = "agents/runner.toml"

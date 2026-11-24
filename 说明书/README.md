@@ -1,12 +1,12 @@
 # myblog 项目工程与技术规范入口
 
-更新日期：2026-11-24。**全站 19 个业务子应用、50 份自动化测试文件及核心架构已落地；自 2026-11-24 起项目遵循《AGENTS.md》中借鉴 WordPress 四层解耦思想的防写死/防过度设计铁律（不再为个人站点叠加多库/大并发子系统）**。
+更新日期：2026-11-24。**全站 19 个业务子应用、54 份自动化测试文件及核心架构已落地；自 2026-11-24 起项目遵循《AGENTS.md》中借鉴 WordPress 四层解耦思想的防写死/防过度设计铁律（不再为个人站点叠加多库/大并发子系统）**。
 
 ## 建议阅读顺序
 
 0. [详情页三栏布局与侧栏互动后端方案（RFC）](myblog_详情页三栏布局与侧栏互动后端方案_RFC_2026-11-24.md)：**【Phase A 与 Phase B 均已实施完成，`.env.local` 已迁移并通过 50 项隔离回归测试及多视口真实浏览器核验】** 定义宽屏三栏与窄屏防评论压底的网格布局、导航防换行、同父栏目且仅详情类型的上下篇与同栏/同标签推荐、逐站只读 `SiteAnnouncementSettings`、以及作者名片卡（本月 SQL 热力图、`作者好文 / 作者发言` 防侧漏与换绑归零契约）。
 0. [全站主题设计系统与昼夜跟随架构方案（RFC）](myblog_全站主题设计系统与昼夜跟随架构方案_RFC_2026-11-24.md)：**【阶段 1–3 已实施并通过 51 项自动化回归与静态护栏】** 以 `tokens.css` 为单一设计令牌真相源，实现 `mist-blue`/`moss-lab` 双色板、`system`/`light`/`dark` 三态同步、`SiteThemeSettings` 只读隔离、全站白块收敛及 Highlight.js/Mermaid `follow-site`/Vendor 控件全联动。
-0. [全站数据分析与文章评价排行可行性方案（RFC）](myblog_全站数据分析与文章评价排行可行性方案_RFC_2026-11-23.md) 与 [需求规格](myblog_全站数据分析指标与排行精选需求规格说明书_2026-11-23.md)：**【第 1–3 期已落地（13 模型），冻结扩展，待收敛共享层注册表解耦】** 覆盖统计上报、四档评价、降噪告警与运营看板。
+0. [全站数据分析与文章评价排行可行性方案（RFC）](myblog_全站数据分析与文章评价排行可行性方案_RFC_2026-11-23.md) 与 [需求规格](myblog_全站数据分析指标与排行精选需求规格说明书_2026-11-23.md)：**【第 1–3 期已落地（13 模型），已完成共享层注册表解耦（通过 AST 守卫），冻结新表扩展；待真实多日流量与批量告警/榜单页验收】** 覆盖统计上报、四档评价、降噪告警与运营看板。
 0. [全站作者专栏与按作者搜索方案（RFC）](myblog_全站作者专栏与按作者搜索方案_RFC_2026-11-23.md)：**【已落地】** `/authors/` 大厅与 `/authors/<slug>/` 专栏、匿名/佚名归因及按作者组合检索。
 0. [会员体系、多角色创作权限与双轨防刷评论架构方案](myblog_会员体系与多角色创作权限架构方案_RFC_2026-11-11.md)：**【Phase 1–5 已实现并通过 `gemini-4-argon` 审核、全量测试与真实浏览器验收】** 前台会员中心（`/account/*`）、`MemberProfile` 独立头像与 `AvatarPurgeTask`、会话代次守卫与账号硬删过户（Phase 1）、全站公共图片验证码 `captcha`（Phase 2）、双轨防刷评论配额与 5 分钟内联编辑（Phase 3），以及基于 `CustomBasePage` 与 Wagtail 通用生命周期的作者隔离、图片/文档网关鉴权与回收站冲突恢复（Phase 4–5）均已落地。
 0. [课件附件下载增强与通用多页面 Markdown 导入系统架构方案](myblog_课件附件下载与通用多页面Markdown导入架构方案_RFC_2026-11-22.md)：**【已实现并通过 Terra 独立审查加固与 108 项隔离回归测试】** 区分 `.md` 附件下载与多页面导入入口，含 RFC 5987 下载头修复、公共 `CustomAttachmentListBlock`、三类页面写前脱水加固、`markdown_import` 子应用与接口、10 万字四区采样 AI 引擎与本地 CLI/GUI 客户端。
@@ -46,7 +46,7 @@
 - **全站 SEO 与爬虫收录协议**：
   - `/sitemap.xml`：集成 Wagtail 站点地图，严格排除回收站页面（`is_recycled=True`）与未发布草稿，仅收录公开发布的合法在线页面；
   - `/robots.txt`：阻断爬虫抓取 `/admin/`、`/django-admin/`、`/media-gateway/`、`/avatar-gateway/`、`/account/` 与 `/api/` 等私密网关，自动定位并引导抓取 `/sitemap.xml`。
-- **测试与质量**：`tests/` 目录现含 **50 份自动化测试文件**；各新增功能均需通过 `MYBLOG_ENV_FILE=.env.test python -B manage.py check`、`makemigrations --check --dry-run` 及定向回归测试。
+- **测试与质量**：`tests/` 目录现含 **54 份自动化测试文件**；各新增功能均需通过 `MYBLOG_ENV_FILE=.env.test python -B manage.py check`、`makemigrations --check --dry-run` 及定向回归测试。
 - **前端与交互闭环**：
   - **全局响应式导航、浅深色主题与公共 UI 组件**：绑定 `site_settings`，支持 `data-theme="light|dark"` 切换与防闪烁恢复；通过 `vendor.lock.json` 统一挂载 `Alpine.js`、`HTMX`、`Tom Select`、`Flatpickr` 与 `Splide`；
   - **全站共享详情壳层与单次服务端 TOC 目录 (`detail_shell.html`)**：统一服务 `BlogPage`、`GuidePage`、`ProjectPage` 及后续 `XxPage`；后端单遍提取 `h1`–`h4` 与 `step` 锚点并注入 `[data-cb-block]` 防溢出容器，桌面（`>=1025px`）展示可折叠左侧 sticky 目录，手机/iPad（`<=1024px`）使用粘性触发栏 + 原生 `<dialog>` 抽屉；标签统一反解 `TagIndexPage` 详情路由；
