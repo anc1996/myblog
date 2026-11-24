@@ -1,9 +1,12 @@
 # myblog 项目工程与技术规范入口
 
-更新日期：2026-11-19。**第一阶段核心能力、会员权限体系、P1 公共内容积木渲染增强（Mermaid / LaTeX / 复杂表格 / 代码复制）与 SEO 底座（Sitemap & Robots）已全部完成实现并实测验证**（隔离测试库全量 224 项测试通过、Django 系统检查 0 错误 0 警告、ManifestStaticFilesStorage 839 个静态资源收集无异常；`.env.local` 与 `.env.test` 均同步就绪）。
+更新日期：2026-11-24。**全站 19 个业务子应用、50 份自动化测试文件及核心架构已落地；自 2026-11-24 起项目遵循《AGENTS.md》中借鉴 WordPress 四层解耦思想的防写死/防过度设计铁律（不再为个人站点叠加多库/大并发子系统）**。
 
 ## 建议阅读顺序
 
+0. [全站主题设计系统与昼夜跟随架构方案（RFC）](myblog_全站主题设计系统与昼夜跟随架构方案_RFC_2026-11-24.md)：**【阶段 1–2 已落地并推送 `a6be3ee`，阶段 3–4 推进中】** 以 `tokens.css` 为单一设计令牌真相源，实现 `mist-blue`/`moss-lab` 双色板、`system`/`light`/`dark` 三态同步、`SiteThemeSettings` 只读隔离及全站白块收敛。
+0. [全站数据分析与文章评价排行可行性方案（RFC）](myblog_全站数据分析与文章评价排行可行性方案_RFC_2026-11-23.md) 与 [需求规格](myblog_全站数据分析指标与排行精选需求规格说明书_2026-11-23.md)：**【第 1–3 期已落地（13 模型），冻结扩展，待收敛共享层注册表解耦】** 覆盖统计上报、四档评价、降噪告警与运营看板。
+0. [全站作者专栏与按作者搜索方案（RFC）](myblog_全站作者专栏与按作者搜索方案_RFC_2026-11-23.md)：**【已落地】** `/authors/` 大厅与 `/authors/<slug>/` 专栏、匿名/佚名归因及按作者组合检索。
 0. [会员体系、多角色创作权限与双轨防刷评论架构方案](myblog_会员体系与多角色创作权限架构方案_RFC_2026-11-11.md)：**【Phase 1–5 已实现并通过 `gemini-4-argon` 审核、全量测试与真实浏览器验收】** 前台会员中心（`/account/*`）、`MemberProfile` 独立头像与 `AvatarPurgeTask`、会话代次守卫与账号硬删过户（Phase 1）、全站公共图片验证码 `captcha`（Phase 2）、双轨防刷评论配额与 5 分钟内联编辑（Phase 3），以及基于 `CustomBasePage` 与 Wagtail 通用生命周期的作者隔离、图片/文档网关鉴权与回收站冲突恢复（Phase 4–5）均已落地。
 0. [课件附件下载增强与通用多页面 Markdown 导入系统架构方案](myblog_课件附件下载与通用多页面Markdown导入架构方案_RFC_2026-11-22.md)：**【已实现并通过 Terra 独立审查加固与 108 项隔离回归测试】** 区分 `.md` 附件下载与多页面导入入口，含 RFC 5987 下载头修复、公共 `CustomAttachmentListBlock`、三类页面写前脱水加固、`markdown_import` 子应用与接口、10 万字四区采样 AI 引擎与本地 CLI/GUI 客户端。
 0. [全站响应式前端共享组件与底层 StructBlock 协议架构方案](myblog_全站响应式前端共享组件与StructBlock协议方案_RFC_2026-11-22.md)：**【已实现并通过隔离测试与多视口浏览器核验】** 接入 `Alpine.js / HTMX / Tom Select / Flatpickr / Splide` 离线前端公共组件（`vendor.lock.json`），统一 `myblog.css` 浅深色语义令牌与防溢出规则，落地 `detail_shell.html` 共享详情骨架与单次服务端分级 TOC 提取器（桌面可折叠左侧栏 + 手机/iPad `<dialog>` 抽屉）。
@@ -13,15 +16,13 @@
 2. [全站标签大厅与跨类型检索系统 RFC](myblog_全站标签大厅与跨类型检索系统_RFC_2026-11-09.md)：TagIndexPage 路由、A-Z 分组、多类型分栏 Tab、私有草稿标签防泄漏与 0 Mongo 访问闭环。
 1. [全站订阅与时间线归档通用接口框架方案](myblog_全站订阅与时间线归档通用接口框架方案_2026-11-07.md)：通用多页面即插即用契约、弱 ETag 协商缓存与 Wagtail 8.1 刚性生命周期安全守卫。
 2. [第一阶段从零起步开发路线与学习指引](myblog_第一阶段从零起步开发路线与学习指引.md)：面向刚接触 Django/Wagtail 学生的实战全景指引，解答“S1–S12 演进主线、每项需求设计思想与避坑指南”。
-3. [第一阶段需求规格说明书](myblog_第一阶段需求规格说明书_v1.0.md)：确认功能范围、发布与草稿、媒体权限和回收规则。
 4. [十项决策与页面恢复契约完善报告](myblog_十项决策与页面恢复契约完善报告_2026-11-04.md)：10 项确认决策落地（全部采用 A 方案）、页面恢复防冲突机制与 Wagtail 8.1 陷阱防御。
 5. [统一搜索与组合筛选方案](myblog_统一搜索与组合筛选方案_SEARCH-V2-FILTER_2026-11-04.md)：搜索接口、过滤、排序、权限及 GIN 索引细节。
 6. [RustFS 切换方案](myblog_RustFS切换方案_2026-11-03.md)：私有对象存储、逐次鉴权、历史引用保护与 ProtectedRustFSStorage 拦截。
-7. [依赖核查与升级方案](myblog_依赖核查与升级方案_2026-11-04.md)：版本约束、升级顺序和依赖验证。
 8. [前端公共 Vendor 资产管理与升级指南](前端公共Vendor资产管理与升级指南.md)：`myblog/static/vendor/` 不入库的锁定还原方案、`sync_vendor_assets.py` 同步校验与未来版本升级规范。
 9. 站内音视频播放器与分栏预览：[需求规格](myblog_站内音视频播放器与分栏预览需求规格_RFC.md)、[技术设计](myblog_站内音视频播放器与分栏预览技术设计.md)。已接入本地 Video.js、前台公共积木和后台分栏，隔离验收范围及待测项见技术设计。
 
-需要逐项查阅时，再看[第三方依赖清单](myblog_第三方依赖清单_2026-11-04.md)、[版本核查证据](myblog_依赖版本核查证据_2026-11-04.json)和[环境与代理准备记录](myblog_环境与代理准备记录_2026-11-03.md)。
+早期历史过渡文档（MySQL/MinIO 切换与初版任务书/2026-11-04 依赖快照）已统一归档至 `archive/` 目录；当前直接第三方依赖以根目录 `requirements.txt` 为准。
 基础服务的配置与操作说明在 [infra/README.md](../infra/README.md)。
 
 ## 当前实现与验证指标
@@ -44,7 +45,7 @@
 - **全站 SEO 与爬虫收录协议**：
   - `/sitemap.xml`：集成 Wagtail 站点地图，严格排除回收站页面（`is_recycled=True`）与未发布草稿，仅收录公开发布的合法在线页面；
   - `/robots.txt`：阻断爬虫抓取 `/admin/`、`/django-admin/`、`/media-gateway/`、`/avatar-gateway/`、`/account/` 与 `/api/` 等私密网关，自动定位并引导抓取 `/sitemap.xml`。
-- **测试与质量**：隔离测试库全站 **224 项自动化单元与集成测试全部通过**；Django 系统检查 0 错误 0 警告；`ManifestStaticFilesStorage` 静态产物收集 839 项全部通过；已通过 Headless Chrome 真实浏览器实测验收。
+- **测试与质量**：`tests/` 目录现含 **50 份自动化测试文件**；各新增功能均需通过 `MYBLOG_ENV_FILE=.env.test python -B manage.py check`、`makemigrations --check --dry-run` 及定向回归测试。
 - **前端与交互闭环**：
   - **全局响应式导航、浅深色主题与公共 UI 组件**：绑定 `site_settings`，支持 `data-theme="light|dark"` 切换与防闪烁恢复；通过 `vendor.lock.json` 统一挂载 `Alpine.js`、`HTMX`、`Tom Select`、`Flatpickr` 与 `Splide`；
   - **全站共享详情壳层与单次服务端 TOC 目录 (`detail_shell.html`)**：统一服务 `BlogPage`、`GuidePage`、`ProjectPage` 及后续 `XxPage`；后端单遍提取 `h1`–`h4` 与 `step` 锚点并注入 `[data-cb-block]` 防溢出容器，桌面（`>=1025px`）展示可折叠左侧 sticky 目录，手机/iPad（`<=1024px`）使用粘性触发栏 + 原生 `<dialog>` 抽屉；标签统一反解 `TagIndexPage` 详情路由；
@@ -54,6 +55,6 @@
   - **全站标签大厅**：RESTful 路由 `/tags/` 与 `/tags/<slug>/`，A-Z 首字母分组，跨类型 Tab 分栏；
   - **读者评论互动组件**：AJAX 免刷新提交、两层回复、CAS 审核提示、nh3 防 XSS 净化；
   - **月历归档与预聚合汇总表**：`/timeline/` 与 `/api/v1/archives/calendar/` 按 `authored_on` 提供按月日历网格与 12 月快速切换；只读 `ArchiveDailyCount`（单月最多 31 行），通过 `ArchiveContribution` 事务 +/-1 增量维护、`ArchiveSyncOutbox` 与 `reconcile_archive_counts` 管理命令保障计数一致，点击日/月下钻走 SARGable 区间与混合分页。
-- **目录架构**：全站 16 个业务子应用物理收敛于 `myblog/myblog/apps/*`（与 `settings/`、`static/`、`templates/` 同级），通过 `myblog.bootstrap` 注入 `sys.path[0]`，保证数据库表名与 `ContentType` 100% 零漂移。
+- **目录架构**：全站 **19 个业务子应用**物理收敛于 `myblog/myblog/apps/*`（与 `settings/`、`static/`、`templates/` 同级），通过 `myblog.bootstrap` 注入 `sys.path[0]`，保证数据库表名与 `ContentType` 100% 零漂移。
 - **基础设施拓扑**：PostgreSQL 18.6 + MongoDB 9.0.4 + RustFS 1.0.4 (S3) + Redis 8.10.3，端口统一发布至 `0.0.0.0`。
 - **凭据安全**：所有生产凭据与私密 `.env` 严格由本地安全管理，禁止提交至版本库。

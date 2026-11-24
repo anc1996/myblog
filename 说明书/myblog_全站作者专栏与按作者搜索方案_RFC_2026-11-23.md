@@ -2,7 +2,7 @@
 
 **RFC：** `MYBLOG-RFC-AUTHOR-DISCOVERY-01` · **日期：** 2026-11-23
 
-**状态：** 产品方向已确认；本文定义实施和验收契约，不代表代码、迁移或性能已验收。
+**状态：** 已实施落地（`myblog/apps/people/`、`discovery` 作者检索与并发测试 `test_author_discovery*.py` 已完成；未执行百万级合成压测）。
 
 **核对基线：** `main`，起草前 `HEAD` 为 `01cc6f8d5fab63696233bca3a5ab56bc0e959165`；部分源码来自并行工作区候选改动。依赖声明为 Django 6.1 系列、Wagtail 8.1 系列；数据库目标为 PostgreSQL 18。未核对真实服务版本或远程最新提交。
 

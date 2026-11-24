@@ -1,6 +1,6 @@
 # myblog 全站数据分析与文章评价排行可行性方案（务实定稿版）
 
-**日期：2026-11-23｜状态：已吸收审查反例并完成务实瘦身，待用户最终确认；尚未编写业务代码或执行迁移。**
+**日期：2026-11-23（2026-11-24 状态同步）｜状态：第 1–3 期代码、数据库迁移与隔离测试（`test_analytics_phase1~3.py`）已全部实施落地；待完善共享层注册表解耦（消除对 `BlogPage`/`GuidePage`/`ProjectPage` 的直接导入）与真实多日流量验收。**
 对应需求规格：[myblog_全站数据分析指标与排行精选需求规格说明书_2026-11-23.md](myblog_全站数据分析指标与排行精选需求规格说明书_2026-11-23.md)（`D1–D6` 全选 A，含四档文章评价与高浏览降噪）。
 
 ---
@@ -63,7 +63,9 @@ class AnalyticsCapabilities:
 
 ---
 
-## 3. PostgreSQL 数据模型（收敛为 10 张核心表）
+## 3. PostgreSQL 数据模型（10 张核心分析表 + 3 张配置/操作/导出审计表，共 13 个模型）
+
+> **实现补充说明（2026-11-24 核对）**：除下表列出的 10 张核心分析表外，`myblog/apps/analytics/models.py` 已随第 2–3 期实现补充了 `AnalyticsSettings`（后台可配冷启动/豁免阈值）、`CuratedRecommendationAction`（精选操作流水）与 `AnalyticsExportAudit`（导出审计记录），共 13 个模型。
 
 为避免表结构过度碎片化，全部需求收敛为 **第 1 期 5 张核心表 + 第 2 期 5 张核心表**（均用非负整数计数，带 `CheckConstraint` 防止负数漂移；所有页面级表使用真实 `ForeignKey(Page, on_delete=models.CASCADE)`）。
 
