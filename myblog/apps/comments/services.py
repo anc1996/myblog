@@ -11,15 +11,17 @@ comments.services
 """
 
 import hashlib
+import html
 import json
 import logging
 from datetime import timedelta
 from django.contrib.auth import get_user_model
-from django.db import IntegrityError, connection, transaction
-from django.db.models import F
+from django.db import DatabaseError, IntegrityError, connection, transaction
+from django.db.models import F, Q
 from django.db.models.functions import Greatest
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.utils import timezone
+from django.utils.html import strip_tags
 from wagtail.models import Page, Site
 
 from .models import (
@@ -1133,3 +1135,118 @@ class CommentService:
                 fail_count += 1
 
         return {"success": success_count, "conflict": conflict_count, "failed": fail_count}
+
+
+def _safe_approved_comment_excerpt(safe_html: str, max_len: int = 120) -> str:
+    """仅从已批准版本的净化 HTML 提取纯文本并压缩空白，严禁读取待审原文或 content_snippet。"""
+    raw_text = html.unescape(strip_tags(safe_html or ""))
+    cleaned = " ".join(raw_text.split())
+    if len(cleaned) <= max_len:
+        return cleaned
+    return cleaned[: max_len - 1].rstrip() + "…"
+
+
+def get_public_comments_for_user(
+    user_id: int | None,
+    site: Site | None,
+    request=None,
+    *,
+    limit: int = 5,
+) -> list[dict]:
+    """
+    为作者侧边栏名片只读聚合该绑定账号在当前站点下仍公开可见的历史评论：
+    1. 精确按 author_id 匹配，绝不按昵称/访客名匹配；
+    2. 强制校验父根评论线程可见，杜绝管理员隐藏/删除根评论后的子回复侧漏；
+    3. 复核所属 Page 的站点根路径、get_public_blocked_page_ids（含祖先回收与限制）与未来成文日期；
+    4. 摘要只取 approved_version.safe_html 纯文本，绝不触碰待审版或 Comment.content_snippet。
+    """
+    if not user_id or site is None or limit <= 0:
+        return []
+    root_page = getattr(site, "root_page", None)
+    site_root_path = getattr(root_page, "path", None) if root_page else None
+    if not site_root_path:
+        return []
+
+    try:
+        from content_lifecycle.public_access import get_public_blocked_page_ids
+        from discovery.models import PublishedSearchDocument
+
+        qs = (
+            Comment.objects.filter(
+                author_id=int(user_id),
+                status="active",
+                is_publicly_visible=True,
+                approved_version_id__isnull=False,
+                page__isnull=False,
+                page__live=True,
+                page__live_revision_id__isnull=False,
+                page__alias_of_id__isnull=True,
+                page__path__startswith=site_root_path,
+            )
+            .filter(
+                Q(parent__isnull=True)
+                | Q(parent__status="active", parent__is_publicly_visible=True)
+            )
+            .select_related("page", "approved_version")
+            .order_by("-created_at", "-id")
+        )
+
+        for other in Site.objects.exclude(id=site.id).select_related("root_page"):
+            other_root = getattr(other, "root_page", None)
+            other_path = getattr(other_root, "path", None) if other_root else None
+            if other_path and other_path.startswith(site_root_path) and len(other_path) > len(site_root_path):
+                qs = qs.exclude(page__path__startswith=other_path)
+
+        candidates = list(qs[: max(limit * 5, 25)])
+        if not candidates:
+            return []
+
+        page_records = list({
+            (c.page_id, c.page.path)
+            for c in candidates
+            if c.page_id and c.page and c.page.path
+        })
+        if not page_records:
+            return []
+
+        blocked_ids = get_public_blocked_page_ids(page_records)
+        site_today = timezone.localdate()
+        future_page_ids = set(
+            PublishedSearchDocument.objects.filter(
+                page_id__in=[pid for pid, _ in page_records],
+                index_generation=1,
+                authored_on__gt=site_today,
+            ).values_list("page_id", flat=True)
+        )
+
+        results: list[dict] = []
+        for c in candidates:
+            if c.page_id in blocked_ids or c.page_id in future_page_ids:
+                continue
+            if c.approved_version is None or c.approved_version.comment_id != c.id:
+                continue
+            target_page = c.page
+            target_site = target_page.get_site() if hasattr(target_page, "get_site") else None
+            if target_site is not None and target_site.id != site.id:
+                continue
+            url = (target_page.get_url(request) if request is not None else target_page.url) or ""
+            if not url:
+                continue
+            excerpt = _safe_approved_comment_excerpt(c.approved_version.safe_html, max_len=120)
+            if not excerpt:
+                continue
+            results.append({
+                "comment_id": c.id,
+                "page_id": c.page_id,
+                "page_title": target_page.title,
+                "url": f"{url}#comment-{c.id}",
+                "excerpt": excerpt,
+                "created_at": c.created_at,
+                "is_reply": bool(c.parent_id),
+            })
+            if len(results) >= limit:
+                break
+        return results
+    except DatabaseError as exc:
+        logger.debug("get_public_comments_for_user degraded gracefully: %s", exc)
+        return []

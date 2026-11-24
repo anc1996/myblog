@@ -1,0 +1,142 @@
+{% if detail.author_card %}
+{% with ac=detail.author_card %}
+<section class="detail-side-card detail-author-card" aria-label="作者名片" x-data="{ tab: 'articles' }">
+    <div class="author-card-head">
+        {% if ac.url %}
+        <a href="{{ ac.url }}" class="author-card-avatar-wrap" aria-label="前往 {{ ac.name }} 的作者专栏">
+        {% else %}
+        <div class="author-card-avatar-wrap">
+        {% endif %}
+            {% if ac.avatar_url %}
+            <img src="{{ ac.avatar_url }}" alt="{{ ac.name }}" class="author-card-avatar" loading="lazy">
+            {% else %}
+            <span class="author-card-avatar-fallback" aria-hidden="true">{{ ac.initials }}</span>
+            {% endif %}
+        {% if ac.url %}</a>{% else %}</div>{% endif %}
+
+        <div class="author-card-identity">
+            <div class="author-card-name-row">
+                {% if ac.url %}
+                <a href="{{ ac.url }}" class="author-card-name">{{ ac.name }}</a>
+                {% else %}
+                <span class="author-card-name">{{ ac.name }}</span>
+                {% endif %}
+                {% if ac.is_verified %}
+                <span class="author-verified-badge" title="{{ ac.verified_label }}">✓ {{ ac.verified_label }}</span>
+                {% endif %}
+            </div>
+            <span class="author-card-role">{{ ac.role_label }}</span>
+        </div>
+    </div>
+
+    {% if ac.bio %}
+    <p class="author-card-bio">{{ ac.bio }}</p>
+    {% endif %}
+
+    <div class="author-heatmap-box" aria-label="{{ ac.heatmap.month_label }}创作热力图">
+        <div class="author-heatmap-header">
+            <span class="author-heatmap-title">📅 {{ ac.heatmap.month_label }}创作</span>
+            <span class="author-heatmap-summary">共 {{ ac.heatmap.month_total }} 篇</span>
+        </div>
+        <div class="author-heatmap-weekdays" aria-hidden="true">
+            <span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span>
+        </div>
+        <div class="author-heatmap-grid">
+            {% for week in ac.heatmap.weeks %}
+                {% for cell in week %}
+                    {% if not cell.in_month %}
+                    <span class="author-heat-cell is-outside" aria-hidden="true"></span>
+                    {% elif cell.is_future %}
+                    <span class="author-heat-cell is-future" title="{{ cell.date }}">{{ cell.day }}</span>
+                    {% else %}
+                    <span
+                        class="author-heat-cell heat-{{ cell.heat_level }}{% if cell.is_today %} is-today{% endif %}"
+                        title="{{ cell.date }}：{{ cell.count }} 篇"
+                    >{{ cell.day }}</span>
+                    {% endif %}
+                {% endfor %}
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="author-card-tabs">
+        <div class="author-tab-bar" role="tablist" aria-label="作者动态切换">
+            <button
+                type="button"
+                role="tab"
+                class="author-tab-btn is-active"
+                :class="{ 'is-active': tab === 'articles' }"
+                :aria-selected="tab === 'articles'"
+                @click="tab = 'articles'"
+            >作者好文</button>
+            {% if ac.show_comments_tab %}
+            <button
+                type="button"
+                role="tab"
+                class="author-tab-btn"
+                :class="{ 'is-active': tab === 'comments' }"
+                :aria-selected="tab === 'comments'"
+                @click="tab = 'comments'"
+            >作者发言</button>
+            {% endif %}
+        </div>
+
+        <div class="author-tab-panel" role="tabpanel" :hidden="tab !== 'articles'">
+            {% if ac.recent_articles %}
+            <ul class="author-mini-list">
+                {% for art in ac.recent_articles %}
+                <li class="author-mini-item">
+                    <a href="{{ art.url }}" class="author-mini-link">
+                        <span class="author-mini-title">{{ art.title }}</span>
+                        <span class="author-mini-meta">{{ art.type_label }} · {{ art.authored_on|date:"Y-m-d" }}</span>
+                    </a>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p class="author-mini-empty">暂无更多公开作品</p>
+            {% endif %}
+        </div>
+
+        {% if ac.show_comments_tab %}
+        <div class="author-tab-panel" role="tabpanel" hidden :hidden="tab !== 'comments'">
+            {% if ac.recent_comments %}
+            <ul class="author-mini-list">
+                {% for cm in ac.recent_comments %}
+                <li class="author-mini-item">
+                    <a href="{{ cm.url }}" class="author-mini-link">
+                        <span class="author-mini-title">{{ cm.excerpt }}</span>
+                        <span class="author-mini-meta">评于《{{ cm.page_title }}》 · {{ cm.created_at|date:"Y-m-d" }}</span>
+                    </a>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p class="author-mini-empty">暂无公开历史发言</p>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+
+    {% if ac.other_authors %}
+    <div class="author-coauthors-row" aria-label="其他合作作者">
+        <span class="author-coauthors-label">合作署名：</span>
+        {% for co in ac.other_authors %}
+            {% if co.url %}
+            <a href="{{ co.url }}" class="author-co-badge" title="{{ co.name }} ({{ co.role_label }})">
+            {% else %}
+            <span class="author-co-badge" title="{{ co.name }} ({{ co.role_label }})">
+            {% endif %}
+                {% if co.avatar_url %}
+                <img src="{{ co.avatar_url }}" alt="{{ co.name }}" class="author-co-avatar" loading="lazy">
+                {% else %}
+                <span class="author-co-avatar-fallback" aria-hidden="true">{{ co.initials }}</span>
+                {% endif %}
+                <span>{{ co.name }}</span>
+            {% if co.url %}</a>{% else %}</span>{% endif %}
+        {% endfor %}
+    </div>
+    {% endif %}
+</section>
+{% endwith %}
+{% endif %}

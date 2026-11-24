@@ -10,11 +10,19 @@ site_settings.models
 """
 
 import logging
+from urllib.parse import urlparse
 from django.core.cache import cache
+from django.core.exceptions import ValidationError
 from django.db import DatabaseError, models, transaction
-from wagtail.contrib.settings.models import BaseGenericSetting, register_setting
+from django.utils import timezone
+from wagtail.contrib.settings.models import (
+    BaseGenericSetting,
+    BaseSiteSetting as WagtailBaseSiteSetting,
+    register_setting,
+)
 from wagtail.fields import StreamField
-from wagtail.admin.panels import FieldPanel
+from wagtail.admin.panels import FieldPanel, MultiFieldPanel
+from wagtail.models import Page
 
 from site_settings.blocks import MenuItemBlock, SocialLinkBlock
 
@@ -243,3 +251,157 @@ class SiteThemeSettings(BaseGenericSetting):
 
         transaction.on_commit(_clear_cache)
         return res
+
+
+@register_setting
+class SiteAnnouncementSettings(WagtailBaseSiteSetting):
+    """
+    逐站点详情页公告配置（直接继承 Wagtail 原生 BaseSiteSetting，按 Site 隔离）：
+    1. 绝不继承会递增 ContentDiscoveryEpoch 的自定义基类；
+    2. 严禁模板通过 {% get_settings %} 读取（空表会隐式 write），必须经 get_active_for_site_readonly() 只读访问；
+    3. 仅支持纯文本标题/正文与校验通过的站内 Page 或 https:// 外链，不接受 HTML。
+    """
+
+    is_enabled = models.BooleanField(default=False, verbose_name="开启站点公告")
+    title = models.CharField(max_length=80, blank=True, verbose_name="公告标题")
+    body = models.TextField(max_length=500, blank=True, verbose_name="公告正文（纯文本）")
+    link_label = models.CharField(max_length=40, blank=True, verbose_name="链接按钮文案")
+    target_page = models.ForeignKey(
+        "wagtailcore.Page",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        verbose_name="站内目标页面",
+    )
+    external_url = models.URLField(blank=True, verbose_name="站外 HTTPS 链接")
+    starts_at = models.DateTimeField(null=True, blank=True, verbose_name="生效开始时间")
+    ends_at = models.DateTimeField(null=True, blank=True, verbose_name="生效结束时间")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="最后更新时间")
+
+    panels = [
+        FieldPanel("is_enabled"),
+        FieldPanel("title"),
+        FieldPanel("body"),
+        MultiFieldPanel(
+            [
+                FieldPanel("link_label"),
+                FieldPanel("target_page"),
+                FieldPanel("external_url"),
+            ],
+            heading="可选跳转链接（站内页面与站外 HTTPS 链接二选一）",
+        ),
+        MultiFieldPanel(
+            [
+                FieldPanel("starts_at"),
+                FieldPanel("ends_at"),
+            ],
+            heading="展示时间窗口（左闭右开 [starts_at, ends_at)）",
+        ),
+    ]
+
+    class Meta:
+        verbose_name = "站点公告设置"
+        verbose_name_plural = "站点公告设置"
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        ext = (self.external_url or "").strip()
+        self.external_url = ext
+
+        if self.starts_at and self.ends_at and self.starts_at >= self.ends_at:
+            errors["ends_at"] = "结束时间必须晚于开始时间。"
+
+        if ext:
+            parsed = urlparse(ext)
+            if parsed.scheme.lower() != "https" or not parsed.netloc:
+                errors["external_url"] = "站外链接仅支持有效的 https:// 地址。"
+
+        if self.target_page_id and ext:
+            errors["external_url"] = "站内目标页面与站外链接请二选一，不要同时填写。"
+
+        if self.is_enabled and not (self.title or "").strip() and not (self.body or "").strip():
+            errors["title"] = "开启站点公告时，标题或正文至少填写一项。"
+
+        if errors:
+            raise ValidationError(errors)
+
+    @classmethod
+    def get_active_for_site_readonly(
+        cls,
+        site,
+        *,
+        request=None,
+        now=None,
+    ) -> dict | None:
+        """
+        只读获取当前站点在当前时刻有效且安全的公告字典；
+        空表、未开启、不在展示时间窗或数据库异常时返回 None，绝不写库。
+        """
+        if site is None:
+            return None
+        site_id = getattr(site, "id", None) or (site if isinstance(site, int) else None)
+        if not site_id:
+            return None
+
+        try:
+            obj = cls.objects.select_related("target_page").filter(site_id=site_id).first()
+        except DatabaseError:
+            return None
+
+        if obj is None or not obj.is_enabled:
+            return None
+
+        check_now = now or timezone.now()
+        if obj.starts_at and check_now < obj.starts_at:
+            return None
+        if obj.ends_at and check_now >= obj.ends_at:
+            return None
+
+        title = (obj.title or "").strip()
+        body = (obj.body or "").strip()
+        if not title and not body:
+            return None
+
+        link_url = ""
+        is_external = False
+        if obj.target_page_id:
+            try:
+                from content_lifecycle.public_access import get_public_blocked_page_ids
+
+                tp = (
+                    Page.objects.filter(
+                        id=obj.target_page_id,
+                        live=True,
+                        live_revision_id__isnull=False,
+                        alias_of_id__isnull=True,
+                    )
+                    .first()
+                )
+                root_page = getattr(site, "root_page", None)
+                root_path = getattr(root_page, "path", "") if root_page else ""
+                if tp is not None and (not root_path or tp.path.startswith(root_path)):
+                    tp_site = tp.get_site() if hasattr(tp, "get_site") else None
+                    same_site = (tp_site is None and not root_path) or (tp_site is not None and tp_site.id == site_id)
+                    if same_site and tp.id not in get_public_blocked_page_ids([(tp.id, tp.path)]):
+                        resolved = (tp.get_url(request) if request is not None else tp.url) or ""
+                        if resolved:
+                            link_url = resolved
+            except DatabaseError:
+                link_url = ""
+        elif (obj.external_url or "").strip():
+            ext = (obj.external_url or "").strip()
+            parsed = urlparse(ext)
+            if parsed.scheme.lower() == "https" and parsed.netloc:
+                link_url = ext
+                is_external = True
+
+        link_label = ((obj.link_label or "").strip() or "查看详情") if link_url else ""
+        return {
+            "title": title,
+            "body": body,
+            "link_label": link_label,
+            "link_url": link_url,
+            "is_external": is_external,
+        }

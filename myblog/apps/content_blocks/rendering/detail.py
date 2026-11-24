@@ -268,19 +268,38 @@ class _SinglePassTocHTMLRewriter(HTMLParser):
         return "".join(self.parts)
 
 
-def _resolve_tag_index_page(request: Any = None):
-    """查找当前站点下已发布且未回收的 TagIndexPage，避免硬编码 /tags/ 路径。"""
+def _resolve_tag_index_page(request: Any = None, page: Any = None):
+    """仅在当前站点下查找已发布、未回收且无访问限制的 TagIndexPage，严禁跨站回退。"""
     try:
+        from content_lifecycle.public_access import get_public_blocked_page_ids
+        from discovery.detail_navigation import resolve_site_readonly
         from taxonomy.models import TagIndexPage
-        qs = TagIndexPage.objects.live().filter(is_recycled=False)
-        if request is not None:
-            from wagtail.models import Site
-            site = Site.find_for_request(request)
-            if site and site.root_page:
-                scoped = qs.descendant_of(site.root_page, inclusive=True).first()
-                if scoped:
-                    return scoped
-        return qs.first()
+
+        site = resolve_site_readonly(request, page)
+        if site is None or not getattr(site, "root_page", None):
+            return None
+
+        qs = (
+            TagIndexPage.objects.live()
+            .filter(
+                is_recycled=False,
+                alias_of_id__isnull=True,
+                live_revision_id__isnull=False,
+            )
+            .descendant_of(site.root_page, inclusive=True)
+        )
+        candidates = list(qs.values_list("id", "path"))
+        if not candidates:
+            return None
+        blocked_ids = get_public_blocked_page_ids(candidates)
+        for candidate in qs:
+            if candidate.id in blocked_ids:
+                continue
+            cand_site = candidate.get_site() if hasattr(candidate, "get_site") else None
+            if cand_site is not None and cand_site.id != site.id:
+                continue
+            return candidate
+        return None
     except Exception:
         return None
 
@@ -291,7 +310,7 @@ def resolve_tag_links(page: Any, request: Any = None) -> list[dict[str, Any]]:
     if not tags:
         return []
 
-    tag_index = _resolve_tag_index_page(request)
+    tag_index = _resolve_tag_index_page(request, page=page)
     base_url = ""
     if tag_index is not None:
         try:
@@ -589,6 +608,38 @@ def build_detail_presentation(page: Any, request: Any = None, *, body_field: str
     )
     authors = _resolve_author_badges(page, request, is_preview=is_preview)
 
+    announcement = None
+    author_card = None
+    nav_data = {"prev_page": None, "next_page": None, "recommendations": []}
+    if not is_preview:
+        try:
+            from discovery.detail_navigation import (
+                get_detail_navigation_and_recommendations,
+                resolve_site_readonly,
+            )
+            from people.sidebar import build_author_sidebar_card
+            from site_settings.models import SiteAnnouncementSettings
+
+            site = resolve_site_readonly(request, page)
+            if site is not None:
+                announcement = SiteAnnouncementSettings.get_active_for_site_readonly(site, request=request)
+            nav_data = get_detail_navigation_and_recommendations(
+                page,
+                request,
+                include_recommendations=(announcement is None),
+                rec_limit=4,
+            )
+            author_card = build_author_sidebar_card(page, request)
+        except Exception:
+            announcement = None
+            author_card = None
+            nav_data = {"prev_page": None, "next_page": None, "recommendations": []}
+
+    prev_page = nav_data["prev_page"]
+    next_page = nav_data["next_page"]
+    recommendations = nav_data["recommendations"] if announcement is None else []
+    has_right_sidebar = bool(author_card or tag_links or announcement or recommendations)
+
     return {
         "rendered_body_html": mark_safe("".join(rendered_blocks)),
         "toc_items": toc_items,
@@ -598,4 +649,11 @@ def build_detail_presentation(page: Any, request: Any = None, *, body_field: str
         "authors": authors,
         "tag_links": tag_links,
         "is_preview": is_preview,
+        "prev_page": prev_page,
+        "next_page": next_page,
+        "has_prev_next": bool(prev_page or next_page),
+        "announcement": announcement,
+        "recommendations": recommendations,
+        "author_card": author_card,
+        "has_right_sidebar": has_right_sidebar,
     }

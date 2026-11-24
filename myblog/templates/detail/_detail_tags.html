@@ -1,6 +1,5 @@
 {% if detail.tag_links %}
-<div class="detail-tags-section" aria-label="内容标签">
-    <span class="small text-muted">标签：</span>
+<div class="detail-tags-list" aria-label="内容标签">
     {% for t in detail.tag_links %}
         {% if t.url %}
             <a href="{{ t.url }}" class="tag-pill">#{{ t.name }}</a>

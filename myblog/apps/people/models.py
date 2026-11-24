@@ -82,6 +82,11 @@ class Person(models.Model):
         verbose_name="关联后台账号",
         help_text="仅由管理员人工核验后手工绑定，用于创作后台自动预填作者署名，禁止自动认领",
     )
+    show_public_comments = models.BooleanField(
+        default=False,
+        verbose_name="允许在作者名片公开聚合历史评论",
+        help_text="仅对已绑定后台账号的非佚名作者生效；开启后将聚合该账号在公开页面下仍公开可见的历史评论（改绑或解绑账号时自动关闭）。",
+    )
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="创建时间")
 
     panels = [
@@ -90,6 +95,7 @@ class Person(models.Model):
         FieldPanel("bio"),
         FieldPanel("email"),
         FieldPanel("linked_user", permission="identity.change_user"),
+        FieldPanel("show_public_comments", permission="identity.change_user"),
     ]
 
     class Meta:
@@ -126,6 +132,10 @@ class Person(models.Model):
                 raise ValidationError({"linked_user": "系统内置「佚名」名片禁止绑定后台账号。"})
             if (self.email or "").strip():
                 raise ValidationError({"email": "系统内置「佚名」名片禁止设置公开邮箱。"})
+            if self.show_public_comments:
+                raise ValidationError({"show_public_comments": "系统内置「佚名」名片禁止开启历史评论聚合。"})
+        elif self.show_public_comments and self.linked_user_id is None:
+            raise ValidationError({"show_public_comments": "未绑定后台账号的作者不可开启历史评论聚合。"})
 
     def save(self, *args, **kwargs):
         if not self.public_id:
@@ -135,6 +145,30 @@ class Person(models.Model):
         self.initial = init_char
         self.initial_group_rank = group_rank
         self.sort_key = sort_key
+
+        using = kwargs.get("using") or self._state.db or "default"
+        if self.is_system_anonymous:
+            self.linked_user = None
+            self.show_public_comments = False
+        elif self.linked_user_id is None:
+            self.show_public_comments = False
+        elif self.pk:
+            prev_linked_id = (
+                type(self)
+                .objects.using(using)
+                .filter(pk=self.pk)
+                .values_list("linked_user_id", flat=True)
+                .first()
+            )
+            if prev_linked_id != self.linked_user_id:
+                self.show_public_comments = False
+
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None and not self.show_public_comments:
+            uf = set(update_fields)
+            if "linked_user" in uf or "linked_user_id" in uf or "is_system_anonymous" in uf:
+                uf.add("show_public_comments")
+                kwargs["update_fields"] = list(uf)
 
         if self.is_system_anonymous:
             self.slug = "anonymous"
@@ -148,7 +182,6 @@ class Person(models.Model):
             return super().save(*args, **kwargs)
 
         base_slug = generate_base_slug(self.name)
-        using = kwargs.get("using") or self._state.db or "default"
         for attempt in range(0, 8):
             candidate = build_unique_slug_with_suffix(base_slug, self.public_id, attempt=attempt)
             self.slug = candidate

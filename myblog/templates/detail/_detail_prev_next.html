@@ -1,0 +1,23 @@
+{% if detail.has_prev_next %}
+<nav class="detail-prev-next" aria-label="相邻文章导航">
+    {% if detail.prev_page %}
+    <a href="{{ detail.prev_page.url }}" class="detail-pn-card detail-pn-prev">
+        <span class="detail-pn-dir">← 上一篇</span>
+        <span class="detail-pn-title">{{ detail.prev_page.title }}</span>
+        <span class="detail-pn-meta">{{ detail.prev_page.type_label }} · {{ detail.prev_page.authored_on|date:"Y-m-d" }}</span>
+    </a>
+    {% else %}
+    <span class="detail-pn-spacer" aria-hidden="true"></span>
+    {% endif %}
+
+    {% if detail.next_page %}
+    <a href="{{ detail.next_page.url }}" class="detail-pn-card detail-pn-next">
+        <span class="detail-pn-dir">下一篇 →</span>
+        <span class="detail-pn-title">{{ detail.next_page.title }}</span>
+        <span class="detail-pn-meta">{{ detail.next_page.type_label }} · {{ detail.next_page.authored_on|date:"Y-m-d" }}</span>
+    </a>
+    {% else %}
+    <span class="detail-pn-spacer" aria-hidden="true"></span>
+    {% endif %}
+</nav>
+{% endif %}

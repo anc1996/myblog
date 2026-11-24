@@ -6,14 +6,14 @@
 
 {% block extra_css %}
 {% include "content_blocks/includes/_block_assets_css.html" %}
-<link rel="stylesheet" type="text/css" href="{% static 'css/detail-layout.css' %}?v=20261124a">
+<link rel="stylesheet" type="text/css" href="{% static 'css/detail-layout.css' %}?v=20261124d">
 <link rel="stylesheet" type="text/css" href="{% static 'analytics/css/article-rating.css' %}?v=20261124a">
 {% block detail_extra_css %}{% endblock %}
 {% endblock %}
 
 {% block content %}
 <div id="page-top" class="detail-top-anchor" tabindex="-1" aria-hidden="true"></div>
-<div class="detail-shell {% if detail.has_toc %}has-toc{% else %}no-toc{% endif %}" data-detail-shell>
+<div class="detail-shell {% if detail.has_toc %}has-toc{% else %}no-toc{% endif %} {% if detail.has_right_sidebar %}has-right{% else %}no-right{% endif %}" data-detail-shell>
     {% if detail.has_toc %}
     <div class="detail-toc-mobile-bar">
         <button
@@ -96,12 +96,14 @@
 
         {% block detail_after_body %}{% endblock %}
 
-        {% include "detail/_detail_tags.html" %}
-
-        <div class="detail-comments-wrap">
-            {% include "comments/partials/_comment_section.html" %}
-        </div>
+        {% include "detail/_detail_prev_next.html" %}
     </article>
+
+    {% include "detail/_detail_right_sidebar.html" %}
+
+    <div class="detail-comments-wrap">
+        {% include "comments/partials/_comment_section.html" %}
+    </div>
 </div>
 {% endblock %}
 

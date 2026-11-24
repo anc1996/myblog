@@ -36,7 +36,7 @@ body {
 }
 
 .site-nav-container {
-  max-width: var(--container-width);
+  max-width: min(1480px, calc(100vw - 40px));
   margin: 0 auto;
   padding: 0 20px;
   height: 64px;
@@ -54,6 +54,8 @@ body {
   font-weight: 700;
   font-size: 1.25rem;
   gap: 8px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .site-logo {
@@ -64,6 +66,7 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
 }
 
 .site-nav .nav-link {
@@ -78,6 +81,8 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .site-nav .nav-link:hover {
@@ -88,8 +93,8 @@ body {
 .site-nav .nav-badge {
   font-size: 0.7rem;
   padding: 2px 6px;
-  background: #ef4444;
-  color: #fff;
+  background: var(--color-danger);
+  color: var(--color-on-danger);
   border-radius: 9999px;
   font-weight: 700;
 }
@@ -103,6 +108,7 @@ body {
   display: inline-flex;
   align-items: center;
   margin: 0;
+  flex-shrink: 0;
 }
 
 .nav-logout-btn {
@@ -111,6 +117,18 @@ body {
   cursor: pointer;
   font: inherit;
   padding: 8px 10px;
+  white-space: nowrap;
+}
+
+@media (min-width: 1025px) and (max-width: 1260px) {
+  .site-nav {
+    gap: 2px;
+  }
+
+  .site-nav .nav-link {
+    padding: 8px 7px;
+    font-size: 0.875rem;
+  }
 }
 
 /* 移动端汉堡菜单控制 (纯 CSS 无依赖) */

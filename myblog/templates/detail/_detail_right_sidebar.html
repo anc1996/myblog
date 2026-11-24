@@ -1,0 +1,47 @@
+{% if detail.has_right_sidebar %}
+<aside class="detail-right-aside" aria-label="页面侧栏信息">
+    {% include "detail/_detail_author_card.html" %}
+
+    {% if detail.tag_links %}
+    <section class="detail-side-card detail-side-tags" aria-label="本文标签">
+        <h2 class="detail-side-heading">🏷️ 本文标签</h2>
+        {% include "detail/_detail_tags.html" %}
+    </section>
+    {% endif %}
+
+    {% if detail.announcement %}
+    <section class="detail-side-card detail-side-announcement" aria-label="站点公告">
+        <h2 class="detail-side-heading">📢 {{ detail.announcement.title|default:"站点公告" }}</h2>
+        {% if detail.announcement.body %}
+        <p class="detail-side-ann-body">{{ detail.announcement.body|linebreaksbr }}</p>
+        {% endif %}
+        {% if detail.announcement.link_url %}
+        <a
+            href="{{ detail.announcement.link_url }}"
+            class="ui-btn ui-btn-sm ui-btn-outline detail-side-ann-link"
+            {% if detail.announcement.is_external %}target="_blank" rel="noopener noreferrer"{% endif %}
+        >{{ detail.announcement.link_label }}</a>
+        {% endif %}
+    </section>
+    {% elif detail.recommendations %}
+    <section class="detail-side-card detail-side-recs" aria-label="同栏与相关推荐">
+        <h2 class="detail-side-heading">🧭 更多推荐</h2>
+        <ul class="detail-rec-list">
+            {% for rec in detail.recommendations %}
+            <li class="detail-rec-item">
+                <a href="{{ rec.url }}" class="detail-rec-link">
+                    <span class="detail-rec-title">{{ rec.title }}</span>
+                    <span class="detail-rec-meta">
+                        <span>{{ rec.type_label }} · {{ rec.authored_on|date:"Y-m-d" }}</span>
+                        {% if rec.source == "tag" %}
+                        <span class="detail-rec-badge">同标签推荐</span>
+                        {% endif %}
+                    </span>
+                </a>
+            </li>
+            {% endfor %}
+        </ul>
+    </section>
+    {% endif %}
+</aside>
+{% endif %}
