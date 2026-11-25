@@ -125,7 +125,7 @@
         {# Global stylesheets: Tokens -> Vendor -> Site CSS -> Page Extra CSS #}
         <link rel="stylesheet" type="text/css" href="{% static 'css/themes/tokens.css' %}?v=20261124b">
         {% include "includes/_ui_assets_css.html" %}
-        <link rel="stylesheet" type="text/css" href="{% static 'css/myblog.css' %}?v=20261124d">
+        <link rel="stylesheet" type="text/css" href="{% static 'css/myblog.css' %}?v=20261124e">
 
         {% block extra_css %}
         {# Override this in templates to add extra stylesheets #}
@@ -237,18 +237,16 @@
                             {{ settings.site_settings.FooterSettings.about_text|default:"聚焦高并发内容系统、PostgreSQL 18、Wagtail 8 与现代分布式架构最佳实践。" }}
                         </p>
                         <div class="footer-social-links">
-                            {% if settings.site_settings.SocialMediaSettings.social_links %}
-                                {% for link in settings.site_settings.SocialMediaSettings.social_links %}
-                                    <a href="{{ link.value.url }}" class="social-link-item" target="_blank" rel="noopener" title="{{ link.value.label }}">
-                                        {{ link.value.label }}
-                                    </a>
-                                {% endfor %}
-                            {% else %}
-                                <a href="https://github.com/anc1996/myblog" class="social-link-item" target="_blank" rel="noopener">GitHub</a>
-                                <a href="/feeds/" class="social-link-item">RSS 订阅</a>
-                                <a href="/feeds/atom/" class="social-link-item">Atom 订阅</a>
-                                <a href="mailto:contact@example.com" class="social-link-item">电子邮箱</a>
-                            {% endif %}
+                            {% get_public_social_links as public_social_links %}
+                            {% for link in public_social_links %}
+                                <a href="{{ link.url }}"
+                                   class="social-link-item social-link-item--{{ link.platform }}"
+                                   {% if link.is_external %}target="_blank" rel="noopener noreferrer"{% endif %}
+                                   title="{{ link.label }}">
+                                    {% include "includes/_social_icon.html" with platform=link.platform %}
+                                    <span class="social-link-label">{{ link.label }}</span>
+                                </a>
+                            {% endfor %}
                         </div>
                     </div>
                     <div class="footer-col footer-col-links">

@@ -4,7 +4,7 @@ from django import template
 from wagtail.models import Page
 
 from content_lifecycle.public_access import get_public_blocked_page_ids
-from site_settings.models import SiteThemeSettings
+from site_settings.models import SiteThemeSettings, SocialMediaSettings
 
 register = template.Library()
 
@@ -13,6 +13,12 @@ register = template.Library()
 def get_theme_settings() -> dict:
     """只读返回全站前台主题配置字典（不走 Wagtail {% get_settings %}，避免公开 GET 隐式写库）。"""
     return SiteThemeSettings.get_readonly_dict()
+
+
+@register.simple_tag
+def get_public_social_links() -> list[dict]:
+    """只读返回带平台标识、安全 URL 与打开方式的页脚社交链接（空表不写库）。"""
+    return SocialMediaSettings.get_public_links_readonly(fallback_to_defaults=True)
 
 
 @register.simple_tag(takes_context=True)

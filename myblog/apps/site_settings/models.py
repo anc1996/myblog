@@ -24,7 +24,13 @@ from wagtail.fields import StreamField
 from wagtail.admin.panels import FieldPanel, MultiFieldPanel
 from wagtail.models import Page
 
-from site_settings.blocks import MenuItemBlock, SocialLinkBlock
+from site_settings.blocks import (
+    ALLOWED_SOCIAL_PLATFORM_KEYS,
+    SOCIAL_PLATFORM_LABELS,
+    MenuItemBlock,
+    SocialLinkBlock,
+    sanitize_social_url,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +117,73 @@ class SocialMediaSettings(BaseSiteSetting):
     class Meta(BaseSiteSetting.Meta):
         verbose_name = "社交媒体设置"
         verbose_name_plural = "社交媒体设置"
+
+    @classmethod
+    def default_public_links(cls) -> list[dict]:
+        return [
+            {
+                "platform": "github",
+                "label": "GitHub",
+                "url": "https://github.com/anc1996/myblog",
+                "is_external": True,
+            },
+            {
+                "platform": "rss",
+                "label": "RSS 订阅",
+                "url": "/feeds/",
+                "is_external": False,
+            },
+            {
+                "platform": "rss",
+                "label": "Atom 订阅",
+                "url": "/feeds/atom/",
+                "is_external": False,
+            },
+            {
+                "platform": "email",
+                "label": "电子邮箱",
+                "url": "mailto:contact@example.com",
+                "is_external": False,
+            },
+        ]
+
+    @classmethod
+    def get_public_links_readonly(
+        cls,
+        social_obj=None,
+        *,
+        fallback_to_defaults: bool = True,
+    ) -> list[dict]:
+        """只读解析并过滤社交链接协议，空表绝不隐式写库。"""
+        obj = social_obj
+        if obj is None:
+            try:
+                obj = cls.objects.filter(singleton_key=1).first()
+            except DatabaseError:
+                obj = None
+
+        items: list[dict] = []
+        if obj is not None and getattr(obj, "social_links", None):
+            for block in obj.social_links:
+                val = getattr(block, "value", None) or {}
+                raw_platform = str(val.get("platform") or "custom").strip().lower()
+                platform = raw_platform if raw_platform in ALLOWED_SOCIAL_PLATFORM_KEYS else "custom"
+                safe_url, is_external = sanitize_social_url(val.get("url", ""))
+                if not safe_url:
+                    continue
+                label = str(val.get("label") or "").strip() or SOCIAL_PLATFORM_LABELS.get(platform, "链接")
+                items.append(
+                    {
+                        "platform": platform,
+                        "label": label,
+                        "url": safe_url,
+                        "is_external": is_external,
+                    }
+                )
+
+        if not items and fallback_to_defaults:
+            return cls.default_public_links()
+        return items
 
 
 @register_setting

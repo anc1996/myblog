@@ -18,7 +18,7 @@ django.setup()
 import json
 import unittest
 import uuid
-from django.test import RequestFactory
+from django.test import RequestFactory, TestCase
 from wagtail.models import Page, Site
 
 from home.models import HomePage
@@ -170,3 +170,74 @@ class SiteSettingsTestCase(unittest.TestCase):
         cond_resp_2 = site_settings_api(cond_req)
         self.assertEqual(cond_resp_2.status_code, 200)
         self.assertNotEqual(cond_resp_2["ETag"], etag)
+
+
+class SocialFooterIconsAndSecurityTests(TestCase):
+    def setUp(self):
+        self.home = HomePage.objects.first()
+        if not self.home:
+            root = Page.get_first_root_node() or Page.add_root(title="Root")
+            self.home = HomePage(title="Home", slug=f"home-{uuid.uuid4().hex[:6]}")
+            root.add_child(instance=self.home)
+            self.home.save_revision().publish()
+        if not Site.objects.filter(is_default_site=True).exists():
+            Site.objects.create(hostname="localhost", port=80, root_page=self.home, is_default_site=True)
+
+    def test_social_link_block_rejects_unsafe_protocols_and_allows_safe_urls(self):
+        """SocialLinkBlock.clean 必须拦截 javascript:/data:/双斜杠协议，放行 https/http/mailto/相对路径"""
+        from wagtail.blocks.struct_block import StructBlockValidationError
+        from site_settings.blocks import SocialLinkBlock
+
+        blk = SocialLinkBlock()
+        for bad in ("javascript:alert(1)", "data:text/html,<script>", "//evil.example/x", "   "):
+            with self.assertRaises(StructBlockValidationError):
+                blk.clean({"platform": "custom", "label": "Bad", "url": bad})
+
+        for good in ("https://github.com/anc1996", "mailto:dev@example.com", "/feeds/"):
+            cleaned = blk.clean({"platform": "github", "label": "OK", "url": good})
+            self.assertEqual(cleaned["url"], good)
+
+    def test_empty_social_settings_renders_default_icons_without_db_write(self):
+        """空表读取 get_public_social_links 与渲染首页页脚时绝不隐式写库，且默认项均带 SVG 图标"""
+        SocialMediaSettings.objects.all().delete()
+        self.assertEqual(SocialMediaSettings.objects.count(), 0)
+
+        links = SocialMediaSettings.get_public_links_readonly(fallback_to_defaults=True)
+        self.assertEqual(SocialMediaSettings.objects.count(), 0)
+        self.assertEqual([x["platform"] for x in links], ["github", "rss", "rss", "email"])
+
+        resp = self.client.get("/")
+        self.assertEqual(resp.status_code, 200)
+        html = resp.content.decode("utf-8")
+        self.assertIn("social-link-item--github", html)
+        self.assertIn("social-link-item--rss", html)
+        self.assertIn("social-link-item--email", html)
+        self.assertIn('class="social-link-icon"', html)
+        self.assertEqual(SocialMediaSettings.objects.count(), 0)
+
+    def test_all_eight_platforms_render_icons_and_filter_unsafe_db_values(self):
+        """全部 8 种社交平台在页脚均输出对应徽章类名与 SVG 图标，且脏数据中的危险协议在读侧被过滤"""
+        setting, _ = SocialMediaSettings.objects.get_or_create(singleton_key=1)
+        setting.social_links = [
+            ("social_link", {"platform": "github", "label": "GitHub", "url": "https://github.com/anc1996"}),
+            ("social_link", {"platform": "twitter", "label": "X", "url": "https://x.com/anc1996"}),
+            ("social_link", {"platform": "bilibili", "label": "B站", "url": "https://space.bilibili.com/1"}),
+            ("social_link", {"platform": "zhihu", "label": "知乎", "url": "https://www.zhihu.com/people/demo"}),
+            ("social_link", {"platform": "wechat", "label": "微信", "url": "https://mp.weixin.qq.com/s/demo"}),
+            ("social_link", {"platform": "email", "label": "邮箱", "url": "mailto:dev@example.com"}),
+            ("social_link", {"platform": "rss", "label": "RSS", "url": "/feeds/"}),
+            ("social_link", {"platform": "custom", "label": "主页", "url": "https://example.com"}),
+            ("social_link", {"platform": "custom", "label": "XSS", "url": "javascript:alert(1)"}),
+        ]
+        setting.save()
+
+        resp = self.client.get("/")
+        self.assertEqual(resp.status_code, 200)
+        html = resp.content.decode("utf-8")
+        for plat in ("github", "twitter", "bilibili", "zhihu", "wechat", "email", "rss", "custom"):
+            self.assertIn(f"social-link-item--{plat}", html)
+        self.assertNotIn("javascript:alert(1)", html)
+        self.assertNotIn('href="mailto:dev@example.com"\n                               class="social-link-item social-link-item--email"\n                               target="_blank"', html)
+        # mailto 与站内 /feeds/ 不得带 target="_blank"
+        self.assertIn('<a href="/feeds/"', html)
+        self.assertIn('<a href="mailto:dev@example.com"', html)

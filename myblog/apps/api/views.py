@@ -623,15 +623,17 @@ def site_settings_api(request):
         })
 
     # 2. 解析社交媒体链接
-    social_links = []
-    if social_obj and social_obj.social_links:
-        for block in social_obj.social_links:
-            val = block.value
-            social_links.append({
-                "platform": val.get("platform", "custom"),
-                "label": val.get("label", ""),
-                "url": val.get("url", ""),
-            })
+    social_links = [
+        {
+            "platform": item["platform"],
+            "label": item["label"],
+            "url": item["url"],
+        }
+        for item in SocialMediaSettings.get_public_links_readonly(
+            social_obj,
+            fallback_to_defaults=False,
+        )
+    ]
 
     # 3. 解析页脚设置
     footer_data = {
