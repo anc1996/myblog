@@ -22,5 +22,5 @@ description = "架构方案反例审查、Wagtail生命周期状态机与深度�
 config_file = "agents/argon.toml"
 
 [agents.runner]
-description = "批量自动化测试套件执行、日志探针与高频数据验证（gemini-3.8-flash-tiered）"
+description = "批量自动化测试套件执行、日志探针与高频数据验证（gemini-4-hydrogen）"
 config_file = "agents/runner.toml"
