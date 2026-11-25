@@ -1,34 +1,117 @@
 {% extends "wagtailadmin/generic/inspect.html" %}
 {% load i18n %}
 
+{% block extra_css %}
+{{ block.super }}
+{% include "content_blocks/includes/_block_assets_css.html" %}
+<style>
+.comment-inspect-card {
+    padding: 12px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--w-color-border-furniture, #d9e1ea);
+    background: var(--w-color-surface-field, #f8fafc);
+    color: var(--w-color-text-context, #1e293b);
+    max-width: 100%;
+    overflow-x: auto;
+}
+.comment-inspect-card--pending {
+    border-color: var(--w-color-warning-100, #f59e0b);
+}
+.comment-inspect-meta {
+    font-size: 12px;
+    margin-bottom: 8px;
+    opacity: 0.85;
+}
+.comment-inspect-card .comment-body-html {
+    font-size: 14px;
+    line-height: 1.6;
+    word-break: break-word;
+}
+.comment-inspect-card .comment-body-html table {
+    border-collapse: collapse;
+    margin: 8px 0;
+    max-width: 100%;
+    display: block;
+    overflow-x: auto;
+}
+.comment-inspect-card .comment-body-html th,
+.comment-inspect-card .comment-body-html td {
+    border: 1px solid var(--w-color-border-furniture, #cbd5e1);
+    padding: 6px 10px;
+}
+.comment-inspect-raw-details {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--w-color-border-furniture, #cbd5e1);
+}
+.comment-inspect-raw-details summary {
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+}
+.comment-inspect-raw-pre {
+    margin: 8px 0 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 13px;
+}
+.comment-inspect-risk {
+    margin: 8px 0 0;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--w-color-critical-200, #b45309);
+}
+.comment-inspect-actions-box {
+    margin-top: 24px;
+    padding: 16px;
+    background: var(--w-color-surface-field, #f8fafc);
+    border: 1px solid var(--w-color-border-furniture, #e2e8f0);
+    border-radius: 8px;
+}
+.comment-inspect-actions-title {
+    margin-top: 0;
+    font-size: 16px;
+}
+.comment-inspect-actions-row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+.comment-inspect-inline-form {
+    display: inline-block;
+}
+</style>
+{% endblock %}
+
 {% block main_content %}
     {{ block.super }}
 
-    <div style="margin-top: 24px; padding: 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
-        <h2 style="margin-top: 0; font-size: 16px; color: #1e293b;">审核与治理操作</h2>
-        <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+    <div class="comment-inspect-actions-box">
+        <h2 class="comment-inspect-actions-title">审核与治理操作</h2>
+        <div class="comment-inspect-actions-row">
             {% if can_moderate %}
                 {% if object.pending_version_id %}
-                    <form method="POST" action="{% url 'comments:approve' object.id %}" style="display: inline-block;">
+                    <form method="POST" action="{% url 'comments:approve' object.id %}" class="comment-inspect-inline-form">
                         {% csrf_token %}
                         <input type="hidden" name="expected_version_id" value="{{ object.pending_version_id }}">
                         <input type="hidden" name="next" value="{{ request.get_full_path }}">
-                        <button type="submit" class="button" style="background: #16a34a; color: #fff;">批准待审版本上线</button>
+                        <button type="submit" class="button button-primary">批准待审版本上线</button>
                     </form>
-                    <form method="POST" action="{% url 'comments:reject' object.id %}" style="display: inline-block;">
+                    <form method="POST" action="{% url 'comments:reject' object.id %}" class="comment-inspect-inline-form">
                         {% csrf_token %}
                         <input type="hidden" name="expected_version_id" value="{{ object.pending_version_id }}">
                         <input type="hidden" name="next" value="{{ request.get_full_path }}">
-                        <button type="submit" class="button" style="background: #ea580c; color: #fff;">驳回待审修改</button>
+                        <button type="submit" class="button serious">驳回待审修改</button>
                     </form>
                 {% endif %}
                 {% if object.status == "active" %}
-                    <form method="POST" action="{% url 'comments:hide' object.id %}" style="display: inline-block;">
+                    <form method="POST" action="{% url 'comments:hide' object.id %}" class="comment-inspect-inline-form">
                         {% csrf_token %}
                         <input type="hidden" name="next" value="{{ request.get_full_path }}">
                         <button type="submit" class="button button-secondary">下架隐藏</button>
                     </form>
-                    <form method="POST" action="{% url 'comments:pin' object.id %}" style="display: inline-block;">
+                    <form method="POST" action="{% url 'comments:pin' object.id %}" class="comment-inspect-inline-form">
                         {% csrf_token %}
                         <input type="hidden" name="next" value="{{ request.get_full_path }}">
                         <button type="submit" class="button button-secondary">
@@ -42,4 +125,18 @@
             <a href="{% url 'comments:index' %}" class="button button-secondary">返回评论列表</a>
         </div>
     </div>
+{% endblock %}
+
+{% block extra_js %}
+{{ block.super }}
+{% include "content_blocks/includes/_block_assets_js.html" %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    document.querySelectorAll(".comment-inspect-card .comment-body-html").forEach(function (el) {
+        if (typeof window.enhanceCodeBlocks === "function") window.enhanceCodeBlocks(el);
+        if (typeof window.renderContentMath === "function") window.renderContentMath(el);
+        if (typeof window.initMermaidBlocks === "function") window.initMermaidBlocks(el);
+    });
+});
+</script>
 {% endblock %}

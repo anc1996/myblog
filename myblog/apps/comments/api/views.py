@@ -16,6 +16,7 @@ import json
 from django.db.models import Q
 from django.http import JsonResponse
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.urls import reverse
 from django.views.decorators.http import require_http_methods
 from django.views.decorators.cache import never_cache
 
@@ -28,12 +29,13 @@ from comments.models import (
     CommunitySettings,
     PageCommentSettings,
 )
-from comments.access import get_accessible_comment_page
+from comments.access import get_accessible_comment_page, get_comment_user_tier
 from comments.rate_limit import (
     check_comment_rate_limit,
     get_client_ip,
     is_member_comment_captcha_required,
 )
+from comments.sanitizer import get_tier_sanitizer_limits, sanitize_comment_for_tier
 from comments.services import (
     CommentConflictError,
     CommentQueueBudgetExceeded,
@@ -55,6 +57,7 @@ def _cors_json_response(data: dict, status: int = 200, *, no_store: bool = False
     if no_store:
         resp["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
         resp["Pragma"] = "no-cache"
+        resp["Vary"] = "Cookie"
     return resp
 
 
@@ -218,6 +221,8 @@ def list_comments_api(request, page_id: int):
             items.append(item_data)
 
     total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 1
+    user_tier = get_comment_user_tier(request.user, community_settings=community)
+    max_chars, max_external_links, _ = get_tier_sanitizer_limits(user_tier)
     resp = _cors_json_response({
         "status": "success",
         "total_count": total_count,
@@ -233,11 +238,13 @@ def list_comments_api(request, page_id: int):
             "requires_captcha": requires_captcha,
             "captcha_scope": captcha_scope,
             "close_reason": close_reason,
+            "max_chars": max_chars,
+            "max_external_links": max_external_links,
+            "allow_rich_embeds": bool(is_authed),
+            "preview_url": reverse("api_v1:preview_comment", args=[page.id]),
         },
         "items": items,
-    })
-    if is_restricted:
-        resp["Cache-Control"] = "private, no-cache, no-store, must-revalidate"
+    }, no_store=True)
     return resp
 
 
@@ -273,6 +280,9 @@ def list_replies_api(request, root_id: int):
         "author__member_profile",
         "replied_to_user",
         "replied_to_user__member_profile",
+        "reply_to_comment",
+        "reply_to_comment__author",
+        "reply_to_comment__author__member_profile",
     ).order_by("created_at")
 
     ver_ids = set()
@@ -297,17 +307,22 @@ def list_replies_api(request, root_id: int):
     items = []
     for r in replies:
         replied_to_data = None
+        replied_to_display_name = ""
         if r.replied_to_user_id and r.replied_to_user is not None:
             replied_profile = getattr(r.replied_to_user, "member_profile", None)
+            display_val = (
+                replied_profile.display_name
+                if replied_profile
+                else r.replied_to_user.username
+            )
             replied_to_data = {
                 "id": r.replied_to_user_id,
                 "username": r.replied_to_user.username,
-                "display_name": (
-                    replied_profile.display_name
-                    if replied_profile
-                    else r.replied_to_user.username
-                ),
+                "display_name": display_val,
             }
+            replied_to_display_name = display_val
+        elif r.reply_to_comment_id and r.reply_to_comment is not None:
+            replied_to_display_name = r.reply_to_comment.get_author_presentation().get("display_name", "")
 
         is_owner = bool(is_authed and r.author_id == request.user.id)
         is_editable = r.is_editable if is_owner else False
@@ -317,6 +332,7 @@ def list_replies_api(request, root_id: int):
             "root_id": root.id,
             "author": r.get_author_presentation(),
             "replied_to_user": replied_to_data,
+            "replied_to_display_name": replied_to_display_name,
             "safe_html": approved_ver.safe_html if approved_ver else "（内容已归档）",
             "like_count": r.like_count,
             "dislike_count": r.dislike_count,
@@ -340,10 +356,84 @@ def list_replies_api(request, root_id: int):
         "root_id": root_id,
         "reply_count": len(items),
         "items": items,
-    })
-    if is_restricted:
-        resp["Cache-Control"] = "private, no-cache, no-store, must-revalidate"
+    }, no_store=True)
     return resp
+
+
+@never_cache
+@require_http_methods(["POST", "OPTIONS"])
+def preview_comment_api(request, page_id: int):
+    """
+    只读评论 Markdown 安全预览接口：
+    走与发评/编辑 100% 一致的 sanitizer 管线与预算校验，不写库、不扣日配额、不核销验证码。
+    """
+    if request.method == "OPTIONS":
+        return _cors_json_response({}, no_store=True)
+
+    try:
+        page, _ = get_accessible_comment_page(request, page_id, for_write=False)
+    except PermissionDenied as exc:
+        return _cors_json_response({"status": "error", "code": 403, "message": str(exc)}, status=403, no_store=True)
+
+    community = CommunitySettings.get_solo()
+    if community.comment_mode == "closed":
+        return _cors_json_response(
+            {"status": "error", "code": "comments_closed", "message": "全站评论功能当前已暂停。"},
+            status=403,
+            no_store=True,
+        )
+    settings_obj = PageCommentSettings.objects.filter(page=page).first()
+    if settings_obj and not settings_obj.allow_comments:
+        return _cors_json_response(
+            {"status": "error", "code": "page_comments_closed", "message": "该页面已关闭评论互动。"},
+            status=403,
+            no_store=True,
+        )
+
+    is_authed = bool(request.user.is_authenticated)
+    if not is_authed:
+        if community.comment_mode != "controlled_guests" or not (settings_obj and settings_obj.allow_guest_comments):
+            return _cors_json_response(
+                {"status": "error", "code": "login_required", "message": "请先登录后再预览评论效果。"},
+                status=403,
+                no_store=True,
+            )
+
+    raw_content = request.POST.get("content")
+    if raw_content is None and request.body:
+        try:
+            body_data = json.loads(request.body.decode("utf-8"))
+            if isinstance(body_data, dict):
+                raw_content = body_data.get("content")
+        except Exception:
+            raw_content = None
+    raw_text = str(raw_content or "")
+    if not raw_text.strip():
+        return _cors_json_response(
+            {"status": "success", "safe_html": "", "is_empty": True, "warnings": []},
+            no_store=True,
+        )
+
+    tier = get_comment_user_tier(request.user, community_settings=community)
+    try:
+        safe_html, external_links, risk_reasons = sanitize_comment_for_tier(raw_text, tier=tier)
+    except ValidationError as exc:
+        return _cors_json_response(
+            {"status": "error", "code": "validation_error", "message": _format_exc_message(exc)},
+            status=400,
+            no_store=True,
+        )
+
+    return _cors_json_response(
+        {
+            "status": "success",
+            "safe_html": safe_html,
+            "is_empty": False,
+            "external_links": external_links,
+            "warnings": risk_reasons,
+        },
+        no_store=True,
+    )
 
 
 @never_cache

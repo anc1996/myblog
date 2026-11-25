@@ -1,7 +1,7 @@
 {% load static comment_tags %}
 {% get_page_comment_policy page as comment_policy %}
 {% if comment_policy.supported %}
-<link rel="stylesheet" type="text/css" href="{% static 'comments/css/comments_widget.css' %}?v=20261124a">
+<link rel="stylesheet" type="text/css" href="{% static 'comments/css/comments_widget.css' %}?v=20261125c">
 <section class="site-comments-widget" id="comments-section" aria-label="读者评论区"
          data-page-id="{{ page.id|default:'' }}"
          data-allow-comments="{{ comment_policy.allow_comments|yesno:'true,false' }}"
@@ -10,9 +10,13 @@
          data-requires-captcha="{{ comment_policy.captcha_required|yesno:'true,false' }}"
          data-captcha-scope="{{ comment_policy.captcha_scope }}"
          data-is-preview="{{ comment_policy.is_preview|yesno:'true,false' }}"
+         data-max-chars="{{ comment_policy.max_chars }}"
+         data-max-external-links="{{ comment_policy.max_external_links }}"
+         data-allow-rich-embeds="{{ comment_policy.allow_rich_embeds|yesno:'true,false' }}"
          {% if comment_policy.has_id %}
          data-list-url="{% url 'api_v1:list_comments' page.id %}"
          data-post-url="{% url 'api_v1:post_comment' page.id %}"
+         data-preview-url="{% url 'api_v1:preview_comment' page.id %}"
          data-replies-url-tpl="{% url 'api_v1:list_replies' 0 %}"
          data-edit-url-tpl="{% url 'api_v1:edit_comment' 0 %}"
          data-react-url-tpl="{% url 'api_v1:react_comment' 0 %}"
@@ -62,7 +66,7 @@
 
           <div class="comment-form-identity">
             {% if request.user.is_authenticated %}
-              <span class="comment-user-label">当前登录身份：<strong class="comment-user-name">{{ request.user.username }}</strong></span>
+              <span class="comment-user-label">当前登录身份：<strong class="comment-user-name">{{ request.user.display_name }}</strong></span>
             {% else %}
               <div class="comment-guest-banner">
                 当前为受控访客留言模式（禁止外链，最长 500 字，提交后需经管理员审核方可公开）。
@@ -72,8 +76,8 @@
             {% endif %}
           </div>
 
-          <div class="comment-form-body">
-            <textarea name="content" class="comment-textarea" rows="3" placeholder="发表您的独到见解，文明发言、理性探讨..." required maxlength="{% if request.user.is_authenticated %}2000{% else %}500{% endif %}"></textarea>
+          <div class="comment-form-body" data-comment-editor-mount>
+            <textarea name="content" class="comment-textarea" rows="4" placeholder="支持 Markdown 排版、Emoji 表情与代码高亮；登录后还可插入 LaTeX 公式与 Mermaid 图表..." required maxlength="{{ comment_policy.max_chars }}"></textarea>
           </div>
 
           <div id="comment-captcha-wrapper" class="comment-captcha-wrapper" {% if not comment_policy.captcha_required %}hidden{% endif %}>
@@ -85,11 +89,11 @@
           </div>
 
           <div class="comment-form-footer">
-            <small class="comment-form-hint">
+            <small class="comment-form-hint" id="comment-form-hint">
               {% if request.user.is_authenticated %}
-                支持纯文本及基础 Markdown 排版，评论在通过审核后公开展示。
+                支持 Markdown、Emoji、代码高亮、表格、LaTeX 公式与 Mermaid 图表（{{ comment_policy.max_chars }} 字内，最多 {{ comment_policy.max_external_links }} 个外链）。
               {% else %}
-                受控访客留言不支持外链，须输入图片验证码并经审核后显示。
+                受控访客留言支持基础 Markdown、Emoji 与代码块（{{ comment_policy.max_chars }} 字内、禁外链），须输入验证码并经审核后显示。
               {% endif %}
             </small>
             <button type="submit" class="comment-submit-btn" id="comment-submit-btn">发表评论</button>
@@ -123,6 +127,6 @@
   {% endif %}
 </section>
 {% if not comment_policy.is_preview and comment_policy.has_id %}
-<script src="{% static 'comments/js/comments_widget.js' %}" defer></script>
+<script src="{% static 'comments/js/comments_widget.js' %}?v=20261125a" defer></script>
 {% endif %}
 {% endif %}

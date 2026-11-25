@@ -54,7 +54,7 @@
   - **首页综合门户**：Hero 标语导引 + Splide 精选轮播 + 文章流 + 专栏推荐 + 开源项目 + 热门标签云；
   - **有界计数混合分页与部分复合索引**：`discovery.pagination` 支持浅页直跳窗口（`1…4 5 [6] 7 8…100`，超出返回 HTTP 422 引导）、双向 Keyset 游标（`v2:` 上下翻页）、`seek_date` / `seek_direction=oldest` 日期定位及 `LIMIT 5001` 有界计数探测（精确 / 汇总 / 下限明标）；`PublishedSearchDocument` 挂载条件部分 B-tree 索引；
   - **全站标签大厅**：RESTful 路由 `/tags/` 与 `/tags/<slug>/`，A-Z 首字母分组，跨类型 Tab 分栏；
-  - **读者评论互动组件**：AJAX 免刷新提交、两层回复、CAS 审核提示、nh3 防 XSS 净化；
+  - **读者评论互动组件与 Typora 级 Markdown 引擎**：正文 `CustomMarkdownBlock` 与评论系统共享基于 `markdown-it-py 3.0.0` 的 `markdown_engine.py`（全面兼容 2 空格嵌套列表、引用内嵌套列表、混合有序/无序与中文标点加粗）；评论主评/回复/5 分钟内联编辑共用 Markdown 工具栏、Emoji 面板与只读实时分栏预览接口（`/api/v1/pages/<id>/comments/preview/`），支持点赞/点踩（本人禁用防误报）、`MemberProfile` 昵称头像、会员平等（3000 字 / 5 外链）与受限 `rowspan`/`colspan` 复合表格（禁图防 XSS），后台 `/admin/comments/inspect/<id>/` 同步富格式预览；
   - **月历归档与预聚合汇总表**：`/timeline/` 与 `/api/v1/archives/calendar/` 按 `authored_on` 提供按月日历网格与 12 月快速切换；只读 `ArchiveDailyCount`（单月最多 31 行），通过 `ArchiveContribution` 事务 +/-1 增量维护、既有 `ArchiveSyncOutbox`（早期既有实现，现行 `AGENTS.md` 规范不再为新需求新增 Outbox 表）与 `reconcile_archive_counts` 管理命令保障计数一致，点击日/月下钻走 SARGable 区间与混合分页。
 - **目录架构**：全站 **19 个业务子应用**物理收敛于 `myblog/myblog/apps/*`（与 `settings/`、`static/`、`templates/` 同级），通过 `myblog.bootstrap` 注入 `sys.path[0]`，保证数据库表名与 `ContentType` 100% 零漂移。
 - **基础设施拓扑**：PostgreSQL 18.6 + MongoDB 9.0.4 + RustFS 1.0.4 (S3) + Redis 8.10.3，端口统一发布至 `0.0.0.0`。

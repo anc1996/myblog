@@ -76,9 +76,12 @@ def format_current_safe_html(obj: Comment):
         ver = CommentVersion.objects.filter(id=obj.approved_version_id).first()
         if ver:
             return mark_safe(
-                f"<div style='background:#f8fafc;padding:12px;border:1px solid #e2e8f0;border-radius:6px;'>{ver.safe_html}</div>"
+                f"<div class='comment-inspect-card comment-inspect-card--approved'>"
+                f"<div class='comment-inspect-meta'>当前已公开生效版本 V{ver.version_number}</div>"
+                f"<div class='comment-body-html' data-code-highlight>{ver.safe_html}</div>"
+                f"</div>"
             )
-    return "（暂无已生效公开版本）"
+    return "（当前尚无已生效公开版本）"
 
 
 def format_pending_raw_content(obj: Comment):
@@ -90,11 +93,15 @@ def format_pending_raw_content(obj: Comment):
             risk_html = ""
             if ver.risk_reasons:
                 reasons_text = html.escape(", ".join(str(r) for r in ver.risk_reasons), quote=True)
-                risk_html = f"<p style='margin:6px 0 0;color:#b45309;font-size:12px;'>风控触发标记：{reasons_text}</p>"
+                risk_html = f"<p class='comment-inspect-risk'>风控触发标记：{reasons_text}</p>"
             return mark_safe(
-                f"<div style='background:#fffbeb;padding:12px;border:1px solid #fde68a;border-radius:6px;color:#92400e;'>"
-                f"<p><strong>待审版本 V{ver.version_number}：</strong></p>"
-                f"<pre style='white-space:pre-wrap;word-break:break-word;'>{escaped_raw}</pre>"
+                f"<div class='comment-inspect-card comment-inspect-card--pending'>"
+                f"<div class='comment-inspect-meta'><strong>待审版本 V{ver.version_number} 渲染预览</strong>（批准后前台将展示此安全效果）</div>"
+                f"<div class='comment-body-html' data-code-highlight>{ver.safe_html}</div>"
+                f"<details class='comment-inspect-raw-details' open>"
+                f"<summary>待审版本 V{ver.version_number} 原始文本（已严格转义防 XSS）</summary>"
+                f"<pre class='comment-inspect-raw-pre'>{escaped_raw}</pre>"
+                f"</details>"
                 f"{risk_html}</div>"
             )
     return "（无待审修改）"

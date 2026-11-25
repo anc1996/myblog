@@ -12,10 +12,8 @@ comments.access
 """
 
 import logging
-from datetime import timedelta
 from django.db import connection
 from django.core.exceptions import PermissionDenied
-from django.utils import timezone
 from wagtail.models import Page, PageViewRestriction, Site
 from content_lifecycle.models import RecycleEntry
 
@@ -27,22 +25,12 @@ def get_comment_user_tier(user, community_settings=None) -> str:
     解析评论发起人的分级身份档位：
     - 'guest': 未登录访客
     - 'superuser': 超级管理员
-    - 'new_member': 注册时间短于 new_member_days_threshold（默认 7 天）的会员
-    - 'trusted_member': 超过观察期的普通可信会员
+    - 'trusted_member': 所有已登录普通注册会员（人人平等，不再按注册天数二次分档）
     """
     if not user or not getattr(user, "is_authenticated", False):
         return "guest"
     if getattr(user, "is_superuser", False):
         return "superuser"
-    if community_settings is None:
-        from comments.models import CommunitySettings
-        community_settings = CommunitySettings.get_solo()
-    days_threshold = int(getattr(community_settings, "new_member_days_threshold", 7) or 7)
-    joined_at = getattr(user, "date_joined", None)
-    if joined_at is None:
-        return "new_member"
-    if timezone.now() - joined_at < timedelta(days=days_threshold):
-        return "new_member"
     return "trusted_member"
 
 

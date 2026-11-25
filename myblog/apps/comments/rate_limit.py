@@ -118,18 +118,7 @@ def _resolve_rate_limits(tier: str, action: str) -> tuple[int, int, int]:
             return 0, 0, 15
         return 1, 0, 3
 
-    if tier == "new_member":
-        if action == "post":
-            return 0, 2, 20
-        if action == "post_attempt":
-            return 0, 10, 30
-        if action == "edit":
-            return 0, 5, 20
-        if action == "delete":
-            return 0, 10, 30
-        return 0, 15, 40
-
-    # trusted_member / superuser
+    # 注册会员人人平等（与 superuser 共用同一常规限流窗口，仅游客严格限流）
     if action == "post":
         return 0, 5, 20
     if action == "post_attempt":
@@ -167,7 +156,7 @@ def check_comment_rate_limit(
     if (
         action == "post"
         and not has_captcha
-        and tier in ("new_member", "trusted_member")
+        and tier == "trusted_member"
     ):
         if has_external_or_http_links(raw_content):
             return False, 0, "captcha_required"

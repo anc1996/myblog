@@ -5,7 +5,9 @@ comments.templatetags.comment_tags
 
 from django import template
 from comments.models import CommunitySettings, PageCommentSettings
+from comments.access import get_comment_user_tier
 from comments.rate_limit import is_member_comment_captcha_required
+from comments.sanitizer import get_tier_sanitizer_limits
 from identity.challenges import ChallengeServiceUnavailable
 
 register = template.Library()
@@ -31,6 +33,9 @@ def get_page_comment_policy(context, page):
             "captcha_required": False,
             "captcha_scope": "",
             "close_reason": "",
+            "max_chars": 500,
+            "max_external_links": 0,
+            "allow_rich_embeds": False,
         }
 
     supports = getattr(page, "supports_comments", None)
@@ -54,6 +59,9 @@ def get_page_comment_policy(context, page):
             "captcha_required": False,
             "captcha_scope": "",
             "close_reason": "",
+            "max_chars": 500,
+            "max_external_links": 0,
+            "allow_rich_embeds": False,
         }
 
     request = context.get("request")
@@ -105,6 +113,10 @@ def get_page_comment_policy(context, page):
             captcha_scope = "guest_comment"
             captcha_required = True
 
+    tier = get_comment_user_tier(user, community_settings=community)
+    max_chars, max_external_links, _ = get_tier_sanitizer_limits(tier)
+    allow_rich_embeds = bool(is_authenticated)
+
     return {
         "supported": True,
         "has_id": bool(page_id),
@@ -118,4 +130,7 @@ def get_page_comment_policy(context, page):
         "captcha_required": captcha_required,
         "captcha_scope": captcha_scope,
         "close_reason": close_reason,
+        "max_chars": max_chars,
+        "max_external_links": max_external_links,
+        "allow_rich_embeds": allow_rich_embeds,
     }

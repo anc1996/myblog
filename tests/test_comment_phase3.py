@@ -181,7 +181,7 @@ class CommentPhase3Tests(unittest.TestCase):
             body=[("markdown", "Phase 3 评论防刷测试正文。")],
         )
         self.blog_index.add_child(instance=p)
-        p.save_revision(user=owner or self.admin).publish(user=self.admin)
+        p.save_revision(user=self.admin).publish(user=self.admin)
         p.refresh_from_db()
         self.created_pages.append(p)
         return p
@@ -531,56 +531,61 @@ class CommentPhase3Tests(unittest.TestCase):
         self.assertIn("guest_submission", svc_guest.latest_version.risk_reasons)
 
     def test_member_tiers_and_member_captcha_trigger(self):
-        """验证新会员 (<7天) 与可信会员 (>=7天) 内容约束、高频触发 member_comment 验证码与各接口限流"""
+        """验证注册会员人人平等（统一 3000 字 + 最多 5 外链）、高频触发 member_comment 验证码与 5/60s 限流"""
+        from comments.access import get_comment_user_tier
+
         page = self._make_blog()
         new_member = self._make_user("p3_new", days_ago=1)
         trusted_member = self._make_user("p3_old", days_ago=30)
         ip = self._ip(31)
 
-        # 新会员：1000 字上限 + 最多 1 个外链 (1个外链转待审，2个外链拒绝；edit 同受约束)
+        # 注册 1 天的会员与 30 天会员享有同等配额：3000 字上限 + 最多 5 个外链（2~5 外链转待审，6 外链拒绝）
+        self.assertEqual(get_comment_user_tier(new_member), "trusted_member")
+        self.assertEqual(get_comment_user_tier(trusted_member), "trusted_member")
+
         with self.assertRaises(ValidationError):
-            CommentService.post_comment(page=page, author=new_member, raw_content="N" * 1001, ip_address=ip)
+            CommentService.post_comment(page=page, author=new_member, raw_content="N" * 3001, ip_address=ip)
         with self.assertRaises(ValidationError):
             CommentService.post_comment(
                 page=page,
                 author=new_member,
-                raw_content="双链 [A](https://a.example.com) [B](https://b.example.com)",
+                raw_content="六链 " + " ".join(f"https://u{i}.example.com" for i in range(6)),
                 ip_address=ip,
             )
-        one_link = CommentService.post_comment(
+        five_links = CommentService.post_comment(
             page=page,
             author=new_member,
-            raw_content="单链参考 [Doc](https://docs.example.com)",
+            raw_content="五链参考 " + " ".join(f"[L{i}](https://l{i}.example.com)" for i in range(5)),
             auto_approve=True,
             ip_address=ip,
         )
-        self.assertEqual(one_link.status, "pending")
+        self.assertEqual(five_links.status, "pending")
         with self.assertRaises(ValidationError):
-            CommentService.edit_comment(one_link.id, new_member, "E" * 1001, ip_address=ip)
+            CommentService.edit_comment(five_links.id, new_member, "E" * 3001, ip_address=ip)
 
-        # 可信会员：允许 2000 字与最多 2 个外链（转待审），3 个外链被拒
-        c_two_links = CommentService.post_comment(
+        # 老会员同样允许 3000 字与最多 5 个外链（>=2 外链转待审），6 个外链被拒
+        c_five_links = CommentService.post_comment(
             page=page,
             author=trusted_member,
-            raw_content="两个链接 [A](https://a.example.com) [B](https://b.example.com)",
+            raw_content="两链 " + " ".join(f"[A{i}](https://a{i}.example.com)" for i in range(2)),
             auto_approve=True,
             ip_address=ip,
         )
-        self.assertEqual(c_two_links.status, "pending")
+        self.assertEqual(c_five_links.status, "pending")
         with self.assertRaises(ValidationError):
             CommentService.post_comment(
                 page=page,
                 author=trusted_member,
-                raw_content="三链 https://a.example.com https://b.example.com https://c.example.com",
+                raw_content="六链 " + " ".join(f"https://b{i}.example.com" for i in range(6)),
                 ip_address=ip,
             )
 
-        # 高频触发 member_comment 验证码与 60s max 2 限流
+        # 高频触发 member_comment 验证码与 60s max 5 限流
         client = Client()
         client.force_login(new_member)
         r1 = client.post(
             f"/api/v1/pages/{page.id}/comments/post/",
-            {"content": "新会员第一条正常无链评论"},
+            {"content": "会员第一条正常无链评论"},
             REMOTE_ADDR=ip,
         )
         self.assertEqual(r1.status_code, 201)
@@ -588,30 +593,31 @@ class CommentPhase3Tests(unittest.TestCase):
         # 60s 内第 2 条无验证码 -> 400 captcha_required (member_comment)
         r2_no_cap = client.post(
             f"/api/v1/pages/{page.id}/comments/post/",
-            {"content": "新会员 60 秒内第二条"},
+            {"content": "会员 60 秒内第二条"},
             REMOTE_ADDR=ip,
         )
         self.assertEqual(r2_no_cap.status_code, 400)
         self.assertEqual(r2_no_cap.json()["code"], "captcha_required")
         self.assertEqual(r2_no_cap.json()["captcha_scope"], "member_comment")
 
-        cid = self._issue_captcha(client, "member_comment", ip, code="Q6W2")
-        r2_ok = client.post(
-            f"/api/v1/pages/{page.id}/comments/post/",
-            {"content": "带验证码的第二条", "captcha_id": cid, "captcha_code": "Q6W2"},
-            REMOTE_ADDR=ip,
-        )
-        self.assertEqual(r2_ok.status_code, 201)
+        for seq in range(2, 6):
+            cid = self._issue_captcha(client, "member_comment", ip, code=f"Q6W{seq}")
+            r_ok = client.post(
+                f"/api/v1/pages/{page.id}/comments/post/",
+                {"content": f"带验证码的第 {seq} 条", "captcha_id": cid, "captcha_code": f"Q6W{seq}"},
+                REMOTE_ADDR=ip,
+            )
+            self.assertEqual(r_ok.status_code, 201)
 
-        # 60s 内第 3 条超过 new_member 2/60s -> 429 rate_limited
+        # 60s 内第 6 条超过统一会员 5/60s -> 429 rate_limited
         cid2 = self._issue_captcha(client, "member_comment", ip, code="Z8X4")
-        r3_limited = client.post(
+        r6_limited = client.post(
             f"/api/v1/pages/{page.id}/comments/post/",
-            {"content": "超限第三条", "captcha_id": cid2, "captcha_code": "Z8X4"},
+            {"content": "超限第六条", "captcha_id": cid2, "captcha_code": "Z8X4"},
             REMOTE_ADDR=ip,
         )
-        self.assertEqual(r3_limited.status_code, 429)
-        self.assertIn("Retry-After", r3_limited.headers)
+        self.assertEqual(r6_limited.status_code, 429)
+        self.assertIn("Retry-After", r6_limited.headers)
 
         # Redis 不可用 Fail-Closed -> 503
         with patch("comments.rate_limit._get_redis_client", return_value=None):
@@ -625,7 +631,7 @@ class CommentPhase3Tests(unittest.TestCase):
             )
             self.assertEqual(
                 client.post(
-                    f"/api/v1/comments/{one_link.id}/edit/",
+                    f"/api/v1/comments/{five_links.id}/edit/",
                     {"content": "断网编辑探测"},
                     REMOTE_ADDR=ip,
                 ).status_code,
@@ -633,7 +639,7 @@ class CommentPhase3Tests(unittest.TestCase):
             )
             self.assertEqual(
                 client.post(
-                    f"/api/v1/comments/{one_link.id}/react/",
+                    f"/api/v1/comments/{five_links.id}/react/",
                     {"reaction": "1"},
                     REMOTE_ADDR=ip,
                 ).status_code,
@@ -655,16 +661,16 @@ class CommentPhase3Tests(unittest.TestCase):
             finally:
                 connections.close_all()
 
-        with ThreadPoolExecutor(max_workers=6) as pool:
-            results = list(pool.map(lambda _: _worker(), range(6)))
-        self.assertEqual(sum(1 for ok in results if ok), 2, f"NewMember 60s限流应严格只放行2次: {results}")
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            results = list(pool.map(lambda _: _worker(), range(8)))
+        self.assertEqual(sum(1 for ok in results if ok), 5, f"统一会员 60s 限流应严格只放行 5 次: {results}")
 
     def test_pg_daily_quota_concurrency_and_pending_queue_budget(self):
         """验证 PostgreSQL 持久日配额并发不超发、删除不退额、以及待审队列预算熔断"""
         page = self._make_blog()
         solo = CommunitySettings._get_or_create()
         solo.comment_mode = "controlled_guests"
-        solo.new_member_daily_cap = 3
+        solo.member_daily_cap = 3
         solo.guest_daily_browser_cap = 2
         solo.guest_daily_ip_cap = 3
         solo.save()

@@ -445,3 +445,46 @@ img_path = "asset://image/{dummy_code_id}"
         self.assertIn('width="240"', res.html)
         refs = self.table_block.extract_media_refs(val, path="body.0")
         self.assertEqual(len(refs), 2)
+
+    def test_typora_nested_lists_mixed_ol_ul_blockquote_lists_and_cjk_emphasis(self):
+        """验证正文 Markdown 块兼容 Typora 2空格嵌套列表、混合有/无序、引用内嵌套列表、任务框与中文标点加粗"""
+        md_input = (
+            "判断规则:\n"
+            "- 分类依据:\n"
+            "  - ③④⑤为一笔画\n"
+            "  - ①②⑥为两笔画（含T型交点）\n"
+            "- 识别技巧: 注意 **（核心）**T型交点 `my_var_name` 不会变斜体\n\n"
+            "1. 有序一级\n"
+            "   - 无序二级 A\n"
+            "     1. 有序三级 1\n"
+            "   - [x] 已完成任务\n"
+            "   - [ ] 待办任务\n"
+            "2. 有序二项\n\n"
+            "> 引用导语:\n"
+            "> - 引用无序 1\n"
+            ">   - 引用无序子项\n"
+            "> 1. 引用有序 1\n"
+            ">    - 引用有序下无序\n\n"
+            "| 左对齐 | 居中 | 右对齐 |\n"
+            "| :--- | :---: | ---: |\n"
+            "| A | B | C |\n\n"
+            "````markdown\n"
+            "```mermaid\n"
+            "graph TD; A-->B;\n"
+            "```\n"
+            "````"
+        )
+        res = self.md_block.render_clean(md_input)
+        html_out = res.html
+        self.assertIn("<ul>\n<li>分类依据:\n<ul>\n<li>③④⑤为一笔画</li>", html_out)
+        self.assertIn("<strong>（核心）</strong>", html_out)
+        self.assertIn("<code>my_var_name</code>", html_out)
+        self.assertIn("<ol>\n<li>有序一级\n<ul>\n<li>无序二级 A\n<ol>\n<li>有序三级 1</li>", html_out)
+        self.assertIn('class="md-task-box is-checked"', html_out)
+        self.assertIn('class="md-task-box"', html_out)
+        self.assertIn("<blockquote>\n<p>引用导语:</p>\n<ul>", html_out)
+        self.assertIn("<ol>\n<li>引用有序 1\n<ul>\n<li>引用有序下无序</li>", html_out)
+        self.assertIn('align="left"', html_out)
+        self.assertIn('align="center"', html_out)
+        self.assertIn('align="right"', html_out)
+        self.assertNotIn("data-cb-mermaid", html_out)

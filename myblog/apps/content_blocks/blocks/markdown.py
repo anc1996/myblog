@@ -12,7 +12,6 @@ from typing import Any
 from django import forms
 from django.utils.functional import cached_property
 from django.utils.safestring import mark_safe
-import markdown
 from wagtail import blocks
 
 from content_blocks.contracts import (
@@ -24,6 +23,10 @@ from content_blocks.contracts import (
 )
 from content_blocks.sanitizer import sanitize_html
 from content_blocks.rendering.images import apply_markdown_image_sizing_in_html
+from content_blocks.rendering.markdown_engine import (
+    extract_fenced_mermaid_blocks,
+    render_markdown_to_html,
+)
 from content_blocks.rendering.math import protect_math_in_markdown, restore_math_in_html
 from content_blocks.rendering.mermaid import render_mermaid_dom
 from content_blocks.rendering.media_refs import resolve_media_urls, extract_media_references
@@ -95,35 +98,24 @@ class CustomMarkdownBlock(blocks.TextBlock):
 
         # 1. 预处理：将 ```mermaid ... ``` 保护性替换为独立安全令牌，避免被普通代码围栏吞并
         mermaid_blocks: list[str] = []
-        def replace_mermaid(match):
+
+        def replace_mermaid(code_text: str, _idx: int) -> str:
             idx = len(mermaid_blocks)
-            code = match.group(1).strip()
+            code = code_text.strip()
             mermaid_blocks.append(code)
             return f"\n\nCBMERMAID_{nonce}_{idx}_X\n\n"
 
-        processed_md = re.sub(
-            r"(?m)^[ \t]{0,3}```[ \t]*mermaid[ \t]*\r?\n([\s\S]*?)\r?\n[ \t]*```[ \t]*\r?$",
-            replace_mermaid,
-            raw_md,
+        processed_md = extract_fenced_mermaid_blocks(
+            raw_md.replace("\r\n", "\n").replace("\r", "\n"),
+            on_mermaid=replace_mermaid,
         )
 
         # 2. 保护数学公式：在 tables 与 nl2br 前提取公式，避免公式内的 _ 或 \\ 被 Markdown 损坏
         processed_md, math_items = protect_math_in_markdown(processed_md, nonce)
         processed_md = _escape_pipes_in_md_images(processed_md, nonce)
 
-        # 3. 转换 Markdown 为 HTML
-        rendered_html = markdown.markdown(
-            processed_md,
-            extensions=[
-                "tables",
-                "fenced_code",
-                "nl2br",
-                "sane_lists",
-            ],
-            extension_configs={
-                "tables": {"use_align_attribute": True},
-            },
-        )
+        # 3. 使用统一 CommonMark/Typora 兼容引擎转换 Markdown 为 HTML（支持 2/3/4 空格嵌套列表、引用内列表等）
+        rendered_html = render_markdown_to_html(processed_md, allow_raw_html=True)
 
         # 4. 转换内部受控媒体网关链接 (asset://image/<uuid> 等)
         rendered_html = resolve_media_urls(rendered_html)

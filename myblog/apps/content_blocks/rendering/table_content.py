@@ -260,14 +260,15 @@ def render_table_cell_content(raw_val: str, *, is_rich: bool) -> str:
     return cleaned
 
 
-def _transform_cell_plain_chunk(raw_chunk: str) -> str:
+def _transform_cell_plain_chunk(raw_chunk: str, *, allow_media: bool = True) -> str:
     """
     在已完成 nh3 净化的 Markdown 表格单元格纯文本片段中解析：
     围栏代码块 (```lang ... ```)、行内代码 (`...`)、Markdown 图片 (含尺寸) 与受控文档链接。
     已处于 <pre>/<code>/.cb-math 内部的片段由上层跳过，不重复处理。
     """
     if not raw_chunk or (
-        "`" not in raw_chunk and "![" not in raw_chunk and "asset://" not in raw_chunk and "/media-gateway/" not in raw_chunk
+        "`" not in raw_chunk
+        and (not allow_media or ("![" not in raw_chunk and "asset://" not in raw_chunk and "/media-gateway/" not in raw_chunk))
     ):
         return html.escape(raw_chunk)
 
@@ -293,22 +294,23 @@ def _transform_cell_plain_chunk(raw_chunk: str) -> str:
     text = _FENCE_CODE_RE.sub(stash_fence, raw_chunk)
     text = _INLINE_CODE_RE.sub(stash_inline, text)
 
-    def stash_img(m: re.Match) -> str:
-        idx = len(media_tokens)
-        tok = f"CBMKMEDIA_{nonce}_{idx}_X"
-        media_tokens.append((tok, build_safe_img_tag(m.group(2), m.group(1) or "")))
-        return tok
+    if allow_media:
+        def stash_img(m: re.Match) -> str:
+            idx = len(media_tokens)
+            tok = f"CBMKMEDIA_{nonce}_{idx}_X"
+            media_tokens.append((tok, build_safe_img_tag(m.group(2), m.group(1) or "")))
+            return tok
 
-    def stash_doc(m: re.Match) -> str:
-        idx = len(media_tokens)
-        tok = f"CBMKMEDIA_{nonce}_{idx}_X"
-        lbl = html.escape(m.group(1))
-        aid = m.group(3).lower()
-        media_tokens.append((tok, f'<a href="/media-gateway/document/{aid}/" download>{lbl}</a>'))
-        return tok
+        def stash_doc(m: re.Match) -> str:
+            idx = len(media_tokens)
+            tok = f"CBMKMEDIA_{nonce}_{idx}_X"
+            lbl = html.escape(m.group(1))
+            aid = m.group(3).lower()
+            media_tokens.append((tok, f'<a href="/media-gateway/document/{aid}/" download>{lbl}</a>'))
+            return tok
 
-    text = _MD_IMAGE_RE.sub(stash_img, text)
-    text = _MD_DOC_RE.sub(stash_doc, text)
+        text = _MD_IMAGE_RE.sub(stash_img, text)
+        text = _MD_DOC_RE.sub(stash_doc, text)
 
     out = html.escape(text)
     for tok, rep in media_tokens:
@@ -333,7 +335,7 @@ class _MarkdownTableEnhancer(HTMLParser):
 
     _SKIP_TAGS = {"pre", "code", "script", "style"}
 
-    def __init__(self) -> None:
+    def __init__(self, *, allow_media: bool = True, table_class: str = "") -> None:
         super().__init__(convert_charrefs=False)
         self._parts: list[str] = []
         self._table_depth = 0
@@ -341,6 +343,8 @@ class _MarkdownTableEnhancer(HTMLParser):
         self._skip_depth = 0
         self._text_buf: list[str] = []
         self._wrapper_depth = 0
+        self._allow_media = allow_media
+        self._table_class = table_class.strip()
 
     def _flush_cell_buf(self) -> None:
         if not self._text_buf:
@@ -348,7 +352,7 @@ class _MarkdownTableEnhancer(HTMLParser):
         chunk = "".join(self._text_buf)
         self._text_buf.clear()
         if self._cell_depth > 0 and self._skip_depth == 0:
-            self._parts.append(_transform_cell_plain_chunk(chunk))
+            self._parts.append(_transform_cell_plain_chunk(chunk, allow_media=self._allow_media))
         else:
             self._parts.append(html.escape(chunk))
 
@@ -362,6 +366,25 @@ class _MarkdownTableEnhancer(HTMLParser):
             if self._table_depth == 0 and self._wrapper_depth == 0:
                 self._parts.append('<div class="responsive-table-wrapper">')
             self._table_depth += 1
+            if self._table_class:
+                rendered_attrs: list[str] = []
+                has_class = False
+                for k, v in attrs:
+                    if k.lower() == "class":
+                        has_class = True
+                        existing = (v or "").split()
+                        if self._table_class not in existing:
+                            existing.append(self._table_class)
+                        rendered_attrs.append(f'class="{html.escape(" ".join(existing), quote=True)}"')
+                    elif v is None:
+                        rendered_attrs.append(k)
+                    else:
+                        rendered_attrs.append(f'{k}="{html.escape(v, quote=True)}"')
+                if not has_class:
+                    rendered_attrs.append(f'class="{html.escape(self._table_class, quote=True)}"')
+                attr_str = (" " + " ".join(rendered_attrs)) if rendered_attrs else ""
+                self._parts.append(f"<{tag}{attr_str}>")
+                return
         elif ltag in ("td", "th") and self._table_depth > 0:
             self._cell_depth += 1
         elif ltag in self._SKIP_TAGS and self._cell_depth > 0:
@@ -418,11 +441,16 @@ class _MarkdownTableEnhancer(HTMLParser):
         return "".join(self._parts)
 
 
-def enhance_markdown_tables_html(html_str: str) -> str:
+def enhance_markdown_tables_html(
+    html_str: str,
+    *,
+    allow_media: bool = True,
+    table_class: str = "",
+) -> str:
     """为 Markdown 渲染结果中的表格增强单元格代码/图片渲染与自适应滚动外框"""
     if not html_str or "<table" not in html_str.lower():
         return html_str
-    parser = _MarkdownTableEnhancer()
+    parser = _MarkdownTableEnhancer(allow_media=allow_media, table_class=table_class)
     parser.feed(html_str)
     parser.close()
     return parser.render()

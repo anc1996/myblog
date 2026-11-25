@@ -471,3 +471,170 @@ class CommentFrontendIntegrationTests(unittest.TestCase):
                     target_user_id=deleted_user.id,
                     confirmed=True,
                 )
+
+    def test_comment_rich_markdown_preview_api_budgets_and_inspect_render(self):
+        """验证评论区工具栏/表情/公式/Mermaid/表格安全渲染、只读预览接口、隐私防缓存头及后台检查页富预览"""
+        from django.contrib.auth import get_user_model
+        from django.core.exceptions import ValidationError
+        from comments.models import Comment, CommentDailyQuota, CommentVersion, CommunitySettings, PageCommentSettings
+        from comments.sanitizer import sanitize_comment_for_tier
+        from comments.services import CommentService
+        from identity.account_lifecycle import AccountLifecycleService
+        from identity.models import MemberProfile
+
+        User = get_user_model()
+        member = User.objects.create_user(username=f"rich_m_{uuid4().hex[:6]}", password="StrongPass123!")
+        prof = MemberProfile.get_or_create_for_user(member)
+        prof.nickname = "技术评论员"
+        prof.save(update_fields=["nickname"])
+
+        community = CommunitySettings._get_or_create()
+        prev_mode = community.comment_mode
+        blog = None
+        try:
+            community.comment_mode = "controlled_guests"
+            community.save(update_fields=["comment_mode"])
+            blog = BlogPage(
+                title=f"富格式评论测试页-{uuid4().hex[:6]}",
+                slug=f"rich-comment-test-{uuid4().hex[:6]}",
+                body=[("markdown", "评论富格式与预览测试正文。")],
+            )
+            self.blog_index.add_child(instance=blog)
+            blog.save_revision(user=self.admin_user).publish(user=self.admin_user)
+            self.created_pages.append(blog)
+            PageCommentSettings.objects.update_or_create(
+                page=blog,
+                defaults={"allow_comments": True, "allow_guest_comments": True},
+            )
+
+            # 1. 前台模板输出新限制与用户显示昵称而非登录账号名
+            self.client.force_login(member)
+            page_resp = self.client.get(blog.url)
+            self.assertEqual(page_resp.status_code, 200)
+            page_html = page_resp.content.decode("utf-8")
+            self.assertIn("技术评论员", page_html)
+            self.assertNotIn(member.username, page_html)
+            self.assertIn('data-max-chars="3000"', page_html)
+            self.assertIn('data-max-external-links="5"', page_html)
+            self.assertIn('data-allow-rich-embeds="true"', page_html)
+            self.assertIn('data-preview-url=', page_html)
+
+            # 2. 会员富格式渲染：Emoji + 表格 + 代码块 + 公式 + Mermaid + 货币不误判
+            rich_md = (
+                "太棒了 🚀！价格是 $100，行内公式 $E = mc^2$。\n\n"
+                "| 项目 | 状态 |\n| --- | --- |\n| KaTeX | ✅ |\n\n"
+                "```python\nprice = '$200'\nprint('hi')\n```\n\n"
+                "```mermaid\n%%{init:{'theme':'dark'}}%%\nflowchart LR\n  A[开始] --> B[完成]\nclick A href \"https://evil.com\"\n```\n"
+                "<script>alert(1)</script><img src=x onerror=alert(1)>"
+            )
+            preview_resp = self.client.post(
+                f"/api/v1/pages/{blog.id}/comments/preview/",
+                {"content": rich_md},
+            )
+            self.assertEqual(preview_resp.status_code, 200)
+            self.assertIn("no-store", preview_resp["Cache-Control"])
+            pdata = preview_resp.json()
+            self.assertEqual(pdata["status"], "success")
+            safe_html = pdata["safe_html"]
+            self.assertIn("🚀", safe_html)
+            self.assertIn("$100", safe_html)
+            self.assertIn("cb-math-inline", safe_html)
+            self.assertIn("language-python", safe_html)
+            self.assertIn('<table class="custom-table-block">', safe_html)
+            self.assertIn('<div class="responsive-table-wrapper">', safe_html)
+            self.assertIn("data-cb-mermaid", safe_html)
+            self.assertNotIn("<script>", safe_html)
+            self.assertNotIn("<img", safe_html)
+            self.assertNotIn("%%{init", safe_html)
+            self.assertNotIn("evil.com", safe_html)
+            # 预览接口绝不写库、不消耗日配额
+            self.assertEqual(Comment.objects.filter(page=blog).count(), 0)
+            self.assertEqual(CommentDailyQuota.objects.filter(subject_key=f"user:{member.id}").count(), 0)
+
+            # 3. Mermaid 超预算拦截（多图 / 超长）
+            two_mermaids = "```mermaid\nflowchart LR\nA-->B\n```\n\n```mermaid\nflowchart LR\nC-->D\n```"
+            bad_preview = self.client.post(
+                f"/api/v1/pages/{blog.id}/comments/preview/",
+                {"content": two_mermaids},
+            )
+            self.assertEqual(bad_preview.status_code, 400)
+
+            # 4. 游客降级：不支持公式与 Mermaid 图表（仅作普通代码块/文本），仍禁外链
+            guest_html, g_links, _ = sanitize_comment_for_tier(
+                "你好 😀 $a+b$\n\n```mermaid\nflowchart LR\nA-->B\n```",
+                tier="guest",
+            )
+            self.assertEqual(g_links, 0)
+            self.assertIn("😀", guest_html)
+            self.assertNotIn("cb-math", guest_html)
+            self.assertNotIn("data-cb-mermaid", guest_html)
+            with self.assertRaises(ValidationError):
+                sanitize_comment_for_tier("看这里 https://example.com", tier="guest")
+
+            # 5. 列表隐私防缓存头、点踩计数 & inspect 后台双版本富渲染对照
+            c = CommentService.post_comment(
+                page=blog,
+                author=member,
+                raw_content="初始发布版本 👍\n\n$$\n\\sum_{i=1}^n i\n$$",
+                auto_approve=True,
+            )
+            edit_ver = CommentService.edit_comment(
+                c.id,
+                member,
+                "待审修订版\n\n```mermaid\nflowchart LR\nX-->Y\n```",
+            )
+            c.refresh_from_db()
+            self.assertEqual(c.pending_version_id, edit_ver.id)
+
+            # 他人点赞/点踩与列表隐私头校验
+            self.client.force_login(self.admin_user)
+            react_resp = self.client.post(f"/api/v1/comments/{c.id}/react/", {"reaction": "-1"})
+            self.assertEqual(react_resp.status_code, 200)
+            self.assertEqual(react_resp.json()["data"]["dislike_count"], 1)
+
+            list_resp = self.client.get(f"/api/v1/pages/{blog.id}/comments/")
+            self.assertEqual(list_resp.status_code, 200)
+            self.assertIn("no-store", list_resp["Cache-Control"])
+            self.assertIn("Cookie", list_resp["Vary"])
+            list_json = list_resp.json()
+            self.assertEqual(list_json["comment_settings"]["max_chars"], 3000)
+            self.assertEqual(list_json["items"][0]["dislike_count"], 1)
+            self.assertEqual(list_json["items"][0]["user_reaction"], -1)
+
+            # 后台检查页同步展示当前已公开版与待审渲染预览
+            insp_resp = self.client.get(f"/admin/comments/inspect/{c.id}/")
+            self.assertEqual(insp_resp.status_code, 200)
+            insp_html = insp_resp.content.decode("utf-8")
+            self.assertIn("当前已公开生效版本", insp_html)
+            self.assertIn("渲染预览", insp_html)
+            self.assertIn("data-cb-mermaid", insp_html)
+            self.assertIn("cb-math-block", insp_html)
+
+            # 6. 验证 Typora 2空格嵌套列表、混合有/无序列表及引用下列表在评论区同样正确嵌套
+            nested_md = (
+                "- 分类依据:\n"
+                "  - ③④⑤为一笔画\n"
+                "  - ①②⑥为两笔画（含T型交点）\n"
+                "- 识别技巧: 注意T型交点的存在会增加笔画数\n\n"
+                "> 引用提示:\n"
+                "> 1. 第一步\n"
+                ">    - 引用内子项\n"
+                "> 2. 第二步"
+            )
+            nested_preview = self.client.post(
+                f"/api/v1/pages/{blog.id}/comments/preview/",
+                {"content": nested_md},
+            )
+            self.assertEqual(nested_preview.status_code, 200)
+            nested_html = nested_preview.json()["safe_html"]
+            self.assertIn("<ul>\n<li>分类依据:\n<ul>\n<li>③④⑤为一笔画</li>", nested_html)
+            self.assertIn("<blockquote>\n<p>引用提示:</p>\n<ol>\n<li>第一步\n<ul>\n<li>引用内子项</li>", nested_html)
+        finally:
+            community.comment_mode = prev_mode
+            community.save(update_fields=["comment_mode"])
+            if User.objects.filter(id=member.id).exists():
+                AccountLifecycleService.hard_delete(
+                    actor=self.admin_user,
+                    target_user_id=member.id,
+                    confirmed=True,
+                )

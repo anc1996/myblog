@@ -987,7 +987,7 @@ https://www.postgresql.org/docs/18/sql-createindex.html
 
 6. **安全与风控加固 (SEC-01 / B-05)**：
    - inspect 原文展示强制 `html.escape(..., quote=True)`，彻底封堵存储型 XSS；
-   - 评论长度校验最大 2000 字符拒绝静默截断，外链 >= 2 自动转人工待审，URL 防御反斜杠与 userinfo 绕过。
+   - 早期基线为 2000 字符；现行（2026-11-25 更新）已统一为注册会员人人平等 **3000 字符 / 最多 5 外链**（$\ge 2$ 转人工待审，超过 5 个拒绝）、受控访客 **500 字符 / 0 外链**，拒绝静默截断，URL 防御反斜杠与 userinfo 绕过。
 
 7. **实测证据**：
    - 数据库迁移 `0002_commentgovernancebatch_commentgovernanceitem_and_more.py` 应用成功；
@@ -1013,3 +1013,9 @@ https://www.postgresql.org/docs/18/sql-createindex.html
    - 主体治理审计模型实名为 `CommentGovernanceAuditLog`（评论单条审计为 `CommentReviewAction`）；
    - 中控台类型筛选参数为 `page_type`；
    - 评论自身清理与状态流转均在 PostgreSQL SQL 事务内完成，**未使用 Outbox**。
+
+### 17.6 富格式 Markdown 工具栏、表情、复合表格与检查页预览更新（2026-11-25 落地）
+
+1. **全站统一 Typora/CommonMark 兼容引擎（`content_blocks.rendering.markdown_engine`）**：正文 `CustomMarkdownBlock` 与评论 `comments.sanitizer` 共同切至已锁定的 `markdown-it-py 3.0.0`，解决 2 空格嵌套列表、段落紧跟列表、有序/无序混排、引用内嵌多级列表、中文标点加粗及表格列对齐渲染问题。
+2. **会员平等配额与富媒体分级边界**：取消新老会员二次分档（统一 **3,000 字 / 最多 5 外链 / 60 秒 5 次**），会员开放 KaTeX 公式（最多 10 个）、受限 Mermaid（最多 1 张、≤800 字、≤30 边）及代码块外提取的 `rowspan`/`colspan`（`1~20`）复合表格，复用 `enhance_markdown_tables_html(..., allow_media=False, table_class="custom-table-block")` 注入响应式外框并严禁评论内渲染 `<img>`/`<script>`；访客维持 500 字、0 外链且不开放公式/Mermaid/HTML 表格。
+3. **前台工具栏、预览、赞踩与后台检查预览**：新增只读预览接口 `POST /api/v1/pages/<page_id>/comments/preview/`（零写库/零配额消耗）；主评/回复/5 分钟内联编辑共用 Markdown 工具栏、Unicode Emoji 面板与「编辑 / 预览 / 分栏」切换；同时渲染 `👍` 与 `👎` 互动按钮并对本人评论禁用（消除误点自赞红框）；优先展示 `MemberProfile` 昵称与头像；`/admin/comments/inspect/<id>/` 同步渲染已公开版与待审版富格式对照预览。

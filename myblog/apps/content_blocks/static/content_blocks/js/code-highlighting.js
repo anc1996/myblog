@@ -23,6 +23,7 @@
         ".step-code-container pre > code",
         ".cb-cell-code pre > code",
         ".cb-table-source-pane pre > code",
+        ".comment-body-html pre > code",
         "[data-code-highlight] pre > code"
     ].join(", ");
 

@@ -689,6 +689,89 @@
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 }
 
+.detail-body-section blockquote > :first-child {
+  margin-top: 0;
+}
+
+.detail-body-section blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+.detail-body-section blockquote blockquote {
+  margin: 10px 0;
+}
+
+.detail-body-section ul,
+.detail-body-section ol {
+  margin: 12px 0;
+  padding-left: 1.65em;
+}
+
+.detail-body-section ul {
+  list-style-type: disc;
+}
+
+.detail-body-section ol {
+  list-style-type: decimal;
+}
+
+.detail-body-section ul ul,
+.detail-body-section ol ul {
+  list-style-type: circle;
+  margin: 4px 0;
+}
+
+.detail-body-section ul ul ul,
+.detail-body-section ol ul ul {
+  list-style-type: square;
+}
+
+.detail-body-section ol ol {
+  list-style-type: lower-alpha;
+  margin: 4px 0;
+}
+
+.detail-body-section ol ol ol {
+  list-style-type: lower-roman;
+}
+
+.detail-body-section ul ol {
+  margin: 4px 0;
+}
+
+.detail-body-section li + li {
+  margin-top: 5px;
+}
+
+.detail-body-section li > p {
+  margin: 6px 0;
+}
+
+.detail-body-section li > p:first-child {
+  margin-top: 0;
+}
+
+.detail-body-section li > p:last-child {
+  margin-bottom: 0;
+}
+
+.detail-body-section blockquote ul,
+.detail-body-section blockquote ol {
+  margin: 8px 0;
+  padding-left: 1.5em;
+}
+
+.detail-body-section .md-task-box {
+  display: inline-block;
+  margin-right: 6px;
+  font-weight: 600;
+  color: var(--color-muted);
+}
+
+.detail-body-section .md-task-box.is-checked {
+  color: var(--color-success);
+}
+
 .detail-body-section a {
   color: var(--color-primary);
 }

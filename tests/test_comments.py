@@ -395,6 +395,46 @@ class CommentsSystemTests(unittest.TestCase):
             community.save(update_fields=["comment_mode"])
             PageCommentSettings.objects.filter(page=self.blog_page).delete()
 
+    def test_composite_rowspan_colspan_table_with_math_code_and_security(self):
+        """验证评论区支持 rowspan/colspan 复合表格、单元格公式与代码、以及超大跨度与 XSS 剥离"""
+        composite_md = (
+            '<table class="evil-table">'
+            '<thead>'
+            '<tr><th rowspan="2" scope="col">引擎</th><th colspan="3" scope="colgroup">评估指标</th></tr>'
+            '<tr><th>复杂度</th><th>SQL</th><th>备注</th></tr>'
+            '</thead>'
+            '<tbody>'
+            '<tr>'
+            '<td rowspan="99999">Postgres</td>'
+            '<td>$O(N)$</td>'
+            '<td><code>SELECT 1</code></td>'
+            '<td colspan="3">支持跨列![外图](https://evil.example/px.png)</td>'
+            '</tr>'
+            '</tbody>'
+            '</table>'
+            '<script>alert(1)</script><style>body{display:none}</style>'
+        )
+        safe_html = sanitize_comment_html(composite_md, allow_rich_embeds=True)
+        self.assertIn('<div class="responsive-table-wrapper">', safe_html)
+        self.assertIn('<table class="custom-table-block">', safe_html)
+        self.assertNotIn("evil-table", safe_html)
+        self.assertIn('rowspan="2"', safe_html)
+        self.assertIn('colspan="3"', safe_html)
+        self.assertIn('scope="col"', safe_html)
+        self.assertIn("cb-math-inline", safe_html)
+        self.assertIn("O(N)", safe_html)
+        self.assertIn("<code>SELECT 1</code>", safe_html)
+        self.assertNotIn('rowspan="99999"', safe_html)
+        self.assertNotIn("<script>", safe_html)
+        self.assertNotIn("<style>", safe_html)
+        self.assertNotIn("<img", safe_html)
+
+        # 未登录访客关闭原始 HTML 表格解析，仅保留转义文本，绝不放行 raw HTML 表格或图片
+        guest_html = sanitize_comment_html('<table><tr><td colspan="2">Hi</td></tr></table>', allow_rich_embeds=False)
+        self.assertNotIn("<table", guest_html)
+        self.assertNotIn("<td", guest_html)
+        self.assertIn("&lt;table&gt;", guest_html)
+
 
 if __name__ == "__main__":
     unittest.main()

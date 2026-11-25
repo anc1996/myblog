@@ -9,6 +9,7 @@ from . import views
 urlpatterns = [
     path("pages/<int:page_id>/comments/", views.list_comments_api, name="list_comments"),
     path("pages/<int:page_id>/comments/post/", views.post_comment_api, name="post_comment"),
+    path("pages/<int:page_id>/comments/preview/", views.preview_comment_api, name="preview_comment"),
     path("comments/<int:root_id>/replies/", views.list_replies_api, name="list_replies"),
     path("comments/<int:comment_id>/edit/", views.edit_comment_api, name="edit_comment"),
     path("comments/<int:comment_id>/delete/", views.delete_comment_api, name="delete_comment"),

@@ -1,9 +1,37 @@
 /**
  * 全站通用评论互动组件前端控制器 (CommentsWidget)
- * 落实 决策三-A: 轻量 AJAX 提交 + 友好免刷新回显 + 两层扁平回复 + 点赞互动
+ * 落实：Markdown 工具栏 + Unicode Emoji 表情面板 + 实时安全预览 + 两层扁平回复 + 赞踩互动 + 公共渲染引擎联动
  */
 (function () {
   'use strict';
+
+  const EMOJI_GROUPS = [
+    {
+      title: '常用表情',
+      items: ['😀', '😄', '😅', '😂', '😊', '🤔', '😍', '🤩', '😎', '😭', '😡', '🙏'],
+    },
+    {
+      title: '互动赞赏',
+      items: ['👍', '👎', '👏', '🔥', '🎉', '❤️', '💯', '✨', '🚀', '💡', '⚡', '🏆'],
+    },
+    {
+      title: '技术符号',
+      items: ['💻', '🐛', '✅', '❌', '⚠️', '📌', '🔍', '📝', '📊', '🔗', '🎯', '🛠️'],
+    },
+  ];
+
+  function renderRichContent(rootEl) {
+    if (!rootEl) return;
+    if (typeof window.enhanceCodeBlocks === 'function') {
+      window.enhanceCodeBlocks(rootEl);
+    }
+    if (typeof window.renderContentMath === 'function') {
+      window.renderContentMath(rootEl);
+    }
+    if (typeof window.initMermaidBlocks === 'function') {
+      window.initMermaidBlocks(rootEl);
+    }
+  }
 
   document.addEventListener('DOMContentLoaded', function () {
     const section = document.getElementById('comments-section');
@@ -33,16 +61,21 @@
 
     const listUrl = section.getAttribute('data-list-url') || (form && form.getAttribute('data-list-url'));
     const postUrl = section.getAttribute('data-post-url') || (form && form.getAttribute('data-post-url'));
+    const previewUrl = section.getAttribute('data-preview-url') || '';
     const repliesUrlTpl = section.getAttribute('data-replies-url-tpl') || '/api/v1/comments/0/replies/';
     const editUrlTpl = section.getAttribute('data-edit-url-tpl') || '/api/v1/comments/0/edit/';
     const reactUrlTpl = section.getAttribute('data-react-url-tpl') || '/api/v1/comments/0/react/';
     const deleteUrlTpl = section.getAttribute('data-delete-url-tpl') || '/api/v1/comments/0/delete/';
     let allowComments = section.getAttribute('data-allow-comments') !== 'false';
     let requiresCaptcha = section.getAttribute('data-requires-captcha') === 'true';
+    let maxChars = parseInt(section.getAttribute('data-max-chars') || '3000', 10) || 3000;
+    let allowRichEmbeds = section.getAttribute('data-allow-rich-embeds') === 'true';
+    let activePreviewUrl = previewUrl;
 
     let currentPage = 1;
     let totalPages = 1;
     let currentSort = 'latest';
+    let mainEditorApi = null;
 
     function generateRequestKey() {
       if (window.crypto && typeof window.crypto.randomUUID === 'function') {
@@ -143,6 +176,348 @@
       }, 5000);
     }
 
+    function insertAroundSelection(textarea, prefix, suffix, placeholder) {
+      const val = textarea.value || '';
+      const start = typeof textarea.selectionStart === 'number' ? textarea.selectionStart : val.length;
+      const end = typeof textarea.selectionEnd === 'number' ? textarea.selectionEnd : val.length;
+      const selected = val.slice(start, end) || placeholder || '';
+      const inserted = prefix + selected + suffix;
+      textarea.value = val.slice(0, start) + inserted + val.slice(end);
+      const cursorStart = start + prefix.length;
+      const cursorEnd = cursorStart + selected.length;
+      textarea.focus();
+      if (typeof textarea.setSelectionRange === 'function') {
+        textarea.setSelectionRange(cursorStart, cursorEnd);
+      }
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    function insertBlockSnippet(textarea, snippet) {
+      const val = textarea.value || '';
+      const start = typeof textarea.selectionStart === 'number' ? textarea.selectionStart : val.length;
+      const end = typeof textarea.selectionEnd === 'number' ? textarea.selectionEnd : val.length;
+      const before = val.slice(0, start);
+      const after = val.slice(end);
+      const needLeadNl = before && !before.endsWith('\n') ? '\n\n' : (before && !before.endsWith('\n\n') ? '\n' : '');
+      const needTrailNl = after && !after.startsWith('\n') ? '\n\n' : '';
+      const inserted = needLeadNl + snippet + needTrailNl;
+      textarea.value = before + inserted + after;
+      const caret = (before + inserted).length;
+      textarea.focus();
+      if (typeof textarea.setSelectionRange === 'function') {
+        textarea.setSelectionRange(caret, caret);
+      }
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    function createCommentEditorUI(options) {
+      const textarea = options.textarea;
+      if (!textarea) return null;
+
+      let currentMaxChars = options.maxChars || maxChars;
+      let canRich = Boolean(options.allowRichEmbeds);
+      let currentPreviewUrl = options.previewUrl || activePreviewUrl;
+      let currentMode = 'write';
+      let previewSeq = 0;
+      let previewTimer = null;
+
+      const shell = document.createElement('div');
+      shell.className = 'comment-editor-shell';
+
+      const toolbar = document.createElement('div');
+      toolbar.className = 'comment-editor-toolbar';
+
+      const tools = document.createElement('div');
+      tools.className = 'comment-editor-tools';
+      tools.setAttribute('role', 'toolbar');
+      tools.setAttribute('aria-label', '评论 Markdown 格式工具栏');
+
+      function makeToolBtn(label, title, onClick) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'comment-tool-btn';
+        btn.textContent = label;
+        btn.title = title;
+        btn.setAttribute('aria-label', title);
+        btn.addEventListener('click', function (ev) {
+          ev.preventDefault();
+          onClick();
+        });
+        return btn;
+      }
+
+      function makeSep() {
+        const sep = document.createElement('span');
+        sep.className = 'comment-tool-sep';
+        sep.setAttribute('aria-hidden', 'true');
+        return sep;
+      }
+
+      tools.appendChild(makeToolBtn('B', '加粗 (**文本**)', () => insertAroundSelection(textarea, '**', '**', '加粗文本')));
+      tools.appendChild(makeToolBtn('I', '斜体 (*文本*)', () => insertAroundSelection(textarea, '*', '*', '斜体文本')));
+      tools.appendChild(makeToolBtn('❝', '引用 (> 文本)', () => insertBlockSnippet(textarea, '> 引用内容')));
+      tools.appendChild(makeToolBtn('•', '列表 (- 列表项)', () => insertBlockSnippet(textarea, '- 列表项 1\n- 列表项 2')));
+      tools.appendChild(makeSep());
+      tools.appendChild(makeToolBtn('`', '行内代码 (`code`)', () => insertAroundSelection(textarea, '`', '`', 'code')));
+      tools.appendChild(makeToolBtn('{ }', '代码块 (```lang)', () => insertBlockSnippet(textarea, '```python\nprint("Hello, myblog!")\n```')));
+      tools.appendChild(makeToolBtn('田', '插入表格', () => insertBlockSnippet(textarea, '| 列 1 | 列 2 |\n| --- | --- |\n| 内容 A | 内容 B |')));
+
+      const richBtns = [];
+      if (canRich) {
+        const sepRich = makeSep();
+        const inlineMathBtn = makeToolBtn('∑', '行内公式 ($...$)', () => insertAroundSelection(textarea, '$', '$', 'E = mc^2'));
+        const blockMathBtn = makeToolBtn('∬', '块级公式 ($$...$$)', () => insertBlockSnippet(textarea, '$$\n\\int_0^1 x^2\\,dx = \\frac{1}{3}\n$$'));
+        const mermaidBtn = makeToolBtn('◈', '插入 Mermaid 流程图', () => insertBlockSnippet(textarea, '```mermaid\nflowchart LR\n  A[问题] --> B[方案]\n  B --> C[验证]\n```'));
+        richBtns.push(sepRich, inlineMathBtn, blockMathBtn, mermaidBtn);
+        tools.appendChild(sepRich);
+        tools.appendChild(inlineMathBtn);
+        tools.appendChild(blockMathBtn);
+        tools.appendChild(mermaidBtn);
+      }
+
+      tools.appendChild(makeSep());
+
+      // Emoji 表情包选择弹出框
+      const emojiWrap = document.createElement('div');
+      emojiWrap.className = 'comment-emoji-wrap';
+      const emojiTrigger = document.createElement('button');
+      emojiTrigger.type = 'button';
+      emojiTrigger.className = 'comment-tool-btn comment-emoji-trigger';
+      emojiTrigger.textContent = '😊';
+      emojiTrigger.title = '插入 Emoji 表情';
+      emojiTrigger.setAttribute('aria-label', '插入 Emoji 表情');
+      emojiTrigger.setAttribute('aria-expanded', 'false');
+      emojiTrigger.setAttribute('aria-haspopup', 'true');
+
+      const emojiPopover = document.createElement('div');
+      emojiPopover.className = 'comment-emoji-popover';
+      emojiPopover.hidden = true;
+      emojiPopover.setAttribute('role', 'dialog');
+      emojiPopover.setAttribute('aria-label', '选择表情');
+
+      EMOJI_GROUPS.forEach(group => {
+        const titleEl = document.createElement('div');
+        titleEl.className = 'comment-emoji-group-title';
+        titleEl.textContent = group.title;
+        emojiPopover.appendChild(titleEl);
+
+        const grid = document.createElement('div');
+        grid.className = 'comment-emoji-grid';
+        group.items.forEach(ch => {
+          const eBtn = document.createElement('button');
+          eBtn.type = 'button';
+          eBtn.className = 'comment-emoji-item';
+          eBtn.textContent = ch;
+          eBtn.setAttribute('aria-label', `插入表情 ${ch}`);
+          eBtn.addEventListener('click', function (ev) {
+            ev.preventDefault();
+            insertAroundSelection(textarea, ch, '', '');
+            closeEmojiPopover();
+          });
+          grid.appendChild(eBtn);
+        });
+        emojiPopover.appendChild(grid);
+      });
+
+      function closeEmojiPopover() {
+        emojiPopover.hidden = true;
+        emojiTrigger.setAttribute('aria-expanded', 'false');
+        emojiTrigger.classList.remove('is-active');
+      }
+
+      emojiTrigger.addEventListener('click', function (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const nextOpen = emojiPopover.hidden;
+        emojiPopover.hidden = !nextOpen;
+        emojiTrigger.setAttribute('aria-expanded', nextOpen ? 'true' : 'false');
+        emojiTrigger.classList.toggle('is-active', nextOpen);
+      });
+
+      document.addEventListener('click', function (ev) {
+        if (!emojiPopover.hidden && !emojiWrap.contains(ev.target)) {
+          closeEmojiPopover();
+        }
+      });
+
+      document.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Escape' && !emojiPopover.hidden) {
+          closeEmojiPopover();
+          emojiTrigger.focus();
+        }
+      });
+
+      emojiWrap.appendChild(emojiTrigger);
+      emojiWrap.appendChild(emojiPopover);
+      tools.appendChild(emojiWrap);
+
+      // 模式切换（编辑 / 预览 / 分栏）
+      const modes = document.createElement('div');
+      modes.className = 'comment-editor-modes';
+      modes.setAttribute('role', 'group');
+      modes.setAttribute('aria-label', '编辑预览模式');
+
+      const modeBtns = {};
+      [
+        { id: 'write', label: '编辑' },
+        { id: 'preview', label: '预览' },
+        { id: 'split', label: '分栏' },
+      ].forEach(m => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = `comment-mode-btn${m.id === 'write' ? ' is-active' : ''}`;
+        b.setAttribute('data-mode', m.id);
+        b.textContent = m.label;
+        b.addEventListener('click', function () {
+          setMode(m.id);
+        });
+        modeBtns[m.id] = b;
+        modes.appendChild(b);
+      });
+
+      toolbar.appendChild(tools);
+      toolbar.appendChild(modes);
+
+      const workspace = document.createElement('div');
+      workspace.className = 'comment-editor-workspace';
+
+      const previewPane = document.createElement('div');
+      previewPane.className = 'comment-editor-preview-pane';
+      previewPane.hidden = true;
+
+      const previewSurface = document.createElement('div');
+      previewSurface.className = 'comment-body-html comment-preview-surface';
+      previewSurface.setAttribute('data-code-highlight', '');
+      previewPane.appendChild(previewSurface);
+
+      const statusBar = document.createElement('div');
+      statusBar.className = 'comment-editor-statusbar';
+      const tipSpan = document.createElement('span');
+      tipSpan.textContent = canRich ? '支持 Markdown · Emoji · 代码 · 公式 · Mermaid' : '支持基础 Markdown · Emoji · 代码块';
+      const counterSpan = document.createElement('span');
+      counterSpan.className = 'comment-char-counter';
+      statusBar.appendChild(tipSpan);
+      statusBar.appendChild(counterSpan);
+
+      // 挂载到原 textarea 所在位置
+      const parent = textarea.parentNode;
+      parent.insertBefore(shell, textarea);
+      workspace.appendChild(textarea);
+      workspace.appendChild(previewPane);
+      shell.appendChild(toolbar);
+      shell.appendChild(workspace);
+      shell.appendChild(statusBar);
+
+      function updateCounter() {
+        const len = (textarea.value || '').length;
+        counterSpan.textContent = `${len} / ${currentMaxChars}`;
+        counterSpan.classList.toggle('is-near-limit', len >= Math.floor(currentMaxChars * 0.9) && len <= currentMaxChars);
+        counterSpan.classList.toggle('is-over-limit', len > currentMaxChars);
+      }
+
+      function renderPreview() {
+        const raw = textarea.value || '';
+        if (!raw.trim()) {
+          previewSurface.innerHTML = '';
+          const emptyP = document.createElement('p');
+          emptyP.className = 'comment-preview-empty';
+          emptyP.textContent = '请输入内容后查看实时渲染效果。';
+          previewSurface.appendChild(emptyP);
+          return;
+        }
+        if (!currentPreviewUrl) {
+          return;
+        }
+        const seq = ++previewSeq;
+        const fd = new FormData();
+        fd.append('content', raw);
+        fetch(currentPreviewUrl, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'X-CSRFToken': getCsrfToken() },
+          body: fd,
+        })
+          .then(parseJsonResponse)
+          .then(({ ok, data }) => {
+            if (seq !== previewSeq) return;
+            if (ok && data && data.status === 'success') {
+              if (data.is_empty || !data.safe_html) {
+                previewSurface.innerHTML = '';
+                const p = document.createElement('p');
+                p.className = 'comment-preview-empty';
+                p.textContent = '暂无可预览内容。';
+                previewSurface.appendChild(p);
+              } else {
+                previewSurface.innerHTML = data.safe_html;
+                renderRichContent(previewSurface);
+              }
+            } else {
+              previewSurface.innerHTML = '';
+              const errP = document.createElement('p');
+              errP.className = 'comment-preview-error';
+              errP.textContent = (data && data.message) || '预览解析失败，请检查语法或字符限制。';
+              previewSurface.appendChild(errP);
+            }
+          })
+          .catch(() => {
+            if (seq !== previewSeq) return;
+            previewSurface.innerHTML = '';
+            const errP = document.createElement('p');
+            errP.className = 'comment-preview-error';
+            errP.textContent = '网络异常，暂时无法预览。';
+            previewSurface.appendChild(errP);
+          });
+      }
+
+      function setMode(nextMode) {
+        currentMode = nextMode;
+        Object.keys(modeBtns).forEach(k => {
+          modeBtns[k].classList.toggle('is-active', k === nextMode);
+        });
+        shell.classList.toggle('is-split-mode', nextMode === 'split');
+        if (nextMode === 'write') {
+          textarea.hidden = false;
+          previewPane.hidden = true;
+        } else if (nextMode === 'preview') {
+          textarea.hidden = true;
+          previewPane.hidden = false;
+          renderPreview();
+        } else {
+          textarea.hidden = false;
+          previewPane.hidden = false;
+          renderPreview();
+        }
+      }
+
+      textarea.addEventListener('input', function () {
+        updateCounter();
+        if (currentMode === 'split' || currentMode === 'preview') {
+          clearTimeout(previewTimer);
+          previewTimer = setTimeout(renderPreview, 420);
+        }
+      });
+
+      updateCounter();
+      return {
+        setLimits(nextMaxChars, nextPreviewUrl) {
+          if (nextMaxChars) {
+            currentMaxChars = nextMaxChars;
+            textarea.maxLength = nextMaxChars;
+          }
+          if (nextPreviewUrl) currentPreviewUrl = nextPreviewUrl;
+          updateCounter();
+        },
+        reset() {
+          updateCounter();
+          if (currentMode !== 'write') {
+            setMode('write');
+          }
+          previewSurface.innerHTML = '';
+        },
+        refreshCounter: updateCounter,
+      };
+    }
+
     function renderCommentCard(c, isReply = false, rootId = null) {
       const effectiveRootId = isReply ? (rootId || c.root_id || c.id) : c.id;
       const card = document.createElement('div');
@@ -171,6 +546,8 @@
       card.className = `comment-card ${isReply ? 'is-reply' : ''}`;
 
       const authorName = (c.author && (c.author.display_name || c.author.username)) ? (c.author.display_name || c.author.username) : '匿名读者';
+      const authorKind = (c.author && c.author.kind) ? c.author.kind : '';
+      const avatarUrl = (c.author && c.author.avatar_url) ? String(c.author.avatar_url) : '';
       const dateStr = c.created_at || '';
 
       const header = document.createElement('div');
@@ -179,10 +556,41 @@
       const metaLeft = document.createElement('div');
       metaLeft.className = 'comment-meta-left';
 
+      const fallbackAvatar = document.createElement('span');
+      fallbackAvatar.className = 'comment-avatar-fallback';
+      fallbackAvatar.setAttribute('aria-hidden', 'true');
+      fallbackAvatar.textContent = (authorName || '匿').trim().charAt(0).toUpperCase();
+
+      if (avatarUrl) {
+        const avatarImg = document.createElement('img');
+        avatarImg.className = 'comment-avatar';
+        avatarImg.src = avatarUrl;
+        avatarImg.alt = '';
+        avatarImg.loading = 'lazy';
+        avatarImg.addEventListener('error', function () {
+          avatarImg.replaceWith(fallbackAvatar);
+        });
+        metaLeft.appendChild(avatarImg);
+      } else {
+        metaLeft.appendChild(fallbackAvatar);
+      }
+
       const authorEl = document.createElement('span');
       authorEl.className = 'comment-author';
       authorEl.textContent = authorName;
       metaLeft.appendChild(authorEl);
+
+      if (authorKind === 'guest') {
+        const guestPill = document.createElement('span');
+        guestPill.className = 'comment-role-pill comment-role-pill--guest';
+        guestPill.textContent = '访客';
+        metaLeft.appendChild(guestPill);
+      } else if (authorKind === 'deleted_member') {
+        const delPill = document.createElement('span');
+        delPill.className = 'comment-role-pill';
+        delPill.textContent = '已注销';
+        metaLeft.appendChild(delPill);
+      }
 
       if (!isReply && c.is_pinned) {
         const pinBadge = document.createElement('span');
@@ -191,10 +599,13 @@
         metaLeft.appendChild(pinBadge);
       }
 
-      if (isReply && c.replied_to_user && (c.replied_to_user.display_name || c.replied_to_user.username)) {
+      const replyTargetLabel = (c.replied_to_user && (c.replied_to_user.display_name || c.replied_to_user.username))
+        || c.replied_to_display_name
+        || '';
+      if (isReply && replyTargetLabel) {
         const targetEl = document.createElement('span');
         targetEl.className = 'comment-reply-target';
-        targetEl.textContent = `回复 @${c.replied_to_user.display_name || c.replied_to_user.username}`;
+        targetEl.textContent = `回复 @${replyTargetLabel}`;
         metaLeft.appendChild(targetEl);
       }
 
@@ -244,6 +655,7 @@
 
       const bodyEl = document.createElement('div');
       bodyEl.className = 'comment-body-html';
+      bodyEl.setAttribute('data-code-highlight', '');
       bodyEl.innerHTML = c.safe_html || '';
       card.appendChild(bodyEl);
 
@@ -257,22 +669,33 @@
       const footer = document.createElement('div');
       footer.className = 'comment-card-footer';
 
-      const likeBtn = document.createElement('button');
-      likeBtn.type = 'button';
-      const isLiked = c.user_reaction === 1;
-      likeBtn.className = `comment-react-btn react-btn ${isLiked ? 'is-reacted' : ''}`;
-      likeBtn.setAttribute('data-id', String(c.id));
-      likeBtn.setAttribute('data-liked', isLiked ? '1' : '0');
-      if (!allowComments && !isLiked) {
-        likeBtn.disabled = true;
+      const userReaction = Number(c.user_reaction || 0);
+      const canReact = Boolean(c.can_react);
+
+      function buildReactButton(targetVal, emoji, countClass, countVal, label) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        const active = userReaction === targetVal;
+        btn.className = `comment-react-btn react-btn ${targetVal === 1 ? 'react-like-btn' : 'react-dislike-btn'}${active ? ' is-reacted' : ''}`;
+        btn.setAttribute('data-id', String(c.id));
+        btn.setAttribute('data-reaction', String(targetVal));
+        btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+        btn.setAttribute('aria-label', label);
+        if (!canReact && !active) {
+          btn.disabled = true;
+          btn.title = '本人评论或未登录状态下仅展示计数';
+        }
+        const emojiNode = document.createTextNode(`${emoji} `);
+        const numSpan = document.createElement('span');
+        numSpan.className = countClass;
+        numSpan.textContent = String(countVal || 0);
+        btn.appendChild(emojiNode);
+        btn.appendChild(numSpan);
+        return btn;
       }
-      const iconText = document.createTextNode('👍 ');
-      const numSpan = document.createElement('span');
-      numSpan.className = 'like-num';
-      numSpan.textContent = String(c.like_count || 0);
-      likeBtn.appendChild(iconText);
-      likeBtn.appendChild(numSpan);
-      footer.appendChild(likeBtn);
+
+      footer.appendChild(buildReactButton(1, '👍', 'like-num', c.like_count, '赞同这条评论'));
+      footer.appendChild(buildReactButton(-1, '👎', 'dislike-num', c.dislike_count, '不赞同这条评论'));
       card.appendChild(footer);
 
       if (!isReply) {
@@ -312,6 +735,18 @@
 
           if (data.comment_settings) {
             allowComments = Boolean(data.comment_settings.allow_comments);
+            if (data.comment_settings.max_chars) {
+              maxChars = parseInt(data.comment_settings.max_chars, 10) || maxChars;
+            }
+            if (typeof data.comment_settings.allow_rich_embeds === 'boolean') {
+              allowRichEmbeds = data.comment_settings.allow_rich_embeds;
+            }
+            if (data.comment_settings.preview_url) {
+              activePreviewUrl = data.comment_settings.preview_url;
+            }
+            if (mainEditorApi) {
+              mainEditorApi.setLimits(maxChars, activePreviewUrl);
+            }
             if (data.comment_settings.requires_captcha && form) {
               const widget = captchaWrapper ? captchaWrapper.querySelector('.js-captcha-widget') : null;
               const hasLoaded = widget && widget.querySelector('input[name="captcha_id"]')?.value;
@@ -340,6 +775,7 @@
                 loadReplies(c.id);
               }
             });
+            renderRichContent(itemsList);
           }
 
           if (currentPage < totalPages && paginationArea) {
@@ -368,12 +804,24 @@
             data.items.forEach(r => {
               container.appendChild(renderCommentCard(r, true, rootId));
             });
+            renderRichContent(container);
           }
         });
     }
 
     // 1. 表单提交
     if (form) {
+      const mainTextarea = form.querySelector('textarea[name="content"]');
+      if (mainTextarea) {
+        mainEditorApi = createCommentEditorUI({
+          textarea: mainTextarea,
+          maxChars,
+          allowRichEmbeds,
+          previewUrl: activePreviewUrl,
+          compact: false,
+        });
+      }
+
       form.addEventListener('submit', function (e) {
         e.preventDefault();
         if (!postUrl) return;
@@ -400,6 +848,7 @@
               showAlert('评论发表成功！' + (data.data && data.data.is_publicly_visible ? '' : '已提交审核，通过后将公开显示。'), true);
               const textarea = form.querySelector('textarea[name="content"]');
               if (textarea) textarea.value = '';
+              if (mainEditorApi) mainEditorApi.reset();
               if (requestKeyInput) requestKeyInput.value = '';
               resetReplyTarget();
               if (requiresCaptcha && captchaWrapper) {
@@ -469,15 +918,20 @@
         return;
       }
 
-      // 点赞事件委托
+      // 点赞 / 点踩事件委托
       const reactBtn = e.target.closest('.react-btn');
       if (reactBtn) {
         e.preventDefault();
+        if (reactBtn.disabled) return;
+        const card = reactBtn.closest('.comment-card');
+        if (card && card._reactInFlight) return;
         const cid = reactBtn.getAttribute('data-id');
-        const wasLiked = reactBtn.getAttribute('data-liked') === '1';
-        const nextReaction = wasLiked ? '0' : '1';
+        const targetVal = parseInt(reactBtn.getAttribute('data-reaction') || '1', 10);
+        const wasActive = reactBtn.classList.contains('is-reacted');
+        const nextReaction = wasActive ? 0 : targetVal;
+        if (card) card._reactInFlight = true;
         const formData = new FormData();
-        formData.append('reaction', nextReaction);
+        formData.append('reaction', String(nextReaction));
         fetch(buildActionUrl(reactUrlTpl, cid), {
           method: 'POST',
           credentials: 'same-origin',
@@ -488,22 +942,36 @@
         })
           .then(parseJsonResponse)
           .then(({ ok, data }) => {
+            if (card) card._reactInFlight = false;
             if (ok && data && data.status === 'success' && data.data) {
-              const likeSpan = reactBtn.querySelector('.like-num');
-              if (likeSpan) likeSpan.textContent = data.data.like_count;
-              const nowLiked = nextReaction === '1';
-              reactBtn.setAttribute('data-liked', nowLiked ? '1' : '0');
-              reactBtn.classList.toggle('is-reacted', nowLiked);
+              const footer = reactBtn.closest('.comment-card-footer');
+              if (footer) {
+                const likeBtnEl = footer.querySelector('.react-like-btn');
+                const dislikeBtnEl = footer.querySelector('.react-dislike-btn');
+                const likeSpan = footer.querySelector('.like-num');
+                const dislikeSpan = footer.querySelector('.dislike-num');
+                if (likeSpan && data.data.like_count !== undefined) likeSpan.textContent = data.data.like_count;
+                if (dislikeSpan && data.data.dislike_count !== undefined) dislikeSpan.textContent = data.data.dislike_count;
+                if (likeBtnEl) {
+                  const activeLike = nextReaction === 1;
+                  likeBtnEl.classList.toggle('is-reacted', activeLike);
+                  likeBtnEl.setAttribute('aria-pressed', activeLike ? 'true' : 'false');
+                }
+                if (dislikeBtnEl) {
+                  const activeDislike = nextReaction === -1;
+                  dislikeBtnEl.classList.toggle('is-reacted', activeDislike);
+                  dislikeBtnEl.setAttribute('aria-pressed', activeDislike ? 'true' : 'false');
+                }
+              }
             } else {
               const errMsg = (data && data.message) || '操作失败，请先登录后重试。';
               showCardFeedback(reactBtn, errMsg, false);
-              showAlert(errMsg, false);
             }
           })
           .catch(() => {
+            if (card) card._reactInFlight = false;
             const errMsg = '网络异常，互动操作失败，请稍后重试。';
             showCardFeedback(reactBtn, errMsg, false);
-            showAlert(errMsg, false);
           });
         return;
       }
@@ -555,9 +1023,9 @@
         editForm.className = 'comment-inline-edit-form';
         const ta = document.createElement('textarea');
         ta.className = 'comment-textarea comment-inline-edit-textarea';
-        ta.rows = 3;
+        ta.rows = 4;
         ta.required = true;
-        ta.maxLength = 2000;
+        ta.maxLength = maxChars;
         ta.value = rawContent;
         const btnRow = document.createElement('div');
         btnRow.className = 'comment-inline-edit-actions';
@@ -574,6 +1042,14 @@
         btnRow.appendChild(cancelBtn);
         editForm.appendChild(ta);
         editForm.appendChild(btnRow);
+
+        createCommentEditorUI({
+          textarea: ta,
+          maxChars,
+          allowRichEmbeds,
+          previewUrl: activePreviewUrl,
+          compact: true,
+        });
 
         editForm.addEventListener('submit', function (ev) {
           ev.preventDefault();
