@@ -208,6 +208,79 @@
         });
     }
 
+    function closeOtherDialogs(exceptDialog) {
+        var openDialogs = document.querySelectorAll("dialog[open]");
+        openDialogs.forEach(function (dlg) {
+            if (dlg === exceptDialog) return;
+            if (typeof dlg.close === "function") {
+                dlg.close();
+            } else {
+                dlg.removeAttribute("open");
+            }
+            if (dlg.id) {
+                document.querySelectorAll('[aria-controls="' + dlg.id + '"]').forEach(function (ctrl) {
+                    ctrl.setAttribute("aria-expanded", "false");
+                });
+            }
+        });
+    }
+
+    function initSiteDirectoryDrawer() {
+        var dialog = document.getElementById("site-directory-dialog");
+        var slot = dialog ? dialog.querySelector("[data-dir-dialog-slot]") : null;
+        var fallback = document.querySelector("[data-dir-fallback]");
+        var openBtn = document.querySelector("[data-dir-open]");
+        var closeBtn = dialog ? dialog.querySelector("[data-dir-close]") : null;
+        var treeHost = document.querySelector("[data-dir-tree-host]");
+
+        if (!dialog || !slot || !fallback || !openBtn || !treeHost) return;
+        if (typeof dialog.showModal !== "function") return;
+        if (dialog.dataset.dirBound === "1") return;
+        dialog.dataset.dirBound = "1";
+
+        // 零 FOUC：将默认闭合的降级容器内唯一树节点原位迁入 <dialog>，并切换触发按钮
+        fallback.open = false;
+        slot.appendChild(treeHost);
+        fallback.hidden = true;
+        openBtn.hidden = false;
+
+        function closeDrawer() {
+            if (dialog.open) {
+                dialog.close();
+            }
+            openBtn.setAttribute("aria-expanded", "false");
+        }
+
+        openBtn.addEventListener("click", function () {
+            if (dialog.open) {
+                closeDrawer();
+                return;
+            }
+            closeOtherDialogs(dialog);
+            var navCheck = document.getElementById("nav-toggle-check");
+            if (navCheck && navCheck.checked) {
+                navCheck.checked = false;
+            }
+            setThemeMenuOpen(false);
+            dialog.showModal();
+            openBtn.setAttribute("aria-expanded", "true");
+        });
+
+        if (closeBtn) {
+            closeBtn.addEventListener("click", closeDrawer);
+        }
+
+        dialog.addEventListener("click", function (evt) {
+            if (evt.target === dialog) {
+                closeDrawer();
+            }
+        });
+
+        dialog.addEventListener("close", function () {
+            openBtn.setAttribute("aria-expanded", "false");
+        });
+    }
+
     function mountSelects(root) {
         if (typeof window.TomSelect !== "function") return;
         var nodes = (root || document).querySelectorAll("select[data-ui-select]");
@@ -347,6 +420,7 @@
 
     document.addEventListener("DOMContentLoaded", function () {
         initThemeController();
+        initSiteDirectoryDrawer();
         initHtmxCsrf();
         mountAll(document);
     });

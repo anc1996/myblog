@@ -77,6 +77,57 @@ def list_registered_page_models() -> list[type]:
     return models_out
 
 
+def list_directory_index_models() -> list[type]:
+    """
+    动态发现全站栏目目录树应纳入的层级列表模型。
+    仅以具体 Page + HierarchicalListingMixin + include_in_site_directory 判定，
+    严禁硬编码类名后缀或反向导入具体业务应用。
+    """
+    from wagtail.models import Page
+    from discovery.listing.mixins import HierarchicalListingMixin
+
+    models_out: list[type] = []
+    for model_cls in django_apps.get_models():
+        meta = getattr(model_cls, "_meta", None)
+        if meta is None or meta.abstract or meta.proxy:
+            continue
+        if not issubclass(model_cls, Page):
+            continue
+        if not issubclass(model_cls, HierarchicalListingMixin):
+            continue
+        if not getattr(model_cls, "include_in_site_directory", True):
+            continue
+        models_out.append(model_cls)
+    return models_out
+
+
+def get_model_to_type_key_map() -> dict[type, str]:
+    """返回已注册页面模型类到 type_key 的映射（先注册者优先）。"""
+    mapping: dict[type, str] = {}
+    for adapter in _ADAPTER_REGISTRY.values():
+        model_cls = resolve_adapter_model(adapter)
+        type_key = getattr(adapter, "type_key", None)
+        if model_cls is not None and type_key and model_cls not in mapping:
+            mapping[model_cls] = type_key
+    return mapping
+
+
+def get_directory_index_type_keys() -> list[str]:
+    """获取所有全站目录栏目模型对应的去重 type_key 列表。"""
+    directory_models = set(list_directory_index_models())
+    if not directory_models:
+        return []
+    keys: list[str] = []
+    seen: set[str] = set()
+    for adapter in _ADAPTER_REGISTRY.values():
+        model_cls = resolve_adapter_model(adapter)
+        type_key = getattr(adapter, "type_key", None)
+        if model_cls in directory_models and type_key and type_key not in seen:
+            seen.add(type_key)
+            keys.append(type_key)
+    return keys
+
+
 def get_feed_enabled_type_keys() -> list[str]:
     """获取所有开启了 RSS/Atom 订阅能力的页面类型 key 列表"""
     keys = []

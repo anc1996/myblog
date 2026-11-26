@@ -135,6 +135,23 @@
         if (openBtn && dialog && typeof dialog.showModal === "function") {
             openBtn.addEventListener("click", function () {
                 if (!dialog.open) {
+                    document.querySelectorAll("dialog[open]").forEach(function (other) {
+                        if (other === dialog) return;
+                        if (typeof other.close === "function") {
+                            other.close();
+                        } else {
+                            other.removeAttribute("open");
+                        }
+                        if (other.id) {
+                            document.querySelectorAll('[aria-controls="' + other.id + '"]').forEach(function (ctrl) {
+                                ctrl.setAttribute("aria-expanded", "false");
+                            });
+                        }
+                    });
+                    var navCheck = document.getElementById("nav-toggle-check");
+                    if (navCheck && navCheck.checked) {
+                        navCheck.checked = false;
+                    }
                     dialog.showModal();
                     openBtn.setAttribute("aria-expanded", "true");
                 }

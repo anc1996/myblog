@@ -24,7 +24,14 @@ class HomePage(Page):
         context = super().get_context(request, *args, **kwargs)
         from content_lifecycle.models import RecycleEntry
         from content_lifecycle.public_access import get_public_blocked_page_ids
+        from discovery.detail_navigation import _get_nested_site_root_paths
         from discovery.models import PublishedSearchTag, PublishedSearchDocument
+        from discovery.navigation import (
+            build_tag_detail_url,
+            find_primary_entry_urls,
+            get_site_directory_tree,
+            resolve_tag_index_page,
+        )
         from discovery.registry import get_model_for_type_key
         from wagtail.models import PageViewRestriction, Site
 
@@ -71,6 +78,16 @@ class HomePage(Page):
                     break
             return selected_ids
 
+        # 0. 解析站点标签大厅（单请求共享复用，不跨站）
+        tag_index_obj = resolve_tag_index_page(request, page=self, site=site)
+        tag_index_url = ""
+        if tag_index_obj is not None:
+            try:
+                tag_index_url = (tag_index_obj.get_url(request) if request else tag_index_obj.url) or ""
+            except Exception:
+                tag_index_url = getattr(tag_index_obj, "url", "") or ""
+        context["tag_index_url"] = tag_index_url
+
         # 1. 最新发布博客文章 (前 6 篇，严格限定当前站点根子树与公开资格)
         recycled_subq = RecycleEntry.objects.filter(
             page_id=OuterRef("id"),
@@ -91,6 +108,9 @@ class HomePage(Page):
                 .filter(~Exists(recycled_subq) & ~Exists(restricted_subq))
                 .order_by("-authored_on", "-id")
             )
+            if site is not None:
+                for np in _get_nested_site_root_paths(site):
+                    latest_qs = latest_qs.exclude(path__startswith=np)
             latest_ids = _select_public_pages(latest_qs, 6)
             article_qs = article_model.objects.filter(id__in=latest_ids).select_related("featured_image").prefetch_related("tags")
             if hasattr(article_model, "authors"):
@@ -110,6 +130,16 @@ class HomePage(Page):
                 author_enabled = getattr(settings, "AUTHOR_DISCOVERY_ENABLED", True)
                 for art in latest_articles:
                     art.public_view_count = pv_map.get(art.id) if (pv_map is not None and art.id in pv_map) else None
+                    art.display_tags = [
+                        {
+                            "name": t.name,
+                            "slug": t.slug,
+                            "url": build_tag_detail_url(
+                                tag_index_obj, t.slug, base_url=tag_index_url, request=request
+                            ),
+                        }
+                        for t in art.tags.all()
+                    ]
                     if author_enabled and hasattr(art, "authors"):
                         raw_refs = extract_raw_author_refs_from_page(art)
                         resolved = resolve_author_attributions(
@@ -153,25 +183,13 @@ class HomePage(Page):
             context["featured_guides"] = []
             context["featured_projects"] = []
 
-        # 3. 博客核心栏目（限定当前站点子树与公开资格）
-        column_model = get_model_for_type_key("blog_index")
-        if column_model is not None:
-            col_qs = (
-                column_model.objects.filter(
-                    live=True,
-                    is_recycled=False,
-                    alias_of__isnull=True,
-                    path__startswith=root_path,
-                    depth__gt=root_depth,
-                )
-                .filter(~Exists(recycled_subq) & ~Exists(restricted_subq))
-                .order_by("-id")
-            )
-            col_ids = _select_public_pages(col_qs, 6)
-            cols_by_id = {c.id: c for c in column_model.objects.filter(id__in=col_ids)}
-            context["columns"] = [cols_by_id[cid] for cid in col_ids if cid in cols_by_id]
-        else:
-            context["columns"] = []
+        # 3. 共享多类型栏目目录树（与全站左侧抽屉同源，按 type_key 派生各入口 URL，零页面硬编码）
+        directory_tree = get_site_directory_tree(request, site=site, page=self)
+        context["directory_tree"] = directory_tree
+        primary_urls = find_primary_entry_urls(directory_tree)
+        context["primary_blog_url"] = primary_urls.get("blog_index", "")
+        context["guide_index_url"] = primary_urls.get("guide_index", "")
+        context["portfolio_index_url"] = primary_urls.get("portfolio_index", "")
 
         # 4. 当前站点热门技术标签 (前 15 个活跃公开标签，过滤跨站与祖先受限/回收/未上线文档)
         doc_recycled_subq = RecycleEntry.objects.filter(
@@ -190,7 +208,8 @@ class HomePage(Page):
             .filter(~Exists(doc_recycled_subq) & ~Exists(doc_restricted_subq))
         )
         if site is not None:
-            eligible_docs = eligible_docs.filter(Q(site_id=site.id) | Q(site_id__isnull=True))
+            for np in _get_nested_site_root_paths(site):
+                eligible_docs = eligible_docs.exclude(root_path__startswith=np)
 
         # 在 SQL 层面剔除受限/回收/未上线分支祖先路径，防止祖先隐私穿透到标签统计
         bad_paths: set[str] = set()
@@ -235,7 +254,14 @@ class HomePage(Page):
             if sample_docs:
                 blocked = get_public_blocked_page_ids(sample_docs)
                 if any(pid not in blocked for pid, _ in sample_docs):
-                    verified_tags.append(tc)
+                    tc_item = dict(tc)
+                    tc_item["url"] = build_tag_detail_url(
+                        tag_index_obj,
+                        tc_item.get("tag_slug"),
+                        base_url=tag_index_url,
+                        request=request,
+                    )
+                    verified_tags.append(tc_item)
                     if len(verified_tags) >= 15:
                         break
         context["popular_tags"] = verified_tags

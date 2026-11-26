@@ -39,6 +39,7 @@ urlpatterns = [
     path("", include("media_library.urls")),
     path("documents/", include(wagtaildocs_urls)),
     path("authors/", include("people.urls")),
+    path("search/tags-lookup/", search_views.tag_lookup_view, name="search_tags_lookup"),
     path("search/", search_views.search, name="search"),
     path("timeline/", timeline_view, name="timeline"),
     path("archive/", legacy_archive_redirect_view, name="legacy_archive_redirect"),

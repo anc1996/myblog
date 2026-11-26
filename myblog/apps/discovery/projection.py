@@ -327,8 +327,30 @@ def sync_subtree_tree_metadata(root_page: Any) -> int:
         depth__gt=db_root.depth,
     ).values("id", "path", "depth", "url_path")
 
+    from wagtail.models import Site
+    site_roots: list[tuple[str, int]] = []
+    for s in Site.objects.select_related("root_page").all():
+        rp = getattr(s, "root_page", None)
+        if rp is not None and getattr(rp, "path", None):
+            site_roots.append((rp.path, s.id))
+    # 最长路径前缀优先匹配，确保嵌套子站点拿到自己的 site_id
+    site_roots.sort(key=lambda item: len(item[0]), reverse=True)
+
+    def _resolve_site_id_for_path(page_path: str) -> int | None:
+        for root_p, sid in site_roots:
+            if page_path.startswith(root_p):
+                return sid
+        return None
+
     updated_count = 0
     with transaction.atomic():
+        root_site_id = _resolve_site_id_for_path(db_root.path)
+        PublishedSearchDocument.objects.filter(page_id=db_root.id).update(
+            root_path=db_root.path,
+            depth=db_root.depth,
+            site_id=root_site_id,
+        )
+
         for d in descendants:
             page_id = d["id"]
             # 获取规范化公开 URL
@@ -342,6 +364,7 @@ def sync_subtree_tree_metadata(root_page: Any) -> int:
                 root_path=d["path"],
                 depth=d["depth"],
                 url_path=url_path,
+                site_id=_resolve_site_id_for_path(d["path"]),
             )
             updated_count += cnt
 

@@ -1,0 +1,25 @@
+{% if directory_tree %}
+<div class="site-dir-anchor">
+    <details class="site-dir-nojs" data-dir-fallback>
+        <summary class="site-dir-trigger" aria-label="打开全站栏目目录">
+            <span aria-hidden="true">📂</span>
+            <span>栏目目录</span>
+        </summary>
+        <div class="site-dir-fallback-panel" data-dir-tree-host>
+            <nav class="site-dir-nav" aria-label="全站栏目目录">
+                {% include "includes/_site_directory_tree.html" with nodes=directory_tree %}
+            </nav>
+        </div>
+    </details>
+    <button type="button"
+            class="site-dir-trigger"
+            data-dir-open
+            aria-haspopup="dialog"
+            aria-controls="site-directory-dialog"
+            aria-expanded="false"
+            hidden>
+        <span aria-hidden="true">📂</span>
+        <span>栏目目录</span>
+    </button>
+</div>
+{% endif %}

@@ -355,15 +355,67 @@ class ContentQuery:
 
                 # D4-A: 获取直接子栏目导航项
                 if spec.include_listing_scope:
-                    child_indexes_qs = PublishedSearchDocument.objects.filter(
-                        root_path__startswith=root_doc.root_path,
-                        depth=root_doc.depth + 1,
-                        type_key__endswith="_index",
-                        is_live=True,
-                        is_recycled=False,
-                    ).order_by("title", "page_id")
+                    from wagtail.models import Page as WagtailPage, Site as WagtailSite
+                    from discovery.detail_navigation import _get_nested_site_root_paths
+                    from discovery.registry import get_directory_index_type_keys
+
+                    nav_type_keys = (
+                        list(spec.navigation_type_keys)
+                        if spec.navigation_type_keys
+                        else get_directory_index_type_keys()
+                    )
+                    db_root_page = WagtailPage.objects.filter(id=spec.root_page_id).first()
+                    resolved_site = None
+                    if spec.site_id is not None:
+                        resolved_site = (
+                            WagtailSite.objects.select_related("root_page")
+                            .filter(id=spec.site_id)
+                            .first()
+                        )
+                    if resolved_site is None and db_root_page is not None:
+                        try:
+                            resolved_site = db_root_page.get_site()
+                        except Exception:
+                            resolved_site = None
+
+                    # 若同时存在 spec.site_id 与 root_page 归属站点且两者冲突，拒绝越权列举
+                    site_conflict = False
+                    if spec.site_id is not None and db_root_page is not None:
+                        try:
+                            page_site = db_root_page.get_site()
+                            if page_site is not None and page_site.id != spec.site_id:
+                                site_conflict = True
+                        except Exception:
+                            pass
+
+                    if site_conflict or not nav_type_keys:
+                        child_indexes_qs = PublishedSearchDocument.objects.none()
+                    else:
+                        child_indexes_qs = PublishedSearchDocument.objects.filter(
+                            root_path__startswith=root_doc.root_path,
+                            depth=root_doc.depth + 1,
+                            type_key__in=nav_type_keys,
+                            is_live=True,
+                            is_recycled=False,
+                        )
+                        if resolved_site is not None and getattr(resolved_site, "root_page", None):
+                            child_indexes_qs = child_indexes_qs.filter(
+                                root_path__startswith=resolved_site.root_page.path
+                            )
+                            for nested_path in _get_nested_site_root_paths(resolved_site):
+                                child_indexes_qs = child_indexes_qs.exclude(
+                                    root_path__startswith=nested_path
+                                )
+                        child_indexes_qs = apply_public_eligibility_filter(child_indexes_qs).order_by(
+                            "title", "page_id"
+                        )
+
                     child_indexes = list(child_indexes_qs[:50])
-                    navigation_total_count = child_indexes_qs.count()
+                    navigation_total_count = (
+                        len(child_indexes)
+                        if len(child_indexes) < 50
+                        else child_indexes_qs.count()
+                    )
                     navigation_items = [
                         {
                             "page_id": c.page_id,

@@ -76,6 +76,7 @@ class IndexListingService:
             tree_scope="descendants" if filters.include_descendants else "children",
             include_root=False,
             include_listing_scope=True,
+            navigation_type_keys=list(getattr(policy, "navigation_type_keys", ()) or ()),
             date_from=filters.date_from,
             date_to=filters.date_to,
             sort=filters.sort,

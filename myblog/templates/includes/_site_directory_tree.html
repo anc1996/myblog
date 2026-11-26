@@ -1,0 +1,32 @@
+{% if nodes %}
+<ul class="site-dir-list">
+    {% for node in nodes %}
+        {% if node.children %}
+        <li class="site-dir-item is-branch{% if node.is_active %} is-active{% endif %}{% if node.is_ancestor %} is-ancestor{% endif %}">
+            <div class="site-dir-branch-wrap">
+                <a href="{{ node.url }}"
+                   class="site-dir-link site-dir-branch-link"{% if node.is_active %} aria-current="page"{% endif %}>
+                    {{ node.title }}
+                </a>
+                <details class="site-dir-branch-details"{% if node.is_active or node.is_ancestor %} open{% endif %}>
+                    <summary class="site-dir-branch-toggle" aria-label="展开或收起 {{ node.title }} 子栏目">
+                        <span class="site-dir-caret" aria-hidden="true">▸</span>
+                    </summary>
+                    {% include "includes/_site_directory_tree.html" with nodes=node.children %}
+                </details>
+            </div>
+        </li>
+        {% else %}
+        <li class="site-dir-item{% if node.is_active %} is-active{% endif %}">
+            <div class="site-dir-row">
+                <span class="site-dir-leaf-dot" aria-hidden="true">•</span>
+                <a href="{{ node.url }}"
+                   class="site-dir-link"{% if node.is_active %} aria-current="page"{% endif %}>
+                    {{ node.title }}
+                </a>
+            </div>
+        </li>
+        {% endif %}
+    {% endfor %}
+</ul>
+{% endif %}

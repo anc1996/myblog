@@ -1,7 +1,7 @@
 /* 全站作者专栏大厅与作者个人专栏样式（适配浅色/深色主题与窄屏响应式） */
 
 .author-shell {
-    max-width: 1120px;
+    max-width: min(1360px, calc(100vw - 48px));
     margin: 0 auto;
     padding: 24px 16px 48px;
 }

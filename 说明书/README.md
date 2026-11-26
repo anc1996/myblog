@@ -1,6 +1,6 @@
 # myblog 项目工程与技术规范入口
 
-更新日期：2026-11-26。**全站 19 个业务子应用、58 份自动化测试文件及核心架构已落地；自 2026-11-24 起项目遵循《AGENTS.md》中借鉴 WordPress 四层解耦思想的防写死/防过度设计铁律（不再为个人站点叠加多库/大并发子系统）**。
+更新日期：2026-11-26。**全站 19 个业务子应用、60 份自动化测试文件及核心架构已落地；自 2026-11-24 起项目遵循《AGENTS.md》中借鉴 WordPress 四层解耦思想的防写死/防过度设计铁律（不再为个人站点叠加多库/大并发子系统）**。
 
 ## 建议阅读顺序
 
@@ -55,9 +55,11 @@
   - `BlogIndexPage` 新增可选 `featured_image` 并升级 `intro` 为 `RichTextField`（含 `blog.0006` 历史纯文本转义迁移、`collect_media_references` 媒体引用登记与自动公开、适配器纯文本提取与净化渲染）；
   - `CustomImage` 新增可选 `caption`、`CustomDocument` 新增可选 `description`（`media_library.0004`），正文块继续以块级字段为主不回退读取库字段；
   - 列表/搜索/标签/作者/首页卡片通过通用 `PublishedPayload.extra_data["cover_public_id"]` 渲染「左图右文」封面（无封面不留占位），`detail_shell.html` 在有 `featured_image` 时展示标题背景横幅图（带昼夜自适应渐变遮罩）。
-- **测试与质量**：`tests/` 目录现含 **58 份自动化测试文件**；各新增功能均需通过 `MYBLOG_ENV_FILE=.env.test python -B manage.py check`、`makemigrations --check --dry-run` 及定向回归测试。
+- **生产数据幂等 ETL 迁移工具（2026-11-26 Phase 2）**：
+  - 新增 `scripts/migrate_from_wagtailblog3.py` 与 `scripts/etl_wagtailblog3/`（`remote_export.py`、`transformer.py`、`loader.py`），支持 `--export`（只读抽取与 SHA-256 核验）、`--dry-run`（零写入预检）、`--apply`（目标库隔离守卫 + `OperationResult` 与 MongoDB `operation_id` 双重幂等 + 拓扑建树与发布）及 `--reconcile`（全量数量与 RustFS 物理文件对账），并已在独立暂存库 `myblog_staging` 完成首次迁移、二次幂等重放与全量对账。
+- **测试与质量**：`tests/` 目录现含 **60 份自动化测试文件**；各新增功能均需通过 `MYBLOG_ENV_FILE=.env.test python -B manage.py check`、`makemigrations --check --dry-run` 及定向回归测试。
 - **前端与交互闭环**：
-  - **全局响应式导航、浅深色主题与公共 UI 组件**：绑定 `site_settings`，支持 `data-theme="light|dark"` 切换与防闪烁恢复；通过 `vendor.lock.json` 统一挂载 `Alpine.js`、`HTMX`、`Tom Select`、`Flatpickr` 与 `Splide`；
+  - **全局响应式导航、全站左侧栏目目录抽屉与浅深色主题**：顶栏保持扁平全局入口与 `📂 栏目目录` 触发按钮（零首屏闪烁、无 JS 自动降级为闭合 `<details>` 面板，且与详情页左栏 TOC `<dialog>` 双向互斥）；全站所有继承 `HierarchicalListingMixin` 的公开栏目页（`BlogIndexPage`/`GuideIndexPage`/`PortfolioIndexPage` 及未来新增 `XxxIndexPage`）由 `discovery.navigation` 自动构建唯一多级目录树，不再依赖 `show_in_menus=True`；首页「博客目录与分类」与页脚「核心大厅」共用该目录树并支持二级直显、三级及更深原地折叠；同步修复 `discovery/query.py` 与 `projection.py` 跨站移动后 `site_id` 同步、站点前缀边界及受限子栏目计数防泄漏；
   - **全站共享详情壳层、三栏互动与单次服务端 TOC 目录 (`detail_shell.html`)**：统一服务 `BlogPage`、`GuidePage`、`ProjectPage` 及后续 `XxPage`；后端单遍提取 `h1`–`h4` 与 `step` 锚点并注入 `[data-cb-block]` 防溢出容器，桌面宽屏（`>=1280px`，最高 `1800px` 居中适配全屏）采用「可折叠左侧 sticky 目录 + 主文/评价/上下篇/评论区 + 右侧作者名片/标签/公告或推荐」三栏布局，手机/iPad（`<=1024px`）使用粘性触发栏 + 原生 `<dialog>` 抽屉；标签统一反解本站 `TagIndexPage` 详情路由；
   - **详情页四级树形目录与动态定位**：`build_detail_presentation()` 构建 `h2→h3→h4`（兼容 `h1` 最多 4 级）可折叠树形目录；`detail-toc.js` 通过 `ResizeObserver` 动态测量顶部遮挡高度驱动 `--detail-anchor-offset`，提供「回到顶部」「正文开头」与精确阅读线高亮，窄屏无 JS 自动降级为原生 `<details>` 目录；
   - **首页综合门户**：Hero 标语导引 + Splide 精选轮播 + 文章流 + 专栏推荐 + 开源项目 + 热门标签云；

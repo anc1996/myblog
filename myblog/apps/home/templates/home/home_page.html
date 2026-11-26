@@ -19,9 +19,13 @@
             基于 Django 6 + Wagtail 8.1 + PostgreSQL 18 构建，全面贯彻正文脱水、多维检索、不可变版本与全站知识图谱。
         </p>
         <div class="home-hero-actions">
-            <a href="/tech/" class="ui-btn ui-btn-primary">浏览技术博客 &rarr;</a>
-            <a href="/guides/" class="ui-btn home-hero-btn-outline">查看专题指南</a>
-            <a href="/search/" class="ui-btn home-hero-btn-outline">全站中文搜索</a>
+            {% if primary_blog_url %}
+            <a href="{{ primary_blog_url }}" class="ui-btn ui-btn-primary">浏览技术博客 &rarr;</a>
+            {% endif %}
+            {% if guide_index_url %}
+            <a href="{{ guide_index_url }}" class="ui-btn home-hero-btn-outline">查看专题指南</a>
+            {% endif %}
+            <a href="{% url 'search' %}" class="ui-btn home-hero-btn-outline">全站中文搜索</a>
         </div>
     </div>
 
@@ -62,7 +66,9 @@
         <div class="home-main-col">
             <div class="home-section-title">
                 <span>最新发布文章</span>
-                <a href="/tech/" class="home-section-more">查看全部文章 &rarr;</a>
+                {% if primary_blog_url %}
+                <a href="{{ primary_blog_url }}" class="home-section-more">查看全部文章 &rarr;</a>
+                {% endif %}
             </div>
 
             {% if latest_articles %}
@@ -89,10 +95,14 @@
                         {% if article.public_view_count is not None %}
                             <span class="listing-meta-pv" title="累计阅读次数">👁️ {{ article.public_view_count }} 次阅读</span>
                         {% endif %}
-                        {% if article.tags.all %}
+                        {% if article.display_tags %}
                             <span>
-                                {% for tag in article.tags.all %}
-                                    <a href="/tags/{{ tag.slug }}/" class="home-tag-chip">#{{ tag.name }}</a>
+                                {% for tag in article.display_tags %}
+                                    {% if tag.url %}
+                                    <a href="{{ tag.url }}" class="home-tag-chip">#{{ tag.name }}</a>
+                                    {% else %}
+                                    <span class="home-tag-chip">#{{ tag.name }}</span>
+                                    {% endif %}
                                 {% endfor %}
                             </span>
                         {% endif %}
@@ -112,19 +122,39 @@
                 </div>
             {% endif %}
 
-            {# 核心栏目目录 #}
-            {% if columns %}
+            {# 核心栏目目录（N-03：全类型层级卡片，默认展开二级，三级及更深支持原地折叠） #}
+            {% if directory_tree %}
             <div class="home-section-title mt-4">
                 <span>博客目录与分类</span>
             </div>
             <div class="home-columns-grid">
-                {% for col in columns %}
-                <div class="home-column-card">
-                    <h4>
-                        <a href="{% pageurl col %}">{{ col.title }}</a>
-                    </h4>
-                    <p>{{ col.intro|striptags|truncatechars:60 }}</p>
-                </div>
+                {% for l1 in directory_tree %}
+                <article class="home-dir-card">
+                    <h3 class="home-dir-card-title">
+                        <a href="{{ l1.url }}">{{ l1.title }}</a>
+                    </h3>
+                    {% if l1.children %}
+                    <ul class="home-dir-l2-list">
+                        {% for l2 in l1.children %}
+                        <li class="home-dir-l2-item{% if l2.children %} has-children{% endif %}">
+                            {% if l2.children %}
+                            <div class="site-dir-branch-wrap">
+                                <a href="{{ l2.url }}" class="site-dir-link site-dir-branch-link">{{ l2.title }}</a>
+                                <details class="site-dir-branch-details">
+                                    <summary class="site-dir-branch-toggle" aria-label="展开或收起 {{ l2.title }} 子栏目">
+                                        <span class="site-dir-caret" aria-hidden="true">▸</span>
+                                    </summary>
+                                    {% include "includes/_site_directory_tree.html" with nodes=l2.children %}
+                                </details>
+                            </div>
+                            {% else %}
+                            <a href="{{ l2.url }}" class="home-dir-l2-link">{{ l2.title }}</a>
+                            {% endif %}
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    {% endif %}
+                </article>
                 {% endfor %}
             </div>
             {% endif %}
@@ -136,14 +166,22 @@
             <div class="home-sidebar-widget">
                 <div class="home-widget-header">
                     <h4>🏷️ 热门标签云</h4>
-                    <a href="/tags/" class="home-section-more">全部标签 &rarr;</a>
+                    {% if tag_index_url %}
+                    <a href="{{ tag_index_url }}" class="home-section-more">全部标签 &rarr;</a>
+                    {% endif %}
                 </div>
                 {% if popular_tags %}
                 <div class="home-tag-cloud">
                     {% for pt in popular_tags %}
-                        <a href="/tags/{{ pt.tag_slug }}/" class="home-tag-chip">
+                        {% if pt.url %}
+                        <a href="{{ pt.url }}" class="home-tag-chip">
                             #{{ pt.tag_name }} <span class="text-muted">{{ pt.count }}</span>
                         </a>
+                        {% else %}
+                        <span class="home-tag-chip">
+                            #{{ pt.tag_name }} <span class="text-muted">{{ pt.count }}</span>
+                        </span>
+                        {% endif %}
                     {% endfor %}
                 </div>
                 {% else %}
@@ -156,7 +194,9 @@
             <div class="home-sidebar-widget">
                 <div class="home-widget-header">
                     <h4>📚 精选专题指南</h4>
-                    <a href="/guides/" class="home-section-more">查看专栏 &rarr;</a>
+                    {% if guide_index_url %}
+                    <a href="{{ guide_index_url }}" class="home-section-more">查看专栏 &rarr;</a>
+                    {% endif %}
                 </div>
                 <ul class="home-widget-list">
                     {% for g in featured_guides %}
@@ -179,7 +219,9 @@
             <div class="home-sidebar-widget">
                 <div class="home-widget-header">
                     <h4>💻 精选开源项目</h4>
-                    <a href="/portfolio/" class="home-section-more">全部作品 &rarr;</a>
+                    {% if portfolio_index_url %}
+                    <a href="{{ portfolio_index_url }}" class="home-section-more">全部作品 &rarr;</a>
+                    {% endif %}
                 </div>
                 <ul class="home-widget-list">
                     {% for p in featured_projects %}
@@ -204,8 +246,8 @@
                     支持 RSS 2.0 与 Atom 1.0 标准协议，文章与专栏更新即时推送到你的阅读器。
                 </p>
                 <div class="home-sub-actions">
-                    <a href="/feeds/" class="ui-btn ui-btn-sm ui-btn-primary">RSS 2.0</a>
-                    <a href="/feeds/atom/" class="ui-btn ui-btn-sm ui-btn-outline">Atom 1.0</a>
+                    <a href="{% url 'discovery:feed_all' %}" class="ui-btn ui-btn-sm ui-btn-primary">RSS 2.0</a>
+                    <a href="{% url 'discovery:feed_atom_all' %}" class="ui-btn ui-btn-sm ui-btn-outline">Atom 1.0</a>
                 </div>
             </div>
         </aside>

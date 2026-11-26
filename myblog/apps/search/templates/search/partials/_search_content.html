@@ -187,7 +187,12 @@
 
         {% if tag_facet_items %}
         <div class="search-facet-group">
-            <strong class="search-facet-title">热门标签（支持多选）</strong>
+            <div class="search-facet-title-row">
+                <strong class="search-facet-title">热门标签（前 20 个）</strong>
+                {% if has_more_tags and tag_directory_url %}
+                <a href="{{ tag_directory_url }}" class="search-more-tags-link">更多 ({{ total_tag_facets_count }}) &rarr;</a>
+                {% endif %}
+            </div>
             <ul class="search-facet-list">
                 {% for tg in tag_facet_items %}
                 <li>
@@ -201,6 +206,11 @@
                 </li>
                 {% endfor %}
             </ul>
+            {% if has_more_tags and tag_directory_url %}
+            <div class="search-facet-footer">
+                <a href="{{ tag_directory_url }}" class="ui-btn ui-btn-sm ui-btn-outline search-facet-more-btn">查看全部 {{ total_tag_facets_count }} 个标签 &rarr;</a>
+            </div>
+            {% endif %}
         </div>
         {% endif %}
 

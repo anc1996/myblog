@@ -2,9 +2,17 @@
 
 import json
 from django import template
+from django.conf import settings
+from django.urls import NoReverseMatch, reverse
 from wagtail.models import Page, Site
 
 from content_lifecycle.public_access import get_public_blocked_page_ids
+from discovery.navigation import (
+    annotate_active_directory_tree,
+    get_site_directory_tree,
+    resolve_site_for_navigation,
+    resolve_tag_index_page,
+)
 from site_settings.models import SiteThemeSettings, SocialMediaSettings
 
 register = template.Library()
@@ -93,6 +101,86 @@ def nav_has_url(nav_items, target_path: str) -> bool:
         if raw_url.rstrip("/") + "/" == norm_target or raw_url.endswith(norm_target):
             return True
     return False
+
+
+@register.simple_tag(takes_context=True)
+def get_site_navigation_data(context, nav_setting) -> dict:
+    """
+    全站顶部扁平导航、左侧栏目目录树与页脚大厅统一数据提供器（N-01 / N-02）：
+    1. 顶栏仅保留全局固定入口（首页/作者/标签/时间线）与 NavigationSettings 扁平项，不再堆放多级栏目；
+    2. 全站所有公开层级列表栏目树（不依赖 show_in_menus）统一交付左侧抽屉 directory_tree；
+    3. 页脚「核心大厅」复用 directory_tree 一级栏目，或回退到 NavigationSettings 有效项。
+    """
+    request = context.get("request")
+    current_page = context.get("page")
+    site = resolve_site_for_navigation(request, page=current_page)
+
+    author_enabled = getattr(settings, "AUTHOR_DISCOVERY_ENABLED", True)
+    raw_tree = get_site_directory_tree(request, site=site, page=current_page)
+    directory_tree = annotate_active_directory_tree(raw_tree, current_page)
+
+    tag_index_url = ""
+    ti = resolve_tag_index_page(request, page=current_page, site=site)
+    if ti is not None:
+        try:
+            tag_index_url = (ti.get_url(request) if request else ti.url) or ""
+        except Exception:
+            tag_index_url = getattr(ti, "url", "") or ""
+
+    def _safe_reverse(name: str, fallback: str) -> str:
+        try:
+            return reverse(name)
+        except NoReverseMatch:
+            return fallback
+
+    home_url = "/"
+    try:
+        home_url = reverse("wagtail_serve", args=("",))
+    except NoReverseMatch:
+        home_url = "/"
+
+    authors_url = _safe_reverse("people:author_directory", "/authors/")
+    timeline_url = _safe_reverse("timeline", "/timeline/")
+
+    configured_items = get_public_nav_items(context, nav_setting)
+    nav_items: list[dict] = [
+        {"label": "首页", "badge": "", "url": home_url, "is_external": False}
+    ]
+    for it in configured_items:
+        nav_items.append({
+            "label": it["label"],
+            "badge": it.get("badge", ""),
+            "url": it["url"],
+            "is_external": bool(it.get("is_external", False)),
+        })
+
+    if author_enabled and not nav_has_url(nav_items, authors_url):
+        nav_items.append({"label": "作者专栏", "badge": "", "url": authors_url, "is_external": False})
+    if tag_index_url and not nav_has_url(nav_items, tag_index_url):
+        nav_items.append({"label": "全站标签", "badge": "", "url": tag_index_url, "is_external": False})
+    if not nav_has_url(nav_items, timeline_url):
+        nav_items.append({"label": "时间线", "badge": "", "url": timeline_url, "is_external": False})
+
+    if directory_tree:
+        footer_hall_items = [{"label": "网站首页", "url": home_url, "is_external": False}] + [
+            {"label": n["title"], "url": n["url"], "is_external": False}
+            for n in directory_tree[:6]
+        ]
+    elif configured_items:
+        footer_hall_items = [{"label": "网站首页", "url": home_url, "is_external": False}] + [
+            {"label": it["label"], "url": it["url"], "is_external": bool(it.get("is_external", False))}
+            for it in configured_items[:5]
+        ]
+    else:
+        footer_hall_items = [{"label": "网站首页", "url": home_url, "is_external": False}]
+
+    return {
+        "home_url": home_url,
+        "nav_items": nav_items,
+        "footer_hall_items": footer_hall_items,
+        "tag_index_url": tag_index_url,
+        "directory_tree": directory_tree,
+    }
 
 
 def _resolve_abs_url(path_or_url: str, site, request) -> str:

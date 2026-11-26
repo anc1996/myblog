@@ -22,6 +22,12 @@
   padding: 0 20px;
 }
 
+/* 详情页加载本文件时，同步让顶部导航栏与页脚对齐 1800px 三栏容器 */
+.site-nav-container,
+.site-footer-container {
+  max-width: min(1800px, calc(100vw - 48px));
+}
+
 .detail-shell.no-toc.no-right {
   max-width: var(--reading-width);
   display: flex;

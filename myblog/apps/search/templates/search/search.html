@@ -24,9 +24,6 @@
             {% if selected_days %}
             <input type="hidden" name="days" value="{{ selected_days }}">
             {% endif %}
-            {% for tg_tok in selected_tag_tokens %}
-            <input type="hidden" name="tag" value="{{ tg_tok }}">
-            {% endfor %}
         </div>
 
         <div class="search-form-top">
@@ -109,6 +106,23 @@
             </div>
             {% endif %}
 
+            <div class="search-tag-filter-group">
+                <select
+                    id="search-tag-select"
+                    name="tag"
+                    multiple
+                    class="ui-select form-select"
+                    data-ui-select
+                    data-ui-select-remote="{{ tag_lookup_url }}"
+                    data-placeholder="按标签筛选（输入标签名搜索，支持多选）"
+                    aria-label="按标签筛选"
+                >
+                    {% for tg_opt in selected_tag_options %}
+                    <option value="{{ tg_opt.value }}" selected>{{ tg_opt.label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
             <div class="listing-date-range">
                 <span class="small text-muted">成文日期：</span>
                 <input
@@ -141,5 +155,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{% static 'search/js/search_controller.js' %}?v=20261123a" defer></script>
+<script src="{% static 'search/js/search_controller.js' %}?v=20261126a" defer></script>
 {% endblock %}

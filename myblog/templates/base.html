@@ -149,7 +149,7 @@
         {# Global stylesheets: Tokens -> Vendor -> Site CSS -> Page Extra CSS #}
         <link rel="stylesheet" type="text/css" href="{% static 'css/themes/tokens.css' %}?v=20261124b">
         {% include "includes/_ui_assets_css.html" %}
-        <link rel="stylesheet" type="text/css" href="{% static 'css/myblog.css' %}?v=20261126b">
+        <link rel="stylesheet" type="text/css" href="{% static 'css/myblog.css' %}?v=20261126e">
 
         {% block extra_css %}
         {# Override this in templates to add extra stylesheets #}
@@ -175,38 +175,27 @@
 
         {# 1. 全局顶部响应式导航栏 (决策一 A) #}
         {% wagtail_site as current_site %}
+        {% get_site_navigation_data settings.site_settings.NavigationSettings as site_nav_data %}
         <header class="site-header">
             <div class="site-nav-container">
-                <a href="/" class="site-brand">
-                    <span class="site-logo">🚀</span>
-                    <span class="site-title">{{ current_site.site_name|default:"myblog" }}</span>
-                </a>
+                <div class="site-brand-group">
+                    {% include "includes/_site_directory_drawer.html" with directory_tree=site_nav_data.directory_tree %}
+                    <a href="{{ site_nav_data.home_url|default:'/' }}" class="site-brand">
+                        <span class="site-logo">🚀</span>
+                        <span class="site-title">{{ current_site.site_name|default:"myblog" }}</span>
+                    </a>
+                </div>
                 <input type="checkbox" id="nav-toggle-check" class="nav-toggle-check" aria-label="切换导航菜单">
                 <label for="nav-toggle-check" class="nav-toggle-btn" aria-label="打开导航菜单">☰</label>
                 <nav class="site-nav">
-                    {% get_public_nav_items settings.site_settings.NavigationSettings as public_nav_items %}
-                    {% if public_nav_items %}
-                        {% for item in public_nav_items %}
-                            <a href="{{ item.url }}" class="nav-link" {% if item.is_external %}target="_blank" rel="noopener"{% endif %}>
-                                {{ item.label }}
-                                {% if item.badge %}<span class="nav-badge">{{ item.badge }}</span>{% endif %}
-                            </a>
-                        {% endfor %}
-                        {% nav_has_url public_nav_items "/authors/" as has_authors_nav %}
-                        {% if not has_authors_nav %}
-                            <a href="/authors/" class="nav-link">作者专栏</a>
-                        {% endif %}
-                    {% else %}
-                        <a href="/" class="nav-link">首页</a>
-                        <a href="/tech/" class="nav-link">技术专栏</a>
-                        <a href="/guides/" class="nav-link">专题指南</a>
-                        <a href="/portfolio/" class="nav-link">开源作品</a>
-                        <a href="/authors/" class="nav-link">作者专栏</a>
-                        <a href="/tags/" class="nav-link">全站标签</a>
-                        <a href="/timeline/" class="nav-link">时间线</a>
-                    {% endif %}
-                    <a href="/search/" class="nav-link nav-search-btn">🔍 搜索</a>
-                    <a href="/feeds/" class="nav-link" title="RSS / Atom 订阅">📡 订阅</a>
+                    {% for item in site_nav_data.nav_items %}
+                        <a href="{{ item.url }}" class="nav-link" {% if item.is_external %}target="_blank" rel="noopener"{% endif %}>
+                            {{ item.label }}
+                            {% if item.badge %}<span class="nav-badge">{{ item.badge }}</span>{% endif %}
+                        </a>
+                    {% endfor %}
+                    <a href="{% url 'search' %}" class="nav-link nav-search-btn">🔍 搜索</a>
+                    <a href="{% url 'discovery:feed_all' %}" class="nav-link" title="RSS / Atom 订阅">📡 订阅</a>
                     <div class="theme-switcher" data-theme-switcher>
                         <button type="button"
                                 class="theme-toggle-btn"
@@ -251,6 +240,18 @@
             </div>
         </header>
 
+        {% if site_nav_data.directory_tree %}
+        <dialog id="site-directory-dialog" class="site-dir-dialog" aria-labelledby="site-directory-dialog-title">
+            <div class="site-dir-dialog-inner">
+                <div class="site-dir-dialog-header">
+                    <h2 id="site-directory-dialog-title" class="site-dir-dialog-title">📂 全站栏目目录</h2>
+                    <button type="button" class="site-dir-close-btn" data-dir-close aria-label="关闭栏目目录">✕</button>
+                </div>
+                <div class="site-dir-dialog-body" data-dir-dialog-slot></div>
+            </div>
+        </dialog>
+        {% endif %}
+
         {# 2. 页面主体内容 #}
         <main class="site-main-content">
         {% block content %}{% endblock %}
@@ -281,20 +282,21 @@
                     <div class="footer-col footer-col-links">
                         <h5 class="footer-subtitle">核心大厅</h5>
                         <ul class="footer-link-list">
-                            <li><a href="/">网站首页</a></li>
-                            <li><a href="/tech/">博客文章</a></li>
-                            <li><a href="/guides/">技术专栏</a></li>
-                            <li><a href="/portfolio/">开源作品</a></li>
+                            {% for fitem in site_nav_data.footer_hall_items %}
+                            <li><a href="{{ fitem.url }}" {% if fitem.is_external %}target="_blank" rel="noopener"{% endif %}>{{ fitem.label }}</a></li>
+                            {% endfor %}
                         </ul>
                     </div>
                     <div class="footer-col footer-col-discovery">
                         <h5 class="footer-subtitle">发现与归档</h5>
                         <ul class="footer-link-list">
-                            <li><a href="/authors/">全站作者专栏</a></li>
-                            <li><a href="/tags/">全站标签大厅</a></li>
-                            <li><a href="/timeline/">年月时间线归档</a></li>
-                            <li><a href="/search/">全站中文搜索</a></li>
-                            <li><a href="/admin/" target="_blank">管理后台登录</a></li>
+                            <li><a href="{% url 'people:author_directory' %}">全站作者专栏</a></li>
+                            {% if site_nav_data.tag_index_url %}
+                            <li><a href="{{ site_nav_data.tag_index_url }}">全站标签大厅</a></li>
+                            {% endif %}
+                            <li><a href="{% url 'timeline' %}">年月时间线归档</a></li>
+                            <li><a href="{% url 'search' %}">全站中文搜索</a></li>
+                            <li><a href="{% url 'wagtailadmin_home' %}" target="_blank">管理后台登录</a></li>
                         </ul>
                     </div>
                 </div>

@@ -412,3 +412,94 @@ class Phase1CoverUiSeoAndRedirectsTests(TestCase):
         ):
             text = (PROJECT_ROOT / rel_tpl).read_text(encoding="utf-8")
             self.assertNotIn(" style=", text, f"{rel_tpl} 不得新增内联 style=")
+
+    def test_search_tag_lookup_top10_cap_and_dynamic_show_in_menus_tree(self):
+        User = get_user_model()
+        owner = User.objects.create_superuser(username=f"nav_{uuid4().hex[:6]}", email="n@ex.com", password="Pass12345!")
+        _, home = _ensure_site_and_home()
+
+        tag_index = TagIndexPage.objects.first()
+        if not tag_index:
+            tag_index = TagIndexPage(title="全站标签", slug="tags", show_in_menus=False)
+            home.add_child(instance=tag_index)
+            tag_index.save_revision(user=owner).publish(user=owner)
+
+        # 1. 创建 3 级 show_in_menus=True 栏目树（不创建 /tech/、/guides/、/portfolio/）
+        l1 = BlogIndexPage(title="公文材料", slug=f"docs-{uuid4().hex[:4]}", show_in_menus=True)
+        home.add_child(instance=l1)
+        l1.save_revision(user=owner).publish(user=owner)
+
+        l2 = BlogIndexPage(title="行测", slug="xingce", show_in_menus=True)
+        l1.add_child(instance=l2)
+        l2.save_revision(user=owner).publish(user=owner)
+
+        l3 = BlogIndexPage(title="数量关系", slug="math-rel", show_in_menus=True)
+        l2.add_child(instance=l3)
+        l3.save_revision(user=owner).publish(user=owner)
+
+        unlisted_menu_col = BlogIndexPage(title="自动纳入栏目", slug="auto-dir-col", show_in_menus=False)
+        home.add_child(instance=unlisted_menu_col)
+        unlisted_menu_col.save_revision(user=owner).publish(user=owner)
+
+        private_col = BlogIndexPage(title="受限私密栏目", slug="private-dir-col", show_in_menus=True)
+        home.add_child(instance=private_col)
+        private_col.save_revision(user=owner).publish(user=owner)
+        from wagtail.models import PageViewRestriction
+        PageViewRestriction.objects.create(page=private_col, restriction_type=PageViewRestriction.LOGIN)
+
+        # 2. 创建含 22 个标签的公开文章 + 仅草稿私有标签，验证搜索侧栏最多展示 20 个 + 远程联想不泄密
+        post = BlogPage(
+            title="多标签检索测试",
+            slug=f"multi-tag-{uuid4().hex[:6]}",
+            body=[("markdown", {"markdown": "测试标签检索"})],
+        )
+        for idx in range(22):
+            post.tags.add(f"TagItem{idx:02d}")
+        l3.add_child(instance=post)
+        post.save_revision(user=owner).publish(user=owner)
+
+        draft_post = BlogPage(
+            title="私密草稿",
+            slug=f"draft-tag-{uuid4().hex[:6]}",
+            live=False,
+            body=[("markdown", {"markdown": "草稿"})],
+        )
+        draft_post.tags.add("SecretDraftOnlyTag")
+        l3.add_child(instance=draft_post)
+        draft_post.save_revision(user=owner)
+
+        # N-01/N-02 抽屉目录合同：顶栏保持扁平（无 nav-dropdown-menu），3 级目录与 show_in_menus=False 公开栏目自动进入左侧抽屉，受限栏目绝不泄漏
+        home_html = self.client.get(home.url).content.decode("utf-8")
+        header_match = re.search(r'<header class="site-header">.*?</header>', home_html, re.S)
+        self.assertIsNotNone(header_match)
+        header_html = header_match.group(0)
+        self.assertIn("data-dir-open", header_html)
+        self.assertIn("data-dir-fallback", header_html)
+        self.assertIn('id="site-directory-dialog"', home_html)
+        self.assertIn("公文材料", header_html)
+        self.assertIn("行测", header_html)
+        self.assertIn("数量关系", header_html)
+        self.assertIn("自动纳入栏目", header_html)
+        self.assertNotIn("nav-dropdown-menu", header_html)
+        self.assertNotIn("nav-submenu", header_html)
+        self.assertNotIn("受限私密栏目", home_html)
+        self.assertNotIn('href="/tech/"', home_html)
+        self.assertNotIn('href="/guides/"', home_html)
+        self.assertNotIn('href="/portfolio/"', home_html)
+
+        # 搜索页：侧栏仅列前 20 个热门标签 + 更多跳转 + 标签搜索框
+        search_resp = self.client.get("/search/")
+        self.assertEqual(search_resp.status_code, 200)
+        search_html = search_resp.content.decode("utf-8")
+        self.assertIn('id="search-tag-select"', search_html)
+        self.assertIn("热门标签（前 20 个）", search_html)
+        self.assertIn("查看全部 22 个标签", search_html)
+        self.assertEqual(len(re.findall(r'class="search-facet-link search-ajax-link"[^>]*>\s*<span>#TagItem', search_html)), 20)
+
+        # 标签远程联想接口：搜 TagItem05 命中，搜 SecretDraftOnlyTag 绝不泄漏
+        lk_ok = self.client.get("/search/tags-lookup/?q=TagItem05").json()
+        self.assertEqual(len(lk_ok["items"]), 1)
+        self.assertIn("TagItem05", lk_ok["items"][0]["label"])
+
+        lk_sec = self.client.get("/search/tags-lookup/?q=SecretDraftOnlyTag").json()
+        self.assertEqual(lk_sec["items"], [])

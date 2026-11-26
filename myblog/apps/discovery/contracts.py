@@ -137,6 +137,7 @@ class QuerySpec:
     secondary: str = "none"  # 'none' | 'words' (SEARCH-MODE-02: 手动展开模式 B)
     search_fields: str = "all"  # 'all' | 'title'
     include_listing_scope: bool = False  # 是否为栏目/大厅严格列表模式 (D4-A / B-03)
+    navigation_type_keys: list[str] = field(default_factory=list)  # 子栏目导航允许的类型白名单
     navigation_cursor: str | None = None  # 子栏目导航翻页游标 (D4-A)
     facets: list[str] = field(default_factory=list)
     page_size: int = 20

@@ -19,6 +19,7 @@
     var sortSelect = document.getElementById('search-sort-select');
     var authorSelect = document.getElementById('search-author-select');
     var authorRoleSelect = document.getElementById('search-author-role-select');
+    var tagSelect = document.getElementById('search-tag-select');
     var dateFromInput = document.getElementById('search-date-from');
     var dateToInput = document.getElementById('search-date-to');
     var resetBtn = document.getElementById('search-reset-btn');
@@ -84,6 +85,22 @@
             authorRoleSelect.value = nextRole;
           }
         }
+        if (tagSelect) {
+          var nextTags = Array.isArray(activeFilters.tags) ? activeFilters.tags : [];
+          var tagOpts = Array.isArray(activeFilters.tag_options) ? activeFilters.tag_options : [];
+          if (tagSelect.tomselect) {
+            tagOpts.forEach(function (opt) {
+              if (opt && opt.value && !tagSelect.tomselect.options[opt.value]) {
+                tagSelect.tomselect.addOption({ value: opt.value, label: opt.label || opt.value });
+              }
+            });
+            tagSelect.tomselect.setValue(nextTags, true);
+          } else {
+            Array.from(tagSelect.options).forEach(function (optEl) {
+              optEl.selected = nextTags.indexOf(optEl.value) !== -1;
+            });
+          }
+        }
         if (dateFromInput) {
           var dfVal = activeFilters.date_from || '';
           if (dateFromInput._flatpickr) {
@@ -105,7 +122,7 @@
           appendHiddenInput('type', activeFilters.type);
           appendHiddenInput('year', activeFilters.year);
           appendHiddenInput('days', activeFilters.days);
-          if (Array.isArray(activeFilters.tags)) {
+          if (!tagSelect && Array.isArray(activeFilters.tags)) {
             activeFilters.tags.forEach(function (t) {
               appendHiddenInput('tag', t);
             });
@@ -265,6 +282,12 @@
     }
     if (authorRoleSelect) {
       authorRoleSelect.addEventListener('change', function () {
+        if (isSyncingForm) return;
+        fetchSearch(buildUrlFromForm(), true);
+      });
+    }
+    if (tagSelect) {
+      tagSelect.addEventListener('change', function () {
         if (isSyncingForm) return;
         fetchSearch(buildUrlFromForm(), true);
       });

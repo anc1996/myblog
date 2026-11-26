@@ -4,12 +4,14 @@ from typing import Any
 from urllib.parse import urlencode
 
 from django.conf import settings
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.http import JsonResponse
 from django.template.loader import render_to_string
 from django.template.response import TemplateResponse
 from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
+from django.views.decorators.cache import never_cache
+from django.views.decorators.http import require_GET
 from taggit.models import Tag
 from wagtail.models import Site
 
@@ -80,6 +82,62 @@ SORT_LABELS = {
     "authored_desc": "成文日期：新 → 旧",
     "authored_asc": "成文日期：旧 → 新",
 }
+MAX_SIDEBAR_TAG_FACETS = 20
+
+
+@never_cache
+@require_GET
+def tag_lookup_view(request):
+    """全站搜索页标签远程联想接口：只读返回当前站点公开已发布内容的活跃标签（最多 25 条）。"""
+    q = (request.GET.get("q") or "").strip()[:80]
+    site = Site.find_for_request(request)
+    eligible_docs = PublishedSearchDocument.objects.filter(
+        is_live=True,
+        is_recycled=False,
+        index_generation=1,
+    )
+    if site is not None:
+        eligible_docs = eligible_docs.filter(site_id=site.id)
+    eligible_docs = apply_public_eligibility_filter(eligible_docs)
+
+    tag_qs = PublishedSearchTag.objects.filter(document__in=eligible_docs)
+    if q:
+        tag_qs = tag_qs.filter(tag_name__icontains=q)
+
+    rows = list(
+        tag_qs.values("tag_id", "tag_name", "tag_slug")
+        .annotate(count=Count("document_id", distinct=True))
+        .order_by("-count", "tag_name")[:120]
+    )
+    merged: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        raw_name = (r["tag_name"] or "").strip()
+        norm_key = raw_name.lower() or f"id:{r['tag_id']}"
+        slug_val = (r["tag_slug"] or "").strip() or str(r["tag_id"])
+        cnt = int(r["count"] or 0)
+        prio = _tag_name_priority(raw_name, cnt)
+        if norm_key not in merged:
+            merged[norm_key] = {
+                "value": slug_val,
+                "name": raw_name,
+                "count": cnt,
+                "_prio": prio,
+            }
+        else:
+            cur = merged[norm_key]
+            cur["count"] += cnt
+            if prio > cur["_prio"]:
+                cur["_prio"] = prio
+                cur["name"] = raw_name
+                cur["value"] = slug_val
+
+    items = sorted(merged.values(), key=lambda x: (-x["count"], x["name"].lower()))[:25]
+    return JsonResponse({
+        "items": [
+            {"value": it["value"], "label": f"#{it['name']} ({it['count']})"}
+            for it in items
+        ]
+    })
 
 
 def _parse_tag_tokens(request) -> list[str]:
@@ -684,7 +742,7 @@ def search(request):
             "url": t_url,
         })
 
-    # 2. 热门标签分面（基于大小写归一化结果，支持多选 toggle）
+    # 2. 热门标签分面（基于大小写归一化结果，支持多选 toggle，侧栏仅展示前 20 项）
     tag_facet_items: list[dict[str, Any]] = []
     for tg in facets.get("tags", []):
         tg_ids = set(tg.get("tag_ids") or [tg["id"]])
@@ -699,6 +757,9 @@ def search(request):
             "is_active": is_active,
             "url": _build_search_url(canonical_url, base_state, toggle_tag=tg, reset_pagination=True),
         })
+    total_tag_facets_count = len(tag_facet_items)
+    has_more_tags = total_tag_facets_count > MAX_SIDEBAR_TAG_FACETS
+    tag_facet_items = tag_facet_items[:MAX_SIDEBAR_TAG_FACETS]
 
     # 3. 年份归档分面（支持 toggle）
     year_facet_items: list[dict[str, Any]] = []
@@ -918,11 +979,16 @@ def search(request):
         })
 
     selected_tag_tokens = [g["token"] for g in selected_tag_groups]
+    selected_tag_options = [
+        {"value": g["token"], "label": f"#{g['label']}"}
+        for g in selected_tag_groups
+    ]
     active_filters_state = {
         "query": search_query,
         "title_only": title_only,
         "type": type_key,
         "tags": selected_tag_tokens,
+        "tag_options": selected_tag_options,
         "authors": selected_author_slugs,
         "author_options": selected_author_options,
         "author_role": selected_author_role,
@@ -939,6 +1005,19 @@ def search(request):
         author_lookup_url = reverse("people:author_lookup")
     except NoReverseMatch:
         author_lookup_url = "/authors/lookup/"
+    try:
+        tag_lookup_url = reverse("search_tags_lookup")
+    except NoReverseMatch:
+        tag_lookup_url = "/search/tags-lookup/"
+
+    tag_directory_url = ""
+    try:
+        from discovery.navigation import resolve_tag_index_page
+        tag_index_page = resolve_tag_index_page(request)
+        if tag_index_page is not None:
+            tag_directory_url = tag_index_page.get_url(request) or tag_index_page.url or ""
+    except Exception:
+        tag_directory_url = ""
 
     # 仅在真正执行了搜索查询且查询成功时提供搜索统计上下文，避免参数报错请求或空浏览污染搜索词统计
     has_search_scope_filters = bool(
@@ -978,6 +1057,11 @@ def search(request):
         "selected_type": type_key,
         "selected_tag": selected_tag_tokens[0] if selected_tag_tokens else "",
         "selected_tag_tokens": selected_tag_tokens,
+        "selected_tag_options": selected_tag_options,
+        "tag_lookup_url": tag_lookup_url,
+        "tag_directory_url": tag_directory_url,
+        "total_tag_facets_count": total_tag_facets_count,
+        "has_more_tags": has_more_tags,
         "selected_author_slugs": selected_author_slugs,
         "selected_author_options": selected_author_options,
         "selected_author_role": selected_author_role,
