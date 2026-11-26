@@ -82,4 +82,17 @@ def extract_media_references(text: str, path: str = "") -> list[MediaReference]:
             seen.add(key)
             refs.append(MediaReference(asset_id=aid, asset_type="document", block_path=path))
 
+    # 3. 匹配直接在正文/表格 HTML 中书写的 /media-gateway/(image|document|audio|video)/<uuid>/ 路径，防止逃逸引用追踪与发布门禁
+    gateway_pattern = re.compile(
+        r'/media-gateway/(image|document|audio|video)/(' + UUID_PATTERN + r')/?',
+        re.IGNORECASE,
+    )
+    for m in gateway_pattern.finditer(clean_text):
+        atype = m.group(1).lower()
+        aid = m.group(2).lower()
+        key = (atype, aid, path)
+        if key not in seen:
+            seen.add(key)
+            refs.append(MediaReference(asset_id=aid, asset_type=atype, block_path=path))
+
     return refs

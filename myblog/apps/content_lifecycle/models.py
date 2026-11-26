@@ -496,7 +496,9 @@ class CustomBasePage(Page):
                     max_authors=None,
                 )
 
-        # 核查受限媒体引用归属：避免越权通过发布将他人受限媒体暴露给公众
+        # 核查受限媒体引用归属与公开页门禁：
+        # 1. 合并 MediaReferenceRecord 与当前页面（及待发版本）采集结果的并集去重，避免历史未补录版本漏检；
+        # 2. 对无访问限制的公开页面，任何发布后不会被自动转正为 PUBLIC 的受限资产一律阻止发布。
         from media_library.models import (
             CustomDocument,
             CustomImage,
@@ -504,18 +506,65 @@ class CustomBasePage(Page):
             VisibilityChoices,
         )
 
-        ref_pairs: list[tuple[str, str]] = []
+        ref_pair_set: set[tuple[str, str]] = set()
         rev_id = getattr(revision, "id", None)
         if self.pk and rev_id:
-            db_refs = list(
+            db_refs = (
                 MediaReferenceRecord.objects.filter(page_id=self.pk, revision_id=rev_id)
                 .values_list("asset_type", "asset_id")
             )
-            ref_pairs.extend((atype, str(aid)) for atype, aid in db_refs)
-        if not ref_pairs:
-            for ref in self.collect_media_references():
-                if ref.asset_id:
-                    ref_pairs.append((ref.asset_type, str(ref.asset_id)))
+            for atype, aid in db_refs:
+                if aid:
+                    ref_pair_set.add((atype, str(aid)))
+
+        # 当显式传入目标 revision 时，以该 revision 还原出的对象为唯一内容权威，
+        # 避免未水合的 self（如 before_publish_page 钩子传入的旧数据库实例）残留已删除的受限引用导致误拦截。
+        target_for_scan = self
+        if revision is not None:
+            try:
+                target_for_scan = revision.as_object()
+            except Exception:
+                target_for_scan = self
+        for ref in target_for_scan.collect_media_references():
+            if ref.asset_id:
+                ref_pair_set.add((ref.asset_type, str(ref.asset_id)))
+        ref_pairs = sorted(ref_pair_set)
+
+        has_self_or_ancestor_restriction = False
+        try:
+            if self.pk and self.get_view_restrictions().exists():
+                has_self_or_ancestor_restriction = True
+        except Exception:
+            has_self_or_ancestor_restriction = False
+
+        is_public_page = not has_self_or_ancestor_restriction
+        if has_self_or_ancestor_restriction:
+            try:
+                # 别名闭包检查：若私密源页面存在任意公开（无访问限制）的别名页面，仍按公开页面阻断未转正受限资产
+                aliases = list(self.aliases.all())
+                if aliases:
+                    from content_lifecycle.models import RecycleEntry
+                    recycled_ids = set(
+                        RecycleEntry.objects.filter(
+                            page_id__in=[a.id for a in aliases],
+                            status__in=["recycled", "restoring"],
+                        ).values_list("page_id", flat=True)
+                    )
+                    for alias_page in aliases:
+                        if alias_page.id in recycled_ids:
+                            continue
+                        if not alias_page.get_view_restrictions().exists():
+                            is_public_page = True
+                            break
+            except Exception:
+                is_public_page = True
+
+        owner_is_superuser = bool(
+            self.owner_id
+            and UserModel.objects.filter(pk=self.owner_id, is_superuser=True).exists()
+        )
+        # 排期发布时 user=None，回退使用批准该排期 Revision 的人做超管权限核查
+        effective_user = fresh_user if fresh_user is not None else fresh_rev_user
 
         image_ids = {aid for atype, aid in ref_pairs if atype == "image"}
         doc_ids = {aid for atype, aid in ref_pairs if atype == "document"}
@@ -538,11 +587,23 @@ class CustomBasePage(Page):
                 q |= models.Q(pk__in=pk_vals)
             if not q:
                 return
+            allows_superuser_owner_promote = model_cls.__name__ in ("Audio", "Video")
             for asset in model_cls.objects.filter(q).filter(visibility=VisibilityChoices.RESTRICTED):
-                if asset.uploaded_by_user_id != self.owner_id:
-                    if not (user is not None and getattr(user, "is_superuser", False)):
+                is_owner_upload = bool(self.owner_id is not None and asset.uploaded_by_user_id == self.owner_id)
+                if not is_owner_upload:
+                    if not (effective_user is not None and getattr(effective_user, "is_superuser", False)):
+                        # 严禁回显他人受限资产真实 title，防止 IDOR 标题探测泄露
+                        raise ValidationError("页面引用了无权使用的他人受限媒体资产，禁止直接发布！")
+                if is_public_page:
+                    # signals.py 仅在页面自身及祖先均无访问限制时才会自动转正；若有公开别名则不会转正，必须阻断
+                    will_auto_promote = (not has_self_or_ancestor_restriction) and (
+                        is_owner_upload or (allows_superuser_owner_promote and owner_is_superuser)
+                    )
+                    if not will_auto_promote:
+                        hint_name = f"（{asset.title}）" if is_owner_upload else ""
                         raise ValidationError(
-                            f"页面引用了非本页面作者上传的受限媒体文件（{asset.title}），禁止直接发布！"
+                            f"公开页面引用了不会在发布时自动公开的受限媒体资产{hint_name}，"
+                            "请先在媒体库设为公开或更换公开素材后再发布！"
                         )
 
         _check_restricted_assets(CustomImage, image_ids)

@@ -27,6 +27,9 @@
     }
 
     function bindFormSubmitGuard(form) {
+        if (window.CBEditorUploadCoordinator && typeof window.CBEditorUploadCoordinator.update === "function") {
+            return;
+        }
         if (!form || form.hasAttribute("data-cb-vditor-guard-bound")) return;
         form.setAttribute("data-cb-vditor-guard-bound", "true");
         form.addEventListener("submit", function (e) {
@@ -40,6 +43,10 @@
 
     function adjustPending(form, delta) {
         if (!form) return;
+        if (window.CBEditorUploadCoordinator && typeof window.CBEditorUploadCoordinator.update === "function") {
+            window.CBEditorUploadCoordinator.update(form, delta);
+            return;
+        }
         var cur = pendingUploadsByForm.get(form) || 0;
         pendingUploadsByForm.set(form, Math.max(0, cur + delta));
     }
@@ -49,6 +56,15 @@
         return htmlStr
             .replace(/asset:\/\/image\/([0-9a-fA-F-]{36})/g, "/media-gateway/image/$1/")
             .replace(/asset:\/\/document\/([0-9a-fA-F-]{36})/g, "/media-gateway/document/$1/");
+    }
+
+    function mapPctToBucketClass(pct) {
+        if (pct <= 29) return "cb-img-w-25";
+        if (pct <= 41) return "cb-img-w-33";
+        if (pct <= 58) return "cb-img-w-50";
+        if (pct <= 70) return "cb-img-w-67";
+        if (pct <= 87) return "cb-img-w-75";
+        return "cb-img-w-100";
     }
 
     function parseImageAltAndAttrs(rawAlt) {
@@ -74,11 +90,15 @@
                 continue;
             }
             if (low === "full") {
-                attrs.style = "width:100%;max-width:100%";
+                classes.push("cb-img-w-100", "cb-image--full");
                 continue;
             }
             if (low === "left" || low === "center" || low === "right") {
-                classes.push("cb-img-align-" + low);
+                classes.push("cb-img-align-" + low, "cb-image--" + low);
+                continue;
+            }
+            if (low === "card" || low === "framed" || low === "accent") {
+                classes.push("cb-image--card");
                 continue;
             }
             var mDim = low.match(/^(\d{2,4})x(\d{2,4})(?:px)?$/);
@@ -108,12 +128,12 @@
             if (mPct) {
                 var pct = parseInt(mPct[1], 10);
                 if (pct < 5 || pct > 100) return { alt: altText, attrs: null };
-                attrs.style = "width:" + pct + "%;max-width:100%";
+                classes.push(mapPctToBucketClass(pct));
                 continue;
             }
             var mAlign = low.match(/^align=(left|center|right)$/);
             if (mAlign) {
-                classes.push("cb-img-align-" + mAlign[1]);
+                classes.push("cb-img-align-" + mAlign[1], "cb-image--" + mAlign[1]);
                 continue;
             }
             return { alt: altText, attrs: null };
@@ -133,9 +153,6 @@
             }
             if (parsed.attrs.height && !img.getAttribute("height")) {
                 img.setAttribute("height", parsed.attrs.height);
-            }
-            if (parsed.attrs.style && !img.getAttribute("style")) {
-                img.setAttribute("style", parsed.attrs.style);
             }
             parsed.attrs.className.split(/\s+/).forEach(function (cls) {
                 if (cls) img.classList.add(cls);
@@ -269,6 +286,98 @@
         tpl.innerHTML = rewritten;
         var theme = isDarkAdminTheme() ? "dark" : "default";
 
+        // 0. 实时预览受控对齐指令块（::: align-left|center|right ... :::）
+        var pList = Array.from(tpl.content.querySelectorAll("p"));
+        var openMarkerRe = /^:::\s*(align-(?:left|center|right))\s*$/;
+        for (var pi = 0; pi < pList.length; pi++) {
+            var pStart = pList[pi];
+            if (!pStart.parentNode) continue;
+            // 先用逐行状态机处理单个 <p> 内含一个或多个 ::: align-* 块以及与普通行紧邻的场景
+            var rawLines = (pStart.innerHTML || "").split(/<br\s*\/?>\s*\n?|\n/i);
+            var hasAlignLine = rawLines.some(function (lineHtml) {
+                return openMarkerRe.test(lineHtml.replace(/<[^>]+>/g, "").trim());
+            });
+            if (hasAlignLine && rawLines.length >= 2) {
+                var segFrag = document.createDocumentFragment();
+                var openKind = null;
+                var openBuf = [];
+                var plainBuf = [];
+                var flushPlain = function () {
+                    if (!plainBuf.length) return;
+                    var pp = document.createElement("p");
+                    pp.innerHTML = plainBuf.join("<br>");
+                    segFrag.appendChild(pp);
+                    plainBuf = [];
+                };
+                for (var li = 0; li < rawLines.length; li++) {
+                    var lineHtml = rawLines[li];
+                    var linePlain = lineHtml.replace(/<[^>]+>/g, "").trim();
+                    if (!openKind) {
+                        var mLineOpen = linePlain.match(openMarkerRe);
+                        if (mLineOpen) {
+                            flushPlain();
+                            openKind = mLineOpen[1];
+                            openBuf = [];
+                            continue;
+                        }
+                        plainBuf.push(lineHtml);
+                    } else {
+                        if (linePlain === ":::") {
+                            var boxEl = document.createElement("div");
+                            boxEl.className = "cb-align-block cb-" + openKind;
+                            var boxP = document.createElement("p");
+                            boxP.innerHTML = openBuf.join("<br>");
+                            boxEl.appendChild(boxP);
+                            segFrag.appendChild(boxEl);
+                            openKind = null;
+                            openBuf = [];
+                        } else {
+                            openBuf.push(lineHtml);
+                        }
+                    }
+                }
+                if (openKind) {
+                    // 未闭合时可能是跨 <p> 对齐块的首行，若整段仅此未闭合开标记则交由下方跨段落状态机处理
+                    if (plainBuf.length === 0 && segFrag.childNodes.length === 0) {
+                        openKind = null;
+                    } else {
+                        plainBuf.push("::: " + openKind);
+                        plainBuf = plainBuf.concat(openBuf);
+                        flushPlain();
+                        pStart.replaceWith(segFrag);
+                        continue;
+                    }
+                } else {
+                    flushPlain();
+                    if (segFrag.childNodes.length > 0) {
+                        pStart.replaceWith(segFrag);
+                        continue;
+                    }
+                }
+            }
+            var mStart = (pStart.textContent || "").trim().match(openMarkerRe);
+            if (!mStart) continue;
+            var between = [];
+            var cur = pStart.nextSibling;
+            var closeNode = null;
+            while (cur) {
+                if (cur.nodeType === 1 && cur.tagName === "P" && (cur.textContent || "").trim() === ":::") {
+                    closeNode = cur;
+                    break;
+                }
+                between.push(cur);
+                cur = cur.nextSibling;
+            }
+            if (closeNode) {
+                var box = document.createElement("div");
+                box.className = "cb-align-block cb-" + mStart[1];
+                pStart.parentNode.insertBefore(box, pStart);
+                between.forEach(function (node) { box.appendChild(node); });
+                pStart.remove();
+                closeNode.remove();
+            }
+        }
+
         // 1. 增强原生 HTML 表格单元格代码/图片预览，转换表格内公式为 KaTeX，并包裹宽表格滚动容器
         tpl.content.querySelectorAll("table").forEach(function (table) {
             transformTableRichContent(table, document);
@@ -283,6 +392,54 @@
 
         // 1b. 对所有预览图片应用 `alt|尺寸` 语法（如 |320, |50%, |sm|center）
         tpl.content.querySelectorAll("img").forEach(applyImageSizingToElement);
+
+        // 1c. 独立段落图片预览同步升级为 <figure> + 可选 <figcaption>（与前台效果一致）
+        Array.from(tpl.content.querySelectorAll("p")).forEach(function (p) {
+            if (p.closest("table, figure, pre, code")) return;
+            var imgs = p.querySelectorAll("img");
+            if (imgs.length !== 1) return;
+            var clone = p.cloneNode(true);
+            clone.querySelectorAll("img").forEach(function (n) { n.remove(); });
+            if ((clone.textContent || "").trim() !== "" || clone.children.length > 0) return;
+
+            var img = imgs[0];
+            var align = "center";
+            if (img.classList.contains("cb-image--left") || img.classList.contains("cb-img-align-left")) {
+                align = "left";
+            } else if (img.classList.contains("cb-image--right") || img.classList.contains("cb-img-align-right")) {
+                align = "right";
+            } else if (img.classList.contains("cb-image--full") || img.classList.contains("cb-img-w-100")) {
+                align = "full";
+            }
+            var isCard = img.classList.contains("cb-image--card");
+            var widthClasses = Array.from(img.classList).filter(function (cls) {
+                return /^cb-img-w-(?:25|33|50|67|75|100)$/.test(cls);
+            });
+            ["cb-img-align-left", "cb-img-align-center", "cb-img-align-right", "cb-image--left", "cb-image--center", "cb-image--right", "cb-image--full", "cb-image--card"].forEach(function (cls) {
+                img.classList.remove(cls);
+            });
+            widthClasses.forEach(function (cls) { img.classList.remove(cls); });
+            img.classList.add("cb-image-img");
+
+            var fig = document.createElement("figure");
+            fig.className = "media-image-wrapper cb-image cb-image--" + align + " format-" + (align === "center" ? "centered" : align) + (widthClasses.length ? (" " + widthClasses.join(" ")) : "") + (isCard ? " cb-image--card" : "");
+            fig.appendChild(img);
+            var titleCap = (img.getAttribute("title") || "").trim();
+            if (titleCap) {
+                var cap = document.createElement("figcaption");
+                cap.className = "media-caption";
+                cap.textContent = titleCap;
+                fig.appendChild(cap);
+            }
+            p.replaceWith(fig);
+        });
+
+        var wrapperDiv = document.createElement("div");
+        wrapperDiv.className = "cb-markdown-body";
+        while (tpl.content.firstChild) {
+            wrapperDiv.appendChild(tpl.content.firstChild);
+        }
+        tpl.content.appendChild(wrapperDiv);
 
         // 2. 同时拦截 Lute sv 输出的 div.language-mermaid 与 pre > code.language-mermaid，
         //    注意：tpl.content 是游离 DocumentFragment，不能检查 node.isConnected（恒为 false），
@@ -337,6 +494,7 @@
             this._mermaidSvgCache = new Map();
             this._activeImgContext = null;
             this._imgToolbarEl = null;
+            this._chooserOpening = false;
 
             this._initVditor();
         }
@@ -369,6 +527,91 @@
                 this.editor.setValue(updated, true);
             }
             this._syncToTextarea(updated);
+        }
+
+        _insertMarkdownSnippet(snippet) {
+            if (!snippet || !this.ready || !this.editor) return;
+            var before = this.editor.getValue();
+            this.editor.insertValue("\n" + snippet + "\n");
+            if (this.editor.getValue() === before) {
+                var prefix = before && !before.endsWith("\n") ? "\n" : "";
+                this.editor.setValue(before + prefix + snippet + "\n", true);
+            }
+            this._syncToTextarea(this.editor.getValue());
+        }
+
+        _openWagtailMediaChooser(kind) {
+            var self = this;
+            if (self._chooserOpening) return;
+            var cfg = window.CB_EDITOR_CONFIG || {};
+            var chooserUrl = kind === "image"
+                ? (self.input.dataset.imageChooserUrl || cfg.imageChooserUrl || "/admin/images/chooser/")
+                : (self.input.dataset.documentChooserUrl || cfg.documentChooserUrl || "/admin/documents/chooser/");
+            var resolveUrl = self.input.dataset.vditorMediaResolveUrl || cfg.mediaResolveUrl || "/admin/content-blocks/media-resolve/";
+            var onloadHandlers = kind === "image"
+                ? window.IMAGE_CHOOSER_MODAL_ONLOAD_HANDLERS
+                : window.DOCUMENT_CHOOSER_MODAL_ONLOAD_HANDLERS;
+            var responseKey = kind === "image" ? "imageChosen" : "documentChosen";
+
+            if (typeof window.ModalWorkflow !== "function" || !onloadHandlers) {
+                self._setStatus("Wagtail 媒体选择器尚未就绪，请刷新页面后重试。", true);
+                return;
+            }
+
+            self._chooserOpening = true;
+            var handled = false;
+            var form = self.input.closest("form");
+            bindFormSubmitGuard(form);
+            var onChosen = function (chosenData) {
+                self._chooserOpening = false;
+                if (handled) return;
+                handled = true;
+                var pk = chosenData && chosenData.id;
+                if (!pk) return;
+                adjustPending(form, 1);
+                self._setStatus("正在关联受控媒体资源...", false);
+                var reqUrl = resolveUrl + "?kind=" + encodeURIComponent(kind) + "&id=" + encodeURIComponent(String(pk));
+                fetch(reqUrl, {
+                    method: "GET",
+                    credentials: "same-origin",
+                    headers: { "Accept": "application/json" }
+                })
+                    .then(function (resp) {
+                        return resp.json().then(function (data) {
+                            return { ok: resp.ok, data: data };
+                        });
+                    })
+                    .then(function (res) {
+                        if (!res.ok || !res.data || !res.data.ok || !res.data.markdown) {
+                            var msg = (res.data && res.data.error) || "无法解析媒体引用标识";
+                            self._setStatus("关联失败: " + msg, true);
+                            return;
+                        }
+                        self._insertMarkdownSnippet(res.data.markdown);
+                        self._setStatus("已插入受控媒体引用 (" + res.data.asset_id.slice(0, 8) + "...)", false);
+                        setTimeout(function () { self._setStatus("", false); }, 2500);
+                    })
+                    .catch(function (err) {
+                        self._setStatus("获取媒体元数据失败: " + (err.message || "网络异常"), true);
+                    })
+                    .finally(function () {
+                        adjustPending(form, -1);
+                    });
+            };
+
+            var responses = { chosen: onChosen };
+            responses[responseKey] = onChosen;
+
+            window.ModalWorkflow({
+                url: chooserUrl,
+                onload: onloadHandlers,
+                responses: responses,
+                onError: function () {
+                    self._chooserOpening = false;
+                }
+            });
+            // 若用户直接关闭弹窗未选用，弹窗关闭事件后恢复防重入锁
+            setTimeout(function () { self._chooserOpening = false; }, 600);
         }
 
         _uploadFiles(files) {
@@ -465,6 +708,26 @@
                         "check",
                         "quote",
                         "line",
+                        {
+                            name: "cb-align-center",
+                            tipPosition: "n",
+                            tip: "插入居中对齐段落块 (::: align-center)",
+                            className: "cb-vditor-align-center-btn",
+                            icon: '<svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><path d="M2 3h12v1.5H2V3zm2 3.5h8V8H4V6.5zM2 10h12v1.5H2V10zm3 3.5h6V15H5v-1.5z"/></svg>',
+                            click: function () {
+                                self._insertMarkdownSnippet("::: align-center\n居中内容\n:::");
+                            }
+                        },
+                        {
+                            name: "cb-align-right",
+                            tipPosition: "n",
+                            tip: "插入右对齐段落块 (::: align-right)",
+                            className: "cb-vditor-align-right-btn",
+                            icon: '<svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><path d="M2 3h12v1.5H2V3zm4 3.5h8V8H6V6.5zM2 10h12v1.5H2V10zm5 3.5h7V15H7v-1.5z"/></svg>',
+                            click: function () {
+                                self._insertMarkdownSnippet("::: align-right\n右对齐内容\n:::");
+                            }
+                        },
                         "|",
                         "code",
                         "inline-code",
@@ -529,6 +792,26 @@
                         },
                         "link",
                         "table",
+                        {
+                            name: "cb-library-image",
+                            tipPosition: "n",
+                            tip: "从图库选择或上传图片",
+                            className: "cb-vditor-image-chooser-btn",
+                            icon: '<svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><path d="M14 2H2a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V3a1 1 0 0 0-1-1zm0 10H2V4h12v8z"/><path d="M5.5 7.5a1 1 0 1 0 0-2 1 1 0 0 0 0 2zm7.5 3.5-3-3.5-2.5 2.8-1.5-1.6L3 11h10z"/></svg>',
+                            click: function () {
+                                self._openWagtailMediaChooser("image");
+                            }
+                        },
+                        {
+                            name: "cb-insert-document",
+                            tipPosition: "n",
+                            tip: "从文档库选择或上传附件",
+                            className: "cb-vditor-doc-chooser-btn",
+                            icon: '<svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><path d="M4 1h5.5L13 4.5V14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1zm5 1.5V5h2.5L9 2.5zM5 8v1h6V8H5zm0 2.5v1h6v-1H5z"/></svg>',
+                            click: function () {
+                                self._openWagtailMediaChooser("document");
+                            }
+                        },
                         "|",
                         "undo",
                         "redo",
@@ -595,10 +878,14 @@
                 '<span>调整选中图片尺寸：</span>' +
                 '<button type="button" data-cb-img-spec="240">小图 240px</button>' +
                 '<button type="button" data-cb-img-spec="480">中图 480px</button>' +
+                '<button type="button" data-cb-img-spec="33%">33%</button>' +
                 '<button type="button" data-cb-img-spec="50%">50%</button>' +
                 '<button type="button" data-cb-img-spec="75%">75%</button>' +
                 '<button type="button" data-cb-img-spec="full">100%</button>' +
-                '<button type="button" data-cb-img-spec="480,center">480px 居中</button>' +
+                '<button type="button" data-cb-img-spec="md,left">左图右文</button>' +
+                '<button type="button" data-cb-img-spec="md,center">居中</button>' +
+                '<button type="button" data-cb-img-spec="md,right">右图左文</button>' +
+                '<button type="button" data-cb-img-spec="md,left,card">左环绕+卡片</button>' +
                 '<button type="button" data-cb-img-spec="">原图尺寸</button>' +
                 '<button type="button" data-cb-img-close="1">关闭</button>';
             this.editorEl.insertAdjacentElement("afterend", bar);
@@ -632,6 +919,7 @@
         }
 
         _applyImageResizeInMarkdown(ctx, spec) {
+            var self = this;
             var md = this.editor.getValue();
             var urls = [ctx.matchUrl, ctx.fallbackSrc].filter(Boolean);
             var updated = md;

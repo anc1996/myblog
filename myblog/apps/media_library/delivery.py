@@ -240,7 +240,7 @@ def serve_rendition_asset(request, rendition_id: int):
     content_type, _ = mimetypes.guess_type(file_name)
     content_type = content_type or "image/jpeg"
     cache_control = (
-        "public, max-age=3600"
+        "public, max-age=300, must-revalidate"
         if getattr(rendition.image, "visibility", None) == VisibilityChoices.PUBLIC
         else "private, max-age=300"
     )

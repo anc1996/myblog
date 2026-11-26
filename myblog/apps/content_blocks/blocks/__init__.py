@@ -9,6 +9,7 @@ from .mermaid import CustomMermaidBlock
 from .table import CustomTableBlock
 from .media import (
     CustomImageBlock,
+    CustomMediaTextBlock,
     CustomDocumentBlock,
     CustomAudioBlock,
     CustomVideoBlock,
@@ -30,6 +31,7 @@ __all__ = [
     "CustomMermaidBlock",
     "CustomTableBlock",
     "CustomImageBlock",
+    "CustomMediaTextBlock",
     "CustomDocumentBlock",
     "CustomAudioBlock",
     "CustomVideoBlock",
@@ -65,6 +67,7 @@ def get_common_stream_blocks(include_structured: bool = False):
         ("mermaid", CustomMermaidBlock()),
         ("table", CustomTableBlock()),
         ("image", CustomImageBlock()),
+        ("media_text", CustomMediaTextBlock()),
         ("document", CustomDocumentBlock()),
         ("attachment_list", CustomAttachmentListBlock()),
         ("audio", CustomAudioBlock()),

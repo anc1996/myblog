@@ -11,7 +11,7 @@ from django.urls import reverse
 from wagtail.admin.staticfiles import versioned_static
 
 
-CB_ADMIN_ASSET_VERSION = "20261120.4"
+CB_ADMIN_ASSET_VERSION = "20261126.1"
 
 
 def cb_admin_static(path: str) -> str:
@@ -32,6 +32,9 @@ class VditorMarkdownWidget(forms.Textarea):
         attrs["data-vditor-mode"] = "sv"
         attrs["data-vditor-locale"] = "zh_CN"
         attrs["data-vditor-upload-url"] = reverse("content_blocks_vditor_image_upload")
+        attrs["data-vditor-media-resolve-url"] = reverse("content_blocks_media_resolve")
+        attrs["data-image-chooser-url"] = reverse("wagtailimages_chooser:choose")
+        attrs["data-document-chooser-url"] = reverse("wagtaildocs_chooser:choose")
         attrs["data-vditor-max-size"] = str(
             getattr(settings, "WAGTAILIMAGES_MAX_UPLOAD_SIZE", 10 * 1024 * 1024)
         )
@@ -53,6 +56,9 @@ class VditorMarkdownWidget(forms.Textarea):
             },
             js=(
                 versioned_static("vendor/vditor/dist/index.min.js"),
+                versioned_static("wagtailimages/js/image-chooser-modal.js"),
+                versioned_static("wagtaildocs/js/document-chooser-modal.js"),
+                cb_admin_static("content_blocks/js/admin-upload-coordinator.js"),
                 cb_admin_static("content_blocks/js/mermaid-renderer.js"),
                 cb_admin_static("content_blocks/js/admin-vditor-markdown.js"),
             ),

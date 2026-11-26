@@ -1,114 +1,57 @@
 /* ==========================================================================
-   全站公共图片排版 (centered/full/left/right) 与无障碍灯箱 (content-images.css)
+   全站公共文本对齐、图片排版修饰、三层防留白图文混排与无障碍灯箱 (content-images.css)
+   所有颜色、圆角与间距统一引用 tokens.css（零裸 #hex）
    ========================================================================== */
 
-.media-image-wrapper {
-    margin: 1.5rem 0;
-    text-align: center;
-}
-
-.media-image-wrapper img {
-    max-width: 100%;
-    height: auto;
-    border-radius: 6px;
-    border: 1px solid #e2e8f0;
-    cursor: zoom-in;
-}
-
-/* Markdown / 复杂表格内插图可控尺寸与对齐 */
-.cb-img-sized {
-    max-width: 100%;
-    border-radius: 6px;
-    border: 1px solid #e2e8f0;
-}
-
-.cb-img-sized:not([height]) {
-    height: auto;
-}
-
-.cb-img-align-center {
-    display: block;
-    margin: 0.75rem auto;
-}
-
-.cb-img-align-left {
-    float: left;
-    max-width: 55%;
-    margin: 0.35rem 1rem 0.75rem 0;
-}
-
-.cb-img-align-right {
-    float: right;
-    max-width: 55%;
-    margin: 0.35rem 0 0.75rem 1rem;
-}
-
-/* Wagtail RichTextBlock 内插图排版 (full-width / left / right) */
-.rich-text img,
-.richtext-image {
-    max-width: 100%;
-    height: auto;
-    border-radius: 6px;
-    border: 1px solid #e2e8f0;
-}
-
-.richtext-image.full-width {
-    display: block;
-    width: 100%;
-    margin: 1rem auto;
-}
-
-.richtext-image.left {
-    float: left;
-    max-width: 48%;
-    margin: 0.4rem 1.5rem 1rem 0;
-}
-
-.richtext-image.right {
-    float: right;
-    max-width: 48%;
-    margin: 0.4rem 0 1rem 1.5rem;
-}
-
-.rich-text::after {
-    content: "";
-    display: table;
-    clear: both;
-}
-
-@media (max-width: 768px) {
-    .richtext-image.left,
-    .richtext-image.right {
-        float: none;
-        max-width: 100%;
-        margin: 1rem 0;
-    }
-}
-
-.media-image-wrapper.format-full img {
-    width: 100%;
-}
-
-.media-image-wrapper.format-left {
-    float: left;
-    max-width: 48%;
-    margin: 0.4rem 1.5rem 1rem 0;
+/* --------------------------------------------------------------------------
+   1. 文章文本对齐（RichText 段落与 Markdown ::: align-* 块指令共用）
+   -------------------------------------------------------------------------- */
+.cb-align-left {
     text-align: left;
 }
 
-.media-image-wrapper.format-right {
-    float: right;
-    max-width: 48%;
-    margin: 0.4rem 0 1rem 1.5rem;
+.cb-align-center {
+    text-align: center;
+}
+
+.cb-align-right {
     text-align: right;
 }
 
-.media-caption {
-    margin-top: 6px;
-    font-size: 13px;
-    color: #64748b;
+.cb-align-block {
+    margin: var(--space-3, 12px) 0;
 }
 
+.cb-align-block.cb-align-center > p,
+.cb-align-block.cb-align-center > blockquote {
+    text-align: center;
+}
+
+.cb-align-block.cb-align-right > p,
+.cb-align-block.cb-align-right > blockquote {
+    text-align: right;
+}
+
+.cb-align-block.cb-align-left > p,
+.cb-align-block.cb-align-left > blockquote {
+    text-align: left;
+}
+
+/* --------------------------------------------------------------------------
+   2. 正文流容器隔离：每块自成 flow-root 并启用容器尺寸查询，不跨块误挤兄弟积木
+   -------------------------------------------------------------------------- */
+.rich-text,
+.cb-markdown-body,
+.detail-body-section,
+.blog-body-section,
+.guide-main,
+.project-body-section {
+    display: flow-root;
+    container-type: inline-size;
+}
+
+.rich-text::after,
+.cb-markdown-body::after,
 .detail-body-section::after,
 .blog-body-section::after,
 .guide-main::after,
@@ -118,17 +61,307 @@
     clear: both;
 }
 
-@media (max-width: 768px) {
-    .media-image-wrapper.format-left,
-    .media-image-wrapper.format-right {
+/* --------------------------------------------------------------------------
+   3. 统一图片外观与有限宽度档位（替代内联 style）
+   -------------------------------------------------------------------------- */
+.media-image-wrapper,
+figure.cb-image {
+    margin: var(--space-5, 24px) auto;
+    text-align: center;
+}
+
+.media-image-wrapper:not(.cb-image--left):not(.cb-image--right):not(.format-left):not(.format-right),
+figure.cb-image:not(.cb-image--left):not(.cb-image--right):not(.format-left):not(.format-right) {
+    clear: both;
+}
+
+.media-image-wrapper img,
+figure.cb-image img,
+.cb-image-img,
+.rich-text img,
+.richtext-image,
+.cb-img-sized {
+    max-width: 100%;
+    border-radius: var(--radius-sm, 6px);
+    border: 1px solid var(--color-border, var(--w-color-border-furniture, rgba(148, 163, 184, 0.35)));
+    cursor: zoom-in;
+}
+
+.cb-image-img:not([height]),
+.cb-img-sized:not([height]),
+.rich-text img:not([height]),
+.richtext-image:not([height]) {
+    height: auto;
+}
+
+img.cb-img-w-25, figure.cb-img-w-25 { width: 25%; max-width: 100%; }
+img.cb-img-w-33, figure.cb-img-w-33 { width: 33.333%; max-width: 100%; }
+img.cb-img-w-50, figure.cb-img-w-50 { width: 50%; max-width: 100%; }
+img.cb-img-w-67, figure.cb-img-w-67 { width: 66.667%; max-width: 100%; }
+img.cb-img-w-75, figure.cb-img-w-75 { width: 75%; max-width: 100%; }
+img.cb-img-w-100, figure.cb-img-w-100 { width: 100%; max-width: 100%; }
+
+/* 已包入 <figure> 的百分比缩放图，内部 <img> 填满 <figure>，避免双重缩放 */
+figure.cb-image[class*="cb-img-w-"] > img {
+    width: 100%;
+}
+
+.cb-image--center,
+.cb-img-align-center,
+.richtext-image.centered {
+    display: block;
+    margin: var(--space-4, 16px) auto;
+    text-align: center;
+}
+
+.cb-image--full,
+.media-image-wrapper.format-full,
+.richtext-image.full-width {
+    display: block;
+    width: 100%;
+    margin: var(--space-4, 16px) auto;
+}
+
+.cb-image--full img,
+.media-image-wrapper.format-full img {
+    width: 100%;
+}
+
+/* 轻强调卡片修饰档位 */
+figure.cb-image--card {
+    padding: var(--space-3, 12px);
+    border-radius: var(--radius-md, 8px);
+    border: 1px solid var(--color-border, var(--w-color-border-furniture, rgba(148, 163, 184, 0.35)));
+    background: var(--color-surface, var(--w-color-surface-page, transparent));
+    box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+}
+
+.media-caption {
+    margin-top: var(--space-2, 8px);
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    color: var(--color-muted, var(--w-color-text-meta, rgba(100, 116, 139, 0.95)));
+    text-align: center;
+}
+
+/* --------------------------------------------------------------------------
+   4. 第 1 层防留白：容器宽度 >= 560px 且视口 > 768px 时启用受控左右环绕；窄栏/移动端自动居中堆叠
+   -------------------------------------------------------------------------- */
+@container (min-width: 560px) {
+    .rich-text .richtext-image.left,
+    .rich-text .cb-image--left,
+    .cb-markdown-body figure.cb-image--left,
+    .cb-markdown-body .cb-img-align-left,
+    .detail-body-section > figure.cb-image--left,
+    .detail-body-section > .media-image-wrapper.format-left,
+    .blog-body-section > figure.cb-image--left,
+    .guide-main > figure.cb-image--left,
+    .project-body-section > figure.cb-image--left {
+        float: left;
+        clear: left;
+        max-width: min(46%, 360px);
+        margin: 0.25rem var(--space-5, 24px) var(--space-4, 16px) 0;
+        text-align: left;
+    }
+
+    .rich-text .richtext-image.right,
+    .rich-text .cb-image--right,
+    .cb-markdown-body figure.cb-image--right,
+    .cb-markdown-body .cb-img-align-right,
+    .detail-body-section > figure.cb-image--right,
+    .detail-body-section > .media-image-wrapper.format-right,
+    .blog-body-section > figure.cb-image--right,
+    .guide-main > figure.cb-image--right,
+    .project-body-section > figure.cb-image--right {
+        float: right;
+        clear: right;
+        max-width: min(46%, 360px);
+        margin: 0.25rem 0 var(--space-4, 16px) var(--space-5, 24px);
+        text-align: right;
+    }
+
+    figure.cb-image--left img,
+    figure.cb-image--right img,
+    .media-image-wrapper.format-left img,
+    .media-image-wrapper.format-right img {
+        width: 100%;
+        max-height: 390px;
+        object-fit: contain;
+    }
+}
+
+@container (max-width: 559.98px) {
+    .rich-text .richtext-image.left,
+    .rich-text .richtext-image.right,
+    .rich-text .cb-image--left,
+    .rich-text .cb-image--right,
+    .cb-markdown-body figure.cb-image--left,
+    .cb-markdown-body figure.cb-image--right,
+    .cb-markdown-body .cb-img-align-left,
+    .cb-markdown-body .cb-img-align-right,
+    .detail-body-section > figure.cb-image--left,
+    .detail-body-section > figure.cb-image--right,
+    .detail-body-section > .media-image-wrapper.format-left,
+    .detail-body-section > .media-image-wrapper.format-right,
+    .blog-body-section > figure.cb-image--left,
+    .blog-body-section > figure.cb-image--right,
+    .guide-main > figure.cb-image--left,
+    .guide-main > figure.cb-image--right,
+    .project-body-section > figure.cb-image--left,
+    .project-body-section > figure.cb-image--right {
         float: none;
+        clear: both;
         max-width: 100%;
-        margin: 1.25rem 0;
+        margin: var(--space-4, 16px) auto;
         text-align: center;
     }
 }
 
-/* 正文插图与图集通用键盘无障碍灯箱 */
+/* --------------------------------------------------------------------------
+   5. 第 2 层防留白：标题、代码、表格、结构化卡片与下一张图自动 clear: both
+   -------------------------------------------------------------------------- */
+.rich-text h1,
+.rich-text h2,
+.rich-text h3,
+.rich-text h4,
+.rich-text pre,
+.rich-text .responsive-table-wrapper,
+.rich-text .media-embed-wrapper,
+.cb-markdown-body h1,
+.cb-markdown-body h2,
+.cb-markdown-body h3,
+.cb-markdown-body h4,
+.cb-markdown-body pre,
+.cb-markdown-body .code-block-wrapper,
+.cb-markdown-body .responsive-table-wrapper,
+.cb-markdown-body .cb-mermaid,
+.detail-body-section .tutorial-lead-card,
+.detail-body-section .tutorial-step-card,
+.detail-body-section .callout-card,
+.detail-body-section .faq-card,
+.detail-body-section .reference-link-card,
+.detail-body-section .cb-media-text {
+    clear: both;
+}
+
+/* --------------------------------------------------------------------------
+   6. 第 3 层防留白：结构化「图文并排」Grid 积木 (CustomMediaTextBlock)
+   -------------------------------------------------------------------------- */
+.cb-media-text {
+    display: grid;
+    grid-template-columns: minmax(0, 4fr) minmax(0, 6fr);
+    gap: var(--space-5, 24px);
+    align-items: center;
+    margin: var(--space-5, 24px) 0;
+    padding: var(--space-4, 16px);
+    border: 1px solid var(--color-border, rgba(148, 163, 184, 0.35));
+    border-radius: var(--radius-md, 8px);
+    background: var(--color-surface, transparent);
+    container-type: inline-size;
+}
+
+.cb-media-text--ratio-50-50 {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.cb-media-text--valign-start {
+    align-items: start;
+}
+
+.cb-media-text--media-right .cb-media-text__media {
+    order: 2;
+}
+
+.cb-media-text--media-right .cb-media-text__body {
+    order: 1;
+}
+
+.cb-media-text__media {
+    margin: 0;
+}
+
+.cb-media-text__media img {
+    display: block;
+    width: 100%;
+    max-height: 440px;
+    object-fit: contain;
+}
+
+.cb-media-text__body {
+    min-width: 0;
+}
+
+.cb-media-text__body > :first-child {
+    margin-top: 0;
+}
+
+.cb-media-text__body > :last-child {
+    margin-bottom: 0;
+}
+
+@container (max-width: 559.98px) {
+    .cb-media-text,
+    .cb-media-text--ratio-50-50 {
+        grid-template-columns: minmax(0, 1fr);
+        gap: var(--space-3, 12px);
+    }
+
+    .cb-media-text--media-right .cb-media-text__media,
+    .cb-media-text--media-right .cb-media-text__body {
+        order: initial;
+    }
+}
+
+@media (max-width: 768px) {
+    .rich-text .richtext-image.left,
+    .rich-text .richtext-image.right,
+    .rich-text .cb-image--left,
+    .rich-text .cb-image--right,
+    .cb-markdown-body figure.cb-image--left,
+    .cb-markdown-body figure.cb-image--right,
+    .cb-markdown-body .cb-img-align-left,
+    .cb-markdown-body .cb-img-align-right,
+    .detail-body-section > figure.cb-image--left,
+    .detail-body-section > figure.cb-image--right,
+    .detail-body-section > .media-image-wrapper.format-left,
+    .detail-body-section > .media-image-wrapper.format-right,
+    .blog-body-section > figure.cb-image--left,
+    .blog-body-section > figure.cb-image--right,
+    .guide-main > figure.cb-image--left,
+    .guide-main > figure.cb-image--right,
+    .project-body-section > figure.cb-image--left,
+    .project-body-section > figure.cb-image--right,
+    .media-image-wrapper.format-left,
+    .media-image-wrapper.format-right,
+    figure.cb-image--left,
+    figure.cb-image--right,
+    .richtext-image.left,
+    .richtext-image.right,
+    .cb-img-align-left,
+    .cb-img-align-right {
+        float: none;
+        clear: both;
+        width: auto;
+        max-width: 100%;
+        margin: var(--space-4, 16px) auto;
+        text-align: center;
+    }
+
+    .cb-media-text,
+    .cb-media-text--ratio-50-50 {
+        grid-template-columns: minmax(0, 1fr);
+        gap: var(--space-3, 12px);
+    }
+
+    .cb-media-text--media-right .cb-media-text__media,
+    .cb-media-text--media-right .cb-media-text__body {
+        order: initial;
+    }
+}
+
+/* --------------------------------------------------------------------------
+   7. 正文插图与图集通用键盘无障碍灯箱
+   -------------------------------------------------------------------------- */
 .cb-lightbox-overlay {
     position: fixed;
     inset: 0;
@@ -138,7 +371,7 @@
     align-items: center;
     justify-content: center;
     flex-direction: column;
-    padding: 24px;
+    padding: var(--space-5, 24px);
     z-index: 99999;
 }
 
@@ -150,26 +383,26 @@
     max-width: 90vw;
     max-height: 82vh;
     object-fit: contain;
-    border-radius: 6px;
+    border-radius: var(--radius-sm, 6px);
     box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
 }
 
 .cb-lightbox-caption {
-    margin-top: 12px;
-    color: #e2e8f0;
-    font-size: 14px;
+    margin-top: var(--space-3, 12px);
+    color: var(--hero-text, rgba(248, 250, 252, 0.96));
+    font-size: 0.875rem;
     text-align: center;
     max-width: 80vw;
 }
 
 .cb-lightbox-btn {
     position: absolute;
-    background: rgba(30, 41, 59, 0.85);
-    color: #ffffff;
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: var(--color-backdrop, rgba(15, 23, 42, 0.78));
+    color: var(--hero-text, rgba(255, 255, 255, 0.96));
+    border: 1px solid rgba(255, 255, 255, 0.24);
     border-radius: 9999px;
-    width: 42px;
-    height: 42px;
+    width: var(--touch-target, 44px);
+    height: var(--touch-target, 44px);
     font-size: 22px;
     line-height: 1;
     cursor: pointer;
@@ -179,7 +412,7 @@
 }
 
 .cb-lightbox-btn:hover {
-    background: #0284c7;
+    background: var(--color-primary, rgba(29, 78, 216, 0.92));
 }
 
 .cb-lightbox-close { top: 18px; right: 20px; }

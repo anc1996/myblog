@@ -366,7 +366,7 @@ class S3BlocksTests(unittest.TestCase):
 
         blocks_list = get_common_stream_blocks()
         block_keys = [b[0] for b in blocks_list]
-        expected_keys = ["rich_text", "markdown", "code", "mermaid", "table", "image", "document", "attachment_list", "audio", "video", "embed"]
+        expected_keys = ["rich_text", "markdown", "code", "mermaid", "table", "image", "media_text", "document", "attachment_list", "audio", "video", "embed"]
         self.assertEqual(block_keys, expected_keys)
 
     def test_document_badge_size_and_attachment_list_block(self):

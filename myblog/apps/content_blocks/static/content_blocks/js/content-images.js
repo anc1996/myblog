@@ -32,11 +32,12 @@
         });
 
         bodyImages.forEach(function (img) {
-            if (!img.src) return;
+            var fullSrc = img.getAttribute("data-full-src") || img.src;
+            if (!fullSrc) return;
             var wrapper = img.closest("figure");
             var capEl = wrapper ? wrapper.querySelector("figcaption") : null;
             items.push({
-                src: img.src,
+                src: fullSrc,
                 caption: (capEl ? capEl.textContent : img.alt) || "",
                 trigger: img
             });

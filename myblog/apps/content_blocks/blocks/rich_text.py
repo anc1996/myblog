@@ -7,6 +7,7 @@
 
 import html
 import re
+import uuid
 from typing import Any
 from django.utils.safestring import mark_safe
 from wagtail import blocks
@@ -21,6 +22,7 @@ from content_blocks.contracts import (
 )
 from content_blocks.embeds import render_embed_wrapper_html
 from content_blocks.blocks.media import _resolve_asset_id
+from content_blocks.rendering.media_refs import extract_media_references
 from content_blocks.sanitizer import sanitize_html
 
 DEFAULT_RICH_TEXT_FEATURES = [
@@ -41,6 +43,9 @@ DEFAULT_RICH_TEXT_FEATURES = [
     "ul",
     "blockquote",
     "hr",
+    "align-left",
+    "align-center",
+    "align-right",
     "link",
     "document-link",
     "image",
@@ -65,6 +70,7 @@ def _replace_media_embeds_safely(raw_source: str) -> tuple[str, list[tuple[str, 
         return raw_source, []
 
     stashed: list[tuple[str, str]] = []
+    nonce = uuid.uuid4().hex[:10]
 
     def _sub(match: re.Match) -> str:
         attrs = _parse_attrs(match.group(1))
@@ -75,7 +81,7 @@ def _replace_media_embeds_safely(raw_source: str) -> tuple[str, list[tuple[str, 
         wrapper_html = render_embed_wrapper_html(url, title=title)
         if not wrapper_html:
             return ""
-        token = f"CBRTEMBED_{len(stashed)}_X"
+        token = f"CBRTEMBED_{nonce}_{len(stashed)}_X"
         stashed.append((token, wrapper_html))
         return token
 
@@ -169,4 +175,11 @@ class CustomRichTextBlock(blocks.RichTextBlock):
                 if aid and ("document", aid) not in seen:
                     seen.add(("document", aid))
                     refs.append(MediaReference(asset_id=aid, asset_type="document", block_path=path))
+
+        # 4. 复用共享媒体路径解析，捕获富文本中直写的 /media-gateway/(image|document|audio|video)/<uuid>/ 链接
+        for ref in extract_media_references(raw, path=path):
+            key = (ref.asset_type, str(ref.asset_id).lower())
+            if ref.asset_id and key not in seen:
+                seen.add(key)
+                refs.append(ref)
         return refs

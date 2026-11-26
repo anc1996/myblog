@@ -22,7 +22,10 @@ from content_blocks.contracts import (
     MediaReference,
 )
 from content_blocks.sanitizer import sanitize_html
-from content_blocks.rendering.images import apply_markdown_image_sizing_in_html
+from content_blocks.rendering.images import (
+    apply_markdown_image_sizing_in_html,
+    upgrade_standalone_markdown_figures,
+)
 from content_blocks.rendering.markdown_engine import (
     extract_fenced_mermaid_blocks,
     render_markdown_to_html,
@@ -54,13 +57,15 @@ def _escape_pipes_in_md_images(md_text: str, nonce: str) -> str:
     out_lines: list[str] = []
     for line in lines:
         stripped = line.lstrip()
-        # 只处理 Markdown 管道表格行（不碰 HTML <td> 内的原文）
+        # 仅当剔除 ![...](...) 语法后本行仍含 "|"（即确认为 Markdown 管道表格行，而非正文独立图片）时才转义管道符
         if "|" in stripped and not stripped.startswith("<"):
-            line = re.sub(
-                r"!\[([^\]]+)\]\(([^\s\)]+)\)",
-                lambda m: "![" + re.sub(r"(?<!\\)\|", r"\\|", m.group(1)) + "](" + m.group(2) + ")",
-                line,
-            )
+            outside_images = re.sub(r"!\[[^\]]+\]\([^\)]+\)", "", stripped)
+            if "|" in outside_images:
+                line = re.sub(
+                    r"!\[([^\]]+)\]\(([^\s\)]+(?:\s+\"[^\"]*\")?)\)",
+                    lambda m: "![" + re.sub(r"(?<!\\)\|", r"\\|", m.group(1)) + "](" + m.group(2) + ")",
+                    line,
+                )
         out_lines.append(line)
     tmp = "".join(out_lines)
     for idx, raw in enumerate(stashed):
@@ -126,6 +131,7 @@ class CustomMarkdownBlock(blocks.TextBlock):
         # 5b. 增强 Markdown 表格（含 HTML 合并单元格表格）的代码/图片渲染与自适应滚动容器，并应用图片尺寸语法
         cleaned_html = enhance_markdown_tables_html(cleaned_html)
         cleaned_html = apply_markdown_image_sizing_in_html(cleaned_html)
+        cleaned_html = upgrade_standalone_markdown_figures(cleaned_html)
 
         # 6. 安全回填 Mermaid 图表容器（源码经严格转义）
         for idx, code in enumerate(mermaid_blocks):
@@ -141,7 +147,9 @@ class CustomMarkdownBlock(blocks.TextBlock):
         # 7. 安全回填 LaTeX 数学公式容器
         cleaned_html = restore_math_in_html(cleaned_html, math_items)
 
-        return BlockRenderResult(html=cleaned_html, is_safe=True)
+        if not cleaned_html:
+            return BlockRenderResult(html="", is_safe=True)
+        return BlockRenderResult(html=f'<div class="cb-markdown-body">{cleaned_html}</div>', is_safe=True)
 
     def render_basic(self, value: Any, context: Any = None):
         """Wagtail 模板原生渲染集成入口"""

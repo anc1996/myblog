@@ -396,7 +396,8 @@ img_path = "asset://image/{dummy_code_id}"
         self.assertIn(f'src="/media-gateway/image/{img_uuid}/"', res.html)
         self.assertIn('width="240"', res.html)
         self.assertIn('alt="架构图"', res.html)
-        self.assertIn('style="width:50%;max-width:100%"', res.html)
+        self.assertIn('cb-img-w-50', res.html)
+        self.assertNotIn('style="width:50%', res.html)
         self.assertIn('cb-img-align-center', res.html)
         self.assertNotIn("<script>", res.html)
 

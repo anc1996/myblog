@@ -330,8 +330,16 @@ def guard_page_publish_lifecycle(request, page):
     """通用发布门禁：触发 CustomBasePage.validate_for_publish 核查回收状态、权限与受限媒体归属。"""
     specific = page.specific
     if hasattr(specific, "validate_for_publish"):
+        target_rev = None
+        resolver = getattr(request, "resolver_match", None)
+        rev_id = resolver.kwargs.get("revision_id") if resolver and getattr(resolver, "kwargs", None) else None
+        if rev_id:
+            from wagtail.models import Revision
+            target_rev = Revision.objects.filter(id=rev_id, object_id=str(page.id)).first()
+        if target_rev is None:
+            target_rev = specific.get_latest_revision()
         try:
-            specific.validate_for_publish(user=request.user, revision=specific.get_latest_revision())
+            specific.validate_for_publish(user=request.user, revision=target_rev)
         except ValidationError as exc:
             msg = "; ".join(exc.messages) if hasattr(exc, "messages") else str(exc)
             messages.error(request, msg)

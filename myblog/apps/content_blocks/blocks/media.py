@@ -38,6 +38,26 @@ FORMAT_CHOICES = [
     ("right", "右浮动"),
 ]
 
+IMAGE_ACCENT_CHOICES = [
+    ("minimal", "默认极简"),
+    ("card", "轻强调卡片"),
+]
+
+MEDIA_TEXT_LAYOUT_CHOICES = [
+    ("media-left", "左图右文（并排）"),
+    ("media-right", "右图左文（并排）"),
+]
+
+MEDIA_TEXT_RATIO_CHOICES = [
+    ("40-60", "图窄文宽 (4:6)"),
+    ("50-50", "均衡对分 (5:5)"),
+]
+
+MEDIA_TEXT_VALIGN_CHOICES = [
+    ("center", "垂直居中"),
+    ("start", "顶部对齐"),
+]
+
 
 def _resolve_asset_id(instance_or_id: Any, expected_model: Any = None) -> str:
     """安全提取模型实例的 public_id；若传入整数主键，自动按模型查询对应 public_id (H-05)"""
@@ -130,6 +150,12 @@ class CustomImageBlock(blocks.StructBlock):
     caption = blocks.CharBlock(required=False, max_length=255, label="图注说明")
     alt_text = blocks.CharBlock(required=False, max_length=255, label="替代文本（无障碍）")
     display_format = blocks.ChoiceBlock(choices=FORMAT_CHOICES, default="centered", label="展示排版")
+    accent_style = blocks.ChoiceBlock(
+        choices=IMAGE_ACCENT_CHOICES,
+        default="minimal",
+        required=False,
+        label="视觉修饰",
+    )
 
     class Meta:
         icon = "image"
@@ -148,14 +174,19 @@ class CustomImageBlock(blocks.StructBlock):
         caption = value.get("caption") or ""
         alt_text = value.get("alt_text") or (getattr(img_instance, "title", "") if img_instance else "")
         fmt = value.get("display_format") or "centered"
+        if fmt not in {"centered", "full", "left", "right"}:
+            fmt = "centered"
+        semantic_fmt = "center" if fmt == "centered" else fmt
+        accent = value.get("accent_style") or "minimal"
+        card_cls = " cb-image--card" if accent == "card" else ""
         asset_id = _resolve_asset_id(img_instance)
 
         safe_caption = html.escape(caption)
         safe_alt = html.escape(alt_text)
 
         html_output = f"""
-        <figure class="media-image-wrapper format-{fmt}" data-asset-id="{asset_id}">
-            <img src="/media-gateway/image/{asset_id}/" alt="{safe_alt}" loading="lazy" data-asset-id="{asset_id}" />
+        <figure class="media-image-wrapper cb-image cb-image--{semantic_fmt} format-{fmt}{card_cls}" data-asset-id="{asset_id}">
+            <img src="/media-gateway/image/{asset_id}/" data-full-src="/media-gateway/image/{asset_id}/" alt="{safe_alt}" class="cb-image-img" loading="lazy" data-asset-id="{asset_id}" />
             {f'<figcaption class="media-caption">{safe_caption}</figcaption>' if caption else ''}
         </figure>
         """
@@ -181,6 +212,117 @@ class CustomImageBlock(blocks.StructBlock):
         if not asset_id:
             return []
         return [MediaReference(asset_id=asset_id, asset_type="image", block_path=path)]
+
+
+class CustomMediaTextBlock(blocks.StructBlock):
+    """
+    全站公共「图文并排」Grid 积木 (CustomMediaTextBlock)：
+    解决短文配高图时传统 float 容易留出大量空白或挤乱后续段落的问题，
+    窄容器下自动堆叠为上下结构。
+    """
+    type_name = "media_text"
+    schema_version = 1
+
+    image = ImageChooserBlock(label="选择配图")
+    caption = blocks.CharBlock(required=False, max_length=255, label="图注说明")
+    alt_text = blocks.CharBlock(required=False, max_length=255, label="替代文本（无障碍）")
+    layout = blocks.ChoiceBlock(
+        choices=MEDIA_TEXT_LAYOUT_CHOICES,
+        default="media-left",
+        label="图文排列",
+    )
+    ratio = blocks.ChoiceBlock(
+        choices=MEDIA_TEXT_RATIO_CHOICES,
+        default="40-60",
+        label="列宽比例",
+    )
+    vertical_align = blocks.ChoiceBlock(
+        choices=MEDIA_TEXT_VALIGN_CHOICES,
+        default="center",
+        label="垂直对齐",
+    )
+    body = blocks.RichTextBlock(label="配图说明文字")
+
+    class Meta:
+        icon = "doc-empty"
+        label = "图文并排"
+
+    def validate_value(self, value: Any, context: Any = None) -> BlockValidationResult:
+        if not value or not value.get("image"):
+            return BlockValidationResult(is_valid=False, errors=["图文并排必须选择一张配图"])
+        if not value.get("body"):
+            return BlockValidationResult(is_valid=False, errors=["图文并排的说明文字不能为空"])
+        return BlockValidationResult(is_valid=True)
+
+    def render_clean(self, value: Any, context: Any = None) -> BlockRenderResult:
+        if not value or not value.get("image"):
+            return BlockRenderResult(html="", is_safe=True)
+
+        from content_blocks.blocks.rich_text import CustomRichTextBlock
+
+        img_instance = value.get("image")
+        asset_id = _resolve_asset_id(img_instance)
+        gateway_url = _build_gateway_url("image", asset_id)
+        if not gateway_url:
+            return BlockRenderResult(html="", is_safe=True)
+
+        caption = str(value.get("caption") or "").strip()
+        alt_text = str(value.get("alt_text") or (getattr(img_instance, "title", "") if img_instance else "")).strip()
+        layout = value.get("layout") if value.get("layout") in {"media-left", "media-right"} else "media-left"
+        ratio = value.get("ratio") if value.get("ratio") in {"40-60", "50-50"} else "40-60"
+        valign = value.get("vertical_align") if value.get("vertical_align") in {"center", "start"} else "center"
+
+        body_html = CustomRichTextBlock().render_clean(value.get("body"), context=context).html
+        safe_caption = html.escape(caption)
+        safe_alt = html.escape(alt_text)
+        safe_url = html.escape(gateway_url, quote=True)
+        safe_aid = html.escape(asset_id, quote=True)
+
+        html_output = f"""
+        <div class="cb-media-text cb-media-text--{layout} cb-media-text--ratio-{ratio} cb-media-text--valign-{valign}">
+            <figure class="cb-media-text__media cb-image cb-image--card" data-asset-id="{safe_aid}">
+                <img src="{safe_url}" data-full-src="{safe_url}" alt="{safe_alt}" class="cb-image-img" loading="lazy" data-asset-id="{safe_aid}" />
+                {f'<figcaption class="media-caption">{safe_caption}</figcaption>' if caption else ''}
+            </figure>
+            <div class="cb-media-text__body">{body_html}</div>
+        </div>
+        """
+        return BlockRenderResult(html=sanitize_html(html_output), is_safe=True)
+
+    def render_basic(self, value: Any, context: Any = None):
+        return mark_safe(self.render_clean(value, context).html)
+
+    def extract_text(self, value: Any) -> BlockTextExtraction:
+        if not value:
+            return BlockTextExtraction(plain_text="", logical_segments=[])
+        from content_blocks.blocks.rich_text import CustomRichTextBlock
+
+        caption = str(value.get("caption") or "").strip()
+        alt = str(value.get("alt_text") or "").strip()
+        body_ext = CustomRichTextBlock().extract_text(value.get("body"))
+        segments = [s for s in (caption, alt, body_ext.plain_text) if s]
+        combined = "\n".join(segments).strip()
+        return BlockTextExtraction(plain_text=combined, logical_segments=segments)
+
+    def extract_media_refs(self, value: Any, path: str = "") -> list[MediaReference]:
+        if not value:
+            return []
+        from content_blocks.blocks.rich_text import CustomRichTextBlock
+
+        refs: list[MediaReference] = []
+        if value.get("image"):
+            asset_id = _resolve_asset_id(value.get("image"))
+            if asset_id:
+                refs.append(
+                    MediaReference(
+                        asset_id=asset_id,
+                        asset_type="image",
+                        block_path=f"{path}.image" if path else "image",
+                    )
+                )
+        body_path = f"{path}.body" if path else "body"
+        refs.extend(CustomRichTextBlock().extract_media_refs(value.get("body"), path=body_path))
+        return refs
 
 
 class CustomDocumentBlock(blocks.StructBlock):

@@ -72,6 +72,59 @@ def promote_owner_restricted_media_on_publish(sender, instance, revision=None, *
         MediaReferenceRecord.objects.filter(page_id=instance.id, revision_id=rev_id)
         .values_list("asset_type", "asset_id")
     )
+    # 若发布的是尚未补录 MediaReferenceRecord 的历史 Revision（或表内遗漏），
+    # 同步采集目标 Revision / 页面引用并补齐登记，确保与 validate_for_publish 门禁口径 100% 一致。
+    ref_set = {(atype, aid) for atype, aid in refs if aid}
+    target_rev = revision
+    if target_rev is None and rev_id:
+        from wagtail.models import Revision
+        target_rev = Revision.objects.filter(id=rev_id).first()
+    scan_obj = instance
+    if target_rev is not None:
+        try:
+            scan_obj = target_rev.as_object()
+        except Exception:
+            scan_obj = instance
+    try:
+        collected = scan_obj.collect_media_references()
+    except Exception:
+        collected = []
+    if collected:
+        missing_refs = []
+        from uuid import UUID
+        for ref in collected:
+            if not ref.asset_id:
+                continue
+            try:
+                uid = UUID(str(ref.asset_id))
+            except Exception:
+                continue
+            pair = (ref.asset_type, uid)
+            if pair not in ref_set:
+                ref_set.add(pair)
+                missing_refs.append(ref)
+        if missing_refs and not refs:
+            MediaReferenceTracker.register_revision_references(
+                page_id=instance.id,
+                revision_id=rev_id,
+                references=collected,
+            )
+        elif missing_refs:
+            # 部分漏记的 Revision 仅做增量补插，既保留既有记录又消除删图保护缺口
+            MediaReferenceRecord.objects.bulk_create(
+                [
+                    MediaReferenceRecord(
+                        asset_id=UUID(str(r.asset_id)),
+                        asset_type=r.asset_type,
+                        page_id=instance.id,
+                        revision_id=rev_id,
+                        field_name=r.extra.get("field_name", "body") if getattr(r, "extra", None) else "body",
+                        block_path=r.block_path,
+                    )
+                    for r in missing_refs
+                ]
+            )
+    refs = list(ref_set)
     if not refs:
         return
 

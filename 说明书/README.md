@@ -1,6 +1,6 @@
 # myblog 项目工程与技术规范入口
 
-更新日期：2026-11-24。**全站 19 个业务子应用、54 份自动化测试文件及核心架构已落地；自 2026-11-24 起项目遵循《AGENTS.md》中借鉴 WordPress 四层解耦思想的防写死/防过度设计铁律（不再为个人站点叠加多库/大并发子系统）**。
+更新日期：2026-11-25。**全站 19 个业务子应用、57 份自动化测试文件及核心架构已落地；自 2026-11-24 起项目遵循《AGENTS.md》中借鉴 WordPress 四层解耦思想的防写死/防过度设计铁律（不再为个人站点叠加多库/大并发子系统）**。
 
 ## 建议阅读顺序
 
@@ -41,12 +41,16 @@
   - **LaTeX 数学公式前置保护与 KaTeX 按需渲染**：引入官方离线包 `KaTeX 0.19.1`；在 Markdown 扩展（tables/nl2br）前预先提取公式，彻底消除公式下划线被转为 `<em>`、换行被转为 `<br>` 以及表格单元格内公式绝对值管道符被拆列的问题；严格规避货币价格误匹配；支持块级与行内公式；
   - **复杂表格（CustomTableBlock）逻辑网格、全能单元格与左右分栏**：新增逻辑占位网格校验（精确拦截越界、重叠与非正跨度）及 `<thead>`/`<tbody>` 表头递推，彻底解决 `rowspan` 跨行组被浏览器截断错位的问题；单元格支持 LaTeX 公式、行内反引号 `` `code` ``、围栏代码块 Highlight.js 高亮与 `asset://` 受控媒体；前端支持「⇄ 分栏对照」切换**左侧 JSON 源码高亮 + 右侧表格渲染**；
   - **外部媒体**：独立嵌入块和富文本共用 `content_blocks.embeds` 平台规则。Vimeo 保留非公开列出视频的 `h` 参数，点击加载后等播放器就绪再展示；加载失败时可走源链接。腾讯视频需要有效视频链接，旧演示的占位 ID 不启动播放器。网易云和 Spotify 使用站内播放器；Spotify 可粘贴 `open.spotify.com` 的内容链接，不需要粘贴 iframe 代码，播放受 Spotify 授权与可用性限制，始终保留源链接。酷狗和咪咕使用外链卡片，酷我用普通链接。QQ 音乐不再支持嵌入；既有内容不改写，旧卡片不展示，可在编辑时移除旧块或改用普通链接。平台徽标与标题不重复显示同一个前缀。
-  - **站内媒体与卡片**：图片排版与灯箱、音视频和文档卡片、教程和提示卡片使用公共样式；
+- **RichText 与 Markdown 统一上传、生命周期与图文混排框架（2026-11-25 Phase 1–3 已落地并迁移）**：
+  - **生命周期兜底**：结构化卡片（导读/步骤/Tip/FAQ）嵌套富文本统一委托 `CustomRichTextBlock` 净化渲染并提取 `MediaReferenceRecord`；公开页发布前阻断不会被自动转正的他人/未授权受限资产；公开派生图缓存头收敛为 `public, max-age=300, must-revalidate`；
+  - **统一上传体验**：Draftail 新增剪贴板/拖拽图片直传受控 `CustomImage`（零字段硬编码）；Vditor 新增工具栏复用 Wagtail 原生图库/文档库 Chooser（含附件上传）并通过受控解析接口写入 `asset://image/<uuid>` / `[标题](asset://document/<uuid>)`；两者共用表单级上传并发锁 `CBEditorUploadCoordinator`、防降级集合隔离与同集合标题防重；
+  - **文本对齐、图片修饰与三层防留白排版**：Draftail 注册 `align-left / align-center / align-right` 段落特性，Markdown 支持 `::: align-center / align-right` 块指令（经 `nh3` 严格类名白名单净化，禁内联 `style`）；`image_formats.py` 统一注册 `centered / fullwidth / left / right` 格式并向灯箱注入 `data-full-src` 原图网关；Markdown 图片改用有限 6 档宽度语义类（`cb-img-w-25..100`）与独立 `<figure><figcaption>` 升级；`content-images.css` 收敛至 `tokens.css` 语义令牌（零裸 `#hex`），落地容器宽度流式环绕、标题/代码块/表格/卡片自动 `clear: both` 以及全新 `CustomMediaTextBlock`（图文并排 Grid 积木，已完成 `blog`/`guides`/`portfolio` `0005` 迁移）。
+- **站内媒体与卡片**：图片排版与灯箱、音视频和文档卡片、教程和提示卡片使用公共样式；
   - **全站代码复制统一**：规范 `code.py` 与 `structured.py` 的 URI 编码协议，统一由 `code-copy.js` 驱动并平滑回退，修复指南步骤卡代码复制乱码；优化 `guide_page.html` 侧栏 375px 移动端响应式断行。
 - **全站 SEO 与爬虫收录协议**：
   - `/sitemap.xml`：集成 Wagtail 站点地图，严格排除回收站页面（`is_recycled=True`）与未发布草稿，仅收录公开发布的合法在线页面；
   - `/robots.txt`：阻断爬虫抓取 `/admin/`、`/django-admin/`、`/media-gateway/`、`/avatar-gateway/`、`/account/` 与 `/api/` 等私密网关，自动定位并引导抓取 `/sitemap.xml`。
-- **测试与质量**：`tests/` 目录现含 **54 份自动化测试文件**；各新增功能均需通过 `MYBLOG_ENV_FILE=.env.test python -B manage.py check`、`makemigrations --check --dry-run` 及定向回归测试。
+- **测试与质量**：`tests/` 目录现含 **57 份自动化测试文件**；各新增功能均需通过 `MYBLOG_ENV_FILE=.env.test python -B manage.py check`、`makemigrations --check --dry-run` 及定向回归测试。
 - **前端与交互闭环**：
   - **全局响应式导航、浅深色主题与公共 UI 组件**：绑定 `site_settings`，支持 `data-theme="light|dark"` 切换与防闪烁恢复；通过 `vendor.lock.json` 统一挂载 `Alpine.js`、`HTMX`、`Tom Select`、`Flatpickr` 与 `Splide`；
   - **全站共享详情壳层、三栏互动与单次服务端 TOC 目录 (`detail_shell.html`)**：统一服务 `BlogPage`、`GuidePage`、`ProjectPage` 及后续 `XxPage`；后端单遍提取 `h1`–`h4` 与 `step` 锚点并注入 `[data-cb-block]` 防溢出容器，桌面宽屏（`>=1280px`，最高 `1800px` 居中适配全屏）采用「可折叠左侧 sticky 目录 + 主文/评价/上下篇/评论区 + 右侧作者名片/标签/公告或推荐」三栏布局，手机/iPad（`<=1024px`）使用粘性触发栏 + 原生 `<dialog>` 抽屉；标签统一反解本站 `TagIndexPage` 详情路由；

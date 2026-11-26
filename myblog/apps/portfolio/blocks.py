@@ -22,6 +22,7 @@ from content_blocks.blocks import (
     CustomTableBlock,
     CustomMermaidBlock,
     CustomImageBlock,
+    CustomMediaTextBlock,
     CustomDocumentBlock,
     CustomAttachmentListBlock,
     CustomAudioBlock,
@@ -279,6 +280,7 @@ class PortfolioStreamBlock(blocks.StreamBlock):
     table = CustomTableBlock(label="结构化对比表格", group="排版内容")
     mermaid = CustomMermaidBlock(label="架构流程图 (Mermaid)", group="排版内容")
     image = CustomImageBlock(label="单张配图", group="多媒体")
+    media_text = CustomMediaTextBlock(label="图文并排", group="多媒体")
     document = CustomDocumentBlock(label="文档附件", group="多媒体")
     attachment_list = CustomAttachmentListBlock(label="课件/附件下载列表", group="多媒体")
     audio = CustomAudioBlock(label="音频", group="多媒体")

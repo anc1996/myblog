@@ -31,6 +31,50 @@
     color: #be123c;
 }
 
+.cb-editor-upload-guard-banner {
+    margin: 0 0 12px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    background: var(--w-color-info-50, #eff6ff);
+    border: 1px solid var(--w-color-info-100, #bfdbfe);
+    color: var(--w-color-info-200, #1e40af);
+}
+
+.cb-richtext-upload-status {
+    margin-top: 6px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    background: var(--w-color-info-50, #eff6ff);
+    border: 1px solid var(--w-color-info-100, #bfdbfe);
+    color: var(--w-color-info-200, #1e40af);
+}
+
+.cb-richtext-upload-status--error {
+    background: var(--w-color-critical-50, #fff1f2);
+    border-color: var(--w-color-critical-100, #fecdd3);
+    color: var(--w-color-critical-200, #be123c);
+}
+
+.cb-richtext-uploading {
+    opacity: 0.72;
+    pointer-events: none;
+}
+
+/* Draftail 后台编辑区段落对齐实时预览 */
+.Draftail-block--align-left {
+    text-align: left;
+}
+
+.Draftail-block--align-center {
+    text-align: center;
+}
+
+.Draftail-block--align-right {
+    text-align: right;
+}
+
 .cb-vditor-editor .vditor {
     border-radius: 6px;
     border-color: var(--w-color-border-field-default, #cbd5e1);

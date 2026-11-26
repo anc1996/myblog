@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import html
 import re
+import uuid
 from typing import Callable
 
 from markdown_it import MarkdownIt
@@ -22,6 +23,96 @@ from markdown_it.renderer import RendererHTML
 _STRONG_CJK_RE = re.compile(r"\*\*(?!\s)(.+?)(?<!\s)\*\*")
 _EM_CJK_RE = re.compile(r"(?<!\*)\*(?!\s)(.+?)(?<!\s)\*(?!\*)")
 _TASK_PREFIX_RE = re.compile(r"^\[([ xX])\]\s+")
+_ALIGN_OPEN_RE = re.compile(r"^[ ]{0,3}:::[ \t]*(align-(?:left|center|right))[ \t]*$")
+_ALIGN_CLOSE_RE = re.compile(r"^[ ]{0,3}:::[ \t]*$")
+_FENCE_LINE_RE = re.compile(r"^[ \t]{0,3}(`{3,}|~{3,})(.*)$")
+
+
+def _protect_align_containers(md_text: str, nonce: str) -> tuple[str, list[tuple[str, str, str]]]:
+    """
+    在 CommonMark 解析前扫描成对的 `::: align-left|center|right` ... `:::` 块指令，
+    跳过围栏代码块内部，仅把合法闭合的块边界替换为独立段落令牌。
+    """
+    if ":::" not in md_text:
+        return md_text, []
+
+    lines = md_text.splitlines(keepends=True)
+    out: list[str] = []
+    in_fence = False
+    fence_char = ""
+    fence_len = 0
+    open_align: str | None = None
+    block_buf: list[str] = []
+    blocks_meta: list[tuple[str, str, str]] = []
+
+    for line in lines:
+        stripped_eol = line.rstrip("\r\n")
+        if not in_fence:
+            mf = _FENCE_LINE_RE.match(stripped_eol)
+            if mf:
+                marker = mf.group(1)
+                info = mf.group(2).strip()
+                if not (marker[0] == "`" and "`" in info):
+                    in_fence = True
+                    fence_char = marker[0]
+                    fence_len = len(marker)
+                if open_align is not None:
+                    block_buf.append(line)
+                else:
+                    out.append(line)
+                continue
+
+            if open_align is None:
+                m_open = _ALIGN_OPEN_RE.match(stripped_eol)
+                if m_open:
+                    open_align = m_open.group(1)
+                    block_buf = []
+                    continue
+                out.append(line)
+            else:
+                if _ALIGN_CLOSE_RE.match(stripped_eol):
+                    idx = len(blocks_meta)
+                    open_tok = f"CBALIGNOPEN_{nonce}_{idx}_X"
+                    close_tok = f"CBALIGNCLOSE_{nonce}_{idx}_X"
+                    blocks_meta.append((open_tok, close_tok, open_align))
+                    out.append(f"\n\n{open_tok}\n\n")
+                    out.extend(block_buf)
+                    out.append(f"\n\n{close_tok}\n\n")
+                    open_align = None
+                    block_buf = []
+                else:
+                    block_buf.append(line)
+        else:
+            close_stripped = stripped_eol.strip()
+            if (
+                len(close_stripped) >= fence_len
+                and set(close_stripped) == {fence_char}
+                and len(stripped_eol) - len(stripped_eol.lstrip(" \t")) <= 3
+            ):
+                in_fence = False
+            if open_align is not None:
+                block_buf.append(line)
+            else:
+                out.append(line)
+
+    if open_align is not None:
+        # 未闭合的指令原样回退为普通文本，不吞掉后续正文
+        out.append(f"::: {open_align}\n")
+        out.extend(block_buf)
+
+    return "".join(out), blocks_meta
+
+
+def _restore_align_containers(html_str: str, blocks_meta: list[tuple[str, str, str]]) -> str:
+    if not blocks_meta:
+        return html_str
+    out = html_str
+    for open_tok, close_tok, align_key in blocks_meta:
+        div_open = f'<div class="cb-align-block cb-{align_key}">'
+        out = re.sub(r"<p>\s*" + re.escape(open_tok) + r"\s*</p>", lambda _: div_open, out)
+        out = re.sub(r"<p>\s*" + re.escape(close_tok) + r"\s*</p>", "</div>", out)
+        out = out.replace(open_tok, div_open).replace(close_tok, "</div>")
+    return out
 
 
 def extract_fenced_mermaid_blocks(
@@ -185,6 +276,9 @@ def render_markdown_to_html(md_text: str, *, allow_raw_html: bool = True) -> str
     """使用统一 CommonMark + GFM 渲染器转换 Markdown 文本（调用方负责后续 nh3 净化）。"""
     if not md_text:
         return ""
+    nonce = uuid.uuid4().hex[:10]
+    protected_md, align_blocks = _protect_align_containers(md_text, nonce)
     renderer = _MD_WITH_HTML if allow_raw_html else _MD_NO_HTML
-    rendered = renderer.render(md_text)
+    rendered = renderer.render(protected_md)
+    rendered = _restore_align_containers(rendered, align_blocks)
     return _apply_task_list_boxes(rendered)

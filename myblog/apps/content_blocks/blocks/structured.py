@@ -29,6 +29,7 @@ from content_blocks.contracts import (
 from content_blocks.sanitizer import sanitize_html
 from .code import LANGUAGE_CHOICES, highlight_code
 from .media import _resolve_asset_id
+from .rich_text import CustomRichTextBlock
 
 TIP_CHOICES = [
     ("tip", "💡 实用技巧 (Tip)"),
@@ -46,6 +47,20 @@ def _strip_rich_text(value: Any) -> str:
     no_tags = re.sub(r"<[^>]+>", " ", raw)
     unescaped = html.unescape(no_tags)
     return re.sub(r"\s+", " ", unescaped).strip()
+
+
+def _render_nested_rich_text(value: Any) -> str:
+    """委托 CustomRichTextBlock 统一渲染、展开受控 embed 并执行安全净化。"""
+    if not value:
+        return ""
+    return CustomRichTextBlock().render_clean(value).html
+
+
+def _extract_nested_rich_text_refs(value: Any, path: str) -> list[MediaReference]:
+    """委托 CustomRichTextBlock 提取嵌套富文本中的图片与文档引用。"""
+    if not value:
+        return []
+    return CustomRichTextBlock().extract_media_refs(value, path=path)
 
 
 class CustomLeadBlock(blocks.StructBlock):
@@ -71,8 +86,8 @@ class CustomLeadBlock(blocks.StructBlock):
             return BlockRenderResult(html="", is_safe=True)
 
         title = html.escape(str(value.get("title") or "学习目标与前置要求"))
-        prereq = str(value.get("prerequisites") or "")
-        overview = str(value.get("overview") or "")
+        prereq = _render_nested_rich_text(value.get("prerequisites"))
+        overview = _render_nested_rich_text(value.get("overview"))
 
         html_output = f"""
         <div class="tutorial-lead-card block-lead">
@@ -97,7 +112,14 @@ class CustomLeadBlock(blocks.StructBlock):
         return BlockTextExtraction(plain_text=combined, logical_segments=segments)
 
     def extract_media_refs(self, value: Any, path: str = "") -> list[MediaReference]:
-        return []
+        if not value:
+            return []
+        prereq_path = f"{path}.prerequisites" if path else "prerequisites"
+        overview_path = f"{path}.overview" if path else "overview"
+        return (
+            _extract_nested_rich_text_refs(value.get("prerequisites"), prereq_path)
+            + _extract_nested_rich_text_refs(value.get("overview"), overview_path)
+        )
 
 
 class CustomStepBlock(blocks.StructBlock):
@@ -128,7 +150,7 @@ class CustomStepBlock(blocks.StructBlock):
 
         step_num = html.escape(str(value.get("step_number") or "1"))
         title = html.escape(str(value.get("title") or ""))
-        content = str(value.get("content") or "")
+        content = _render_nested_rich_text(value.get("content"))
         code = str(value.get("code_snippet") or "").strip()
         lang = str(value.get("code_language") or "bash")
         caption = html.escape(str(value.get("image_caption") or ""))
@@ -192,10 +214,12 @@ class CustomStepBlock(blocks.StructBlock):
         return BlockTextExtraction(plain_text="\n".join(segments), logical_segments=segments)
 
     def extract_media_refs(self, value: Any, path: str = "") -> list[MediaReference]:
-        """向 MEDIA-REF-01 提供步骤配图的精准引用"""
+        """向 MEDIA-REF-01 提供步骤嵌套富文本与独立配图的精准引用"""
         refs = []
         if not value:
             return refs
+        content_path = f"{path}.content" if path else "content"
+        refs.extend(_extract_nested_rich_text_refs(value.get("content"), content_path))
         img_obj = value.get("image")
         if img_obj:
             pub_id = _resolve_asset_id(img_obj)
@@ -232,7 +256,7 @@ class CustomTipBlock(blocks.StructBlock):
 
         tip_type = value.get("tip_type") or "tip"
         title = html.escape(str(value.get("title") or ""))
-        content = str(value.get("content") or "")
+        content = _render_nested_rich_text(value.get("content"))
 
         html_output = f"""
         <div class="callout-card callout-{tip_type} block-tip">
@@ -255,7 +279,10 @@ class CustomTipBlock(blocks.StructBlock):
         return BlockTextExtraction(plain_text=combined, logical_segments=segments)
 
     def extract_media_refs(self, value: Any, path: str = "") -> list[MediaReference]:
-        return []
+        if not value:
+            return []
+        content_path = f"{path}.content" if path else "content"
+        return _extract_nested_rich_text_refs(value.get("content"), content_path)
 
 
 class CustomFaqBlock(blocks.StructBlock):
@@ -280,7 +307,7 @@ class CustomFaqBlock(blocks.StructBlock):
             return BlockRenderResult(html="", is_safe=True)
 
         q = html.escape(str(value.get("question") or ""))
-        a = str(value.get("answer") or "")
+        a = _render_nested_rich_text(value.get("answer"))
 
         html_output = f"""
         <div class="faq-card block-faq">
@@ -302,7 +329,10 @@ class CustomFaqBlock(blocks.StructBlock):
         return BlockTextExtraction(plain_text="\n".join(segments), logical_segments=segments)
 
     def extract_media_refs(self, value: Any, path: str = "") -> list[MediaReference]:
-        return []
+        if not value:
+            return []
+        answer_path = f"{path}.answer" if path else "answer"
+        return _extract_nested_rich_text_refs(value.get("answer"), answer_path)
 
 
 class CustomReferenceBlock(blocks.StructBlock):

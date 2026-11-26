@@ -21,6 +21,24 @@ _GATEWAY_DOC_HREF_RE = re.compile(
 _GATEWAY_IMG_SRC_RE = re.compile(
     r"^/media-gateway/image/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/$"
 )
+_SAFE_ALIGN_CLASSES = {"cb-align-left", "cb-align-center", "cb-align-right"}
+_SAFE_P_CLASSES = _SAFE_ALIGN_CLASSES | {
+    "step-caption",
+    "doc-desc",
+    "portfolio-tech-desc",
+    "featured-posts-desc",
+    "comment-inspect-risk",
+}
+_SAFE_HEADING_CLASSES = _SAFE_ALIGN_CLASSES | {
+    "lead-title",
+    "step-heading",
+    "callout-title",
+    "faq-question",
+    "portfolio-repo-title",
+    "portfolio-gallery-heading",
+    "featured-posts-heading",
+    "cb-heading-anchor",
+}
 
 # 允许的 HTML 标签白名单
 ALLOWED_TAGS = {
@@ -38,7 +56,7 @@ ALLOWED_TAGS = {
 # 允许的属性白名单
 ALLOWED_ATTRIBUTES = {
     "a": {"href", "title", "target", "class", "download", "data-analytics-conv"},
-    "img": {"src", "alt", "title", "width", "height", "loading", "data-asset-id", "class", "style"},
+    "img": {"src", "alt", "title", "width", "height", "loading", "data-asset-id", "data-full-src", "class", "style"},
     "table": {"class", "align", "border"},
     "caption": {"class"},
     "thead": {"class"},
@@ -48,8 +66,14 @@ ALLOWED_ATTRIBUTES = {
     "td": {"colspan", "rowspan", "align", "valign"},
     "code": {"class"},
     "pre": {"class"},
+    "p": {"class"},
+    "blockquote": {"class"},
+    "h1": {"id", "class"},
+    "h2": {"id", "class"},
     "h3": {"id", "class"},
     "h4": {"id", "class"},
+    "h5": {"id", "class"},
+    "h6": {"id", "class"},
     "div": {
         "id",
         "class",
@@ -90,6 +114,17 @@ def _filter_attributes(tag: str, attr: str, value: str) -> str | None:
         return value if value in {"audio", "video"} else None
     if tag == "div" and attr == "data-full-src":
         return value if _GATEWAY_IMG_SRC_RE.match(value or "") else None
+    if tag == "img" and attr == "data-full-src":
+        return value if _GATEWAY_IMG_SRC_RE.match(value or "") else None
+    if tag == "p" and attr == "class":
+        kept = [c for c in (value or "").split() if c in _SAFE_P_CLASSES]
+        return " ".join(kept) if kept else None
+    if tag == "blockquote" and attr == "class":
+        kept = [c for c in (value or "").split() if c in _SAFE_ALIGN_CLASSES]
+        return " ".join(kept) if kept else None
+    if tag in {"h1", "h2", "h3", "h4", "h5", "h6"} and attr == "class":
+        kept = [c for c in (value or "").split() if c in _SAFE_HEADING_CLASSES]
+        return " ".join(kept) if kept else None
     if tag == "a" and attr == "data-analytics-conv":
         return value if value in {"repo_click", "demo_click"} else None
     if tag == "a" and attr == "class":
