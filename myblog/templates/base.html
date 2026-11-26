@@ -139,7 +139,7 @@
                 sync({silent:true});
             })();
         </script>
-        <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>" />
+        <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%231d4ed8'/><path d='M9 22V10l7 7 7-7v12' fill='none' stroke='%23ffffff' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/></svg>" />
 
         {# Force all links in the live preview panel to be opened in a new tab #}
         {% if request.in_preview_panel %}
@@ -147,9 +147,9 @@
         {% endif %}
 
         {# Global stylesheets: Tokens -> Vendor -> Site CSS -> Page Extra CSS #}
-        <link rel="stylesheet" type="text/css" href="{% static 'css/themes/tokens.css' %}?v=20261124b">
+        <link rel="stylesheet" type="text/css" href="{% static 'css/themes/tokens.css' %}?v=20261126a">
         {% include "includes/_ui_assets_css.html" %}
-        <link rel="stylesheet" type="text/css" href="{% static 'css/myblog.css' %}?v=20261126e">
+        <link rel="stylesheet" type="text/css" href="{% static 'css/myblog.css' %}?v=20261126h">
 
         {% block extra_css %}
         {# Override this in templates to add extra stylesheets #}
@@ -181,61 +181,83 @@
                 <div class="site-brand-group">
                     {% include "includes/_site_directory_drawer.html" with directory_tree=site_nav_data.directory_tree %}
                     <a href="{{ site_nav_data.home_url|default:'/' }}" class="site-brand">
-                        <span class="site-logo">🚀</span>
                         <span class="site-title">{{ current_site.site_name|default:"myblog" }}</span>
                     </a>
                 </div>
                 <input type="checkbox" id="nav-toggle-check" class="nav-toggle-check" aria-label="切换导航菜单">
-                <label for="nav-toggle-check" class="nav-toggle-btn" aria-label="打开导航菜单">☰</label>
-                <nav class="site-nav">
-                    {% for item in site_nav_data.nav_items %}
-                        <a href="{{ item.url }}" class="nav-link" {% if item.is_external %}target="_blank" rel="noopener"{% endif %}>
-                            {{ item.label }}
-                            {% if item.badge %}<span class="nav-badge">{{ item.badge }}</span>{% endif %}
-                        </a>
-                    {% endfor %}
-                    <a href="{% url 'search' %}" class="nav-link nav-search-btn">🔍 搜索</a>
-                    <a href="{% url 'discovery:feed_all' %}" class="nav-link" title="RSS / Atom 订阅">📡 订阅</a>
-                    <div class="theme-switcher" data-theme-switcher>
-                        <button type="button"
-                                class="theme-toggle-btn"
-                                data-theme-toggle
-                                aria-haspopup="menu"
-                                aria-expanded="false"
-                                aria-controls="theme-switcher-menu"
-                                aria-label="外观模式：跟随系统"
-                                title="外观模式设置">
-                            <span class="theme-toggle-icon" data-theme-icon aria-hidden="true">🌓</span>
-                            <span class="theme-toggle-label" data-theme-label>系统</span>
-                        </button>
-                        <div id="theme-switcher-menu" class="theme-switcher-menu" data-theme-menu role="menu" aria-label="外观模式选择" hidden>
-                            <button type="button" class="theme-mode-option" role="menuitemradio" aria-checked="false" data-theme-mode-option="system">
-                                <span>🌓 跟随系统</span>
-                            </button>
-                            <button type="button" class="theme-mode-option" role="menuitemradio" aria-checked="false" data-theme-mode-option="light">
-                                <span>☀️ 白天（浅色）</span>
-                            </button>
-                            <button type="button" class="theme-mode-option" role="menuitemradio" aria-checked="false" data-theme-mode-option="dark">
-                                <span>🌙 黑夜（深色）</span>
-                            </button>
-                            <div class="theme-switcher-divider" role="separator"></div>
-                            <button type="button" class="theme-reset-btn" role="menuitem" data-theme-reset>
-                                <span>↺ 恢复站点默认</span>
-                            </button>
-                        </div>
+                <label for="nav-toggle-check" class="nav-toggle-btn" aria-label="打开导航菜单">
+                    {% include "includes/_ui_icon.html" with name="menu" %}
+                </label>
+                <nav class="site-nav" aria-label="主导航">
+                    <div class="site-nav-primary">
+                        {% for item in site_nav_data.nav_items %}
+                            <a href="{{ item.url }}"
+                               class="nav-link{% if item.is_active %} is-active{% endif %}"
+                               {% if item.is_active %}aria-current="page"{% endif %}
+                               {% if item.is_external %}target="_blank" rel="noopener"{% endif %}>
+                                <span>{{ item.label }}</span>
+                                {% if item.badge %}<span class="nav-badge">{{ item.badge }}</span>{% endif %}
+                            </a>
+                        {% endfor %}
                     </div>
-                    {% if request.user.is_authenticated %}
-                        <a href="{% url 'identity:profile' %}" class="nav-link">
-                            {{ request.user.display_name }}
+                    <div class="site-nav-utils">
+                        <a href="{% url 'search' %}" class="nav-link nav-search-btn" data-quick-search-open aria-label="站内搜索">
+                            {% include "includes/_ui_icon.html" with name="search" %}
+                            <span>搜索</span>
+                            <kbd class="nav-kbd">Ctrl K</kbd>
                         </a>
-                        <form method="post" action="{% url 'identity:logout' %}" class="nav-logout-form">
-                            {% csrf_token %}
-                            <button type="submit" class="nav-link nav-logout-btn">退出</button>
-                        </form>
-                    {% else %}
-                        <a href="{% url 'identity:login' %}" class="nav-link">登录</a>
-                        <a href="{% url 'identity:register' %}" class="nav-link">注册</a>
-                    {% endif %}
+                        <div class="theme-switcher" data-theme-switcher>
+                            <button type="button"
+                                    class="theme-toggle-btn"
+                                    data-theme-toggle
+                                    aria-haspopup="menu"
+                                    aria-expanded="false"
+                                    aria-controls="theme-switcher-menu"
+                                    aria-label="外观模式：跟随系统"
+                                    title="外观模式设置">
+                                <span class="theme-toggle-icon" data-theme-icon aria-hidden="true">
+                                    <span class="theme-icon-glyph" data-theme-icon-mode="system">{% include "includes/_ui_icon.html" with name="monitor" %}</span>
+                                    <span class="theme-icon-glyph" data-theme-icon-mode="light" hidden>{% include "includes/_ui_icon.html" with name="sun" %}</span>
+                                    <span class="theme-icon-glyph" data-theme-icon-mode="dark" hidden>{% include "includes/_ui_icon.html" with name="moon" %}</span>
+                                </span>
+                                <span class="theme-toggle-label" data-theme-label>系统</span>
+                            </button>
+                            <div id="theme-switcher-menu" class="theme-switcher-menu" data-theme-menu role="menu" aria-label="外观模式选择" hidden>
+                                <button type="button" class="theme-mode-option" role="menuitemradio" aria-checked="false" data-theme-mode-option="system">
+                                    <span class="theme-option-label">{% include "includes/_ui_icon.html" with name="monitor" %}<span>跟随系统</span></span>
+                                </button>
+                                <button type="button" class="theme-mode-option" role="menuitemradio" aria-checked="false" data-theme-mode-option="light">
+                                    <span class="theme-option-label">{% include "includes/_ui_icon.html" with name="sun" %}<span>白天（浅色）</span></span>
+                                </button>
+                                <button type="button" class="theme-mode-option" role="menuitemradio" aria-checked="false" data-theme-mode-option="dark">
+                                    <span class="theme-option-label">{% include "includes/_ui_icon.html" with name="moon" %}<span>黑夜（深色）</span></span>
+                                </button>
+                                <div class="theme-switcher-divider" role="separator"></div>
+                                <button type="button" class="theme-reset-btn" role="menuitem" data-theme-reset>
+                                    <span class="theme-option-label">{% include "includes/_ui_icon.html" with name="reset" %}<span>恢复站点默认</span></span>
+                                </button>
+                            </div>
+                        </div>
+                        {% if request.user.is_authenticated %}
+                            <a href="{% url 'identity:profile' %}" class="nav-link nav-user-link">
+                                {% include "includes/_ui_icon.html" with name="user" %}
+                                <span>{{ request.user.display_name }}</span>
+                            </a>
+                            <form method="post" action="{% url 'identity:logout' %}" class="nav-logout-form">
+                                {% csrf_token %}
+                                <button type="submit" class="nav-link nav-logout-btn">
+                                    {% include "includes/_ui_icon.html" with name="logout" %}
+                                    <span>退出</span>
+                                </button>
+                            </form>
+                        {% else %}
+                            <a href="{% url 'identity:login' %}" class="nav-link nav-user-link">
+                                {% include "includes/_ui_icon.html" with name="user" %}
+                                <span>登录</span>
+                            </a>
+                            <a href="{% url 'identity:register' %}" class="nav-link">注册</a>
+                        {% endif %}
+                    </div>
                 </nav>
             </div>
         </header>
@@ -244,13 +266,74 @@
         <dialog id="site-directory-dialog" class="site-dir-dialog" aria-labelledby="site-directory-dialog-title">
             <div class="site-dir-dialog-inner">
                 <div class="site-dir-dialog-header">
-                    <h2 id="site-directory-dialog-title" class="site-dir-dialog-title">📂 全站栏目目录</h2>
-                    <button type="button" class="site-dir-close-btn" data-dir-close aria-label="关闭栏目目录">✕</button>
+                    <h2 id="site-directory-dialog-title" class="site-dir-dialog-title">
+                        {% include "includes/_ui_icon.html" with name="folder-tree" %}
+                        <span>全站栏目目录</span>
+                    </h2>
+                    <button type="button" class="site-dir-close-btn" data-dir-close aria-label="关闭栏目目录">
+                        {% include "includes/_ui_icon.html" with name="close" %}
+                    </button>
                 </div>
-                <div class="site-dir-dialog-body" data-dir-dialog-slot></div>
+                <div class="site-dir-toolbar">
+                    <div class="site-dir-filter-wrap">
+                        <span class="site-dir-filter-icon" aria-hidden="true">
+                            {% include "includes/_ui_icon.html" with name="search" %}
+                        </span>
+                        <input type="search"
+                               class="site-dir-filter-input"
+                               data-dir-filter
+                               placeholder="筛选栏目名称…"
+                               aria-label="筛选栏目名称"
+                               autocomplete="off" />
+                    </div>
+                    <div class="site-dir-toolbar-actions">
+                        <button type="button" class="site-dir-tool-btn" data-dir-expand-all title="全部展开">
+                            {% include "includes/_ui_icon.html" with name="expand" %}
+                            <span>全部展开</span>
+                        </button>
+                        <button type="button" class="site-dir-tool-btn" data-dir-collapse-all title="全部收起">
+                            {% include "includes/_ui_icon.html" with name="collapse" %}
+                            <span>全部收起</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="site-dir-dialog-body">
+                    <p class="site-dir-empty-hint" data-dir-empty hidden>未找到匹配的栏目</p>
+                    <div class="site-dir-dialog-slot" data-dir-dialog-slot></div>
+                </div>
             </div>
         </dialog>
         {% endif %}
+
+        <dialog id="quick-search-dialog"
+                class="quick-search-dialog"
+                aria-labelledby="quick-search-title"
+                data-quick-search-url="{% url 'search_quick' %}"
+                data-search-page-url="{% url 'search' %}">
+            <h2 id="quick-search-title" class="sr-only">全站快捷搜索</h2>
+            <div class="quick-search-header">
+                <span class="quick-search-icon" aria-hidden="true">
+                    {% include "includes/_ui_icon.html" with name="search" %}
+                </span>
+                <input type="search"
+                       id="quick-search-input"
+                       class="quick-search-input"
+                       data-quick-search-input
+                       placeholder="搜索文章、栏目或标签…"
+                       aria-label="快捷搜索"
+                       autocomplete="off" />
+                <button type="button" class="quick-search-close-btn" data-quick-search-close aria-label="关闭快捷搜索">
+                    {% include "includes/_ui_icon.html" with name="close" %}
+                </button>
+            </div>
+            <div class="quick-search-results" data-quick-search-results role="listbox" aria-label="快捷搜索结果"></div>
+            <div class="quick-search-footer">
+                <span class="quick-search-hints">
+                    <kbd>&uarr;&darr;</kbd> 选择 &middot; <kbd>Enter</kbd> 打开 &middot; <kbd>Esc</kbd> 关闭
+                </span>
+                <a href="{% url 'search' %}" class="quick-search-full-link" data-quick-search-full-link>前往完整搜索页 &rarr;</a>
+            </div>
+        </dialog>
 
         {# 2. 页面主体内容 #}
         <main class="site-main-content">
@@ -296,6 +379,12 @@
                             {% endif %}
                             <li><a href="{% url 'timeline' %}">年月时间线归档</a></li>
                             <li><a href="{% url 'search' %}">全站中文搜索</a></li>
+                            <li>
+                                <a href="{% url 'discovery:feed_all' %}" class="footer-icon-link">
+                                    {% include "includes/_ui_icon.html" with name="rss" %}
+                                    <span>RSS / Atom 订阅</span>
+                                </a>
+                            </li>
                             <li><a href="{% url 'wagtailadmin_home' %}" target="_blank">管理后台登录</a></li>
                         </ul>
                     </div>

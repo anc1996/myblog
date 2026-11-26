@@ -156,6 +156,7 @@ class GuideIndexPage(HierarchicalListingMixin, CustomBasePage):
 
     content_panels = Page.content_panels + [
         FieldPanel("featured_topic"),
+        FieldPanel("header_layout"),
         FieldPanel("intro"),
     ]
 

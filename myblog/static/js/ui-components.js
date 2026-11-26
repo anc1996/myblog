@@ -3,19 +3,21 @@
  *
  * 涵盖：
  * 1. 三态昼夜主题控制器（复用 base.html 注入的 window.__myblogTheme 单源状态机）；
- * 2. Tom Select ([data-ui-select])：可搜索下拉框与多选标签胶囊；
- * 3. Flatpickr ([data-ui-date])：统一桌面/iPad/手机的中文日期选择框；
- * 4. Splide ([data-ui-carousel])：自适应响应式触控轮播图；
- * 5. HTMX CSRF 自动注入与局部刷新自动重新挂载。
+ * 2. 全站栏目目录抽屉与实时过滤；
+ * 3. 全站 Ctrl+K / `/` 快捷搜索命令面板（接入 /search/quick/）；
+ * 4. Tom Select ([data-ui-select])：可搜索下拉框与多选标签胶囊；
+ * 5. Flatpickr ([data-ui-date])：统一桌面/iPad/手机的中文日期选择框；
+ * 6. Splide ([data-ui-carousel])：自适应响应式触控轮播图；
+ * 7. HTMX CSRF 自动注入与局部刷新自动重新挂载。
  */
 (function () {
     "use strict";
 
     var globalThemeListenersBound = false;
     var MODE_META = {
-        system: { icon: "🌓", shortLabel: "系统", fullLabel: "跟随系统" },
-        light: { icon: "☀️", shortLabel: "白天", fullLabel: "白天（浅色）" },
-        dark: { icon: "🌙", shortLabel: "黑夜", fullLabel: "黑夜（深色）" },
+        system: { shortLabel: "系统", fullLabel: "跟随系统" },
+        light: { shortLabel: "白天", fullLabel: "白天（浅色）" },
+        dark: { shortLabel: "黑夜", fullLabel: "黑夜（深色）" },
     };
 
     function getThemeApi() {
@@ -65,9 +67,14 @@
         if (toggleBtn) {
             var iconEl = toggleBtn.querySelector("[data-theme-icon]");
             var labelEl = toggleBtn.querySelector("[data-theme-label]");
-            if (iconEl) iconEl.textContent = meta.icon;
+            if (iconEl) {
+                var glyphs = iconEl.querySelectorAll("[data-theme-icon-mode]");
+                glyphs.forEach(function (g) {
+                    g.hidden = g.getAttribute("data-theme-icon-mode") !== st.mode;
+                });
+            }
             if (labelEl) labelEl.textContent = meta.shortLabel;
-            if (!iconEl && !labelEl) toggleBtn.textContent = meta.icon;
+            if (!iconEl && !labelEl) toggleBtn.textContent = meta.shortLabel;
             var desc = "外观模式：" + meta.fullLabel + "（当前" + resolvedText + "）";
             toggleBtn.setAttribute("aria-label", desc);
             toggleBtn.setAttribute("title", desc);
@@ -279,6 +286,467 @@
         dialog.addEventListener("close", function () {
             openBtn.setAttribute("aria-expanded", "false");
         });
+
+        var filterInput = dialog.querySelector("[data-dir-filter]");
+        var expandAllBtn = dialog.querySelector("[data-dir-expand-all]");
+        var collapseAllBtn = dialog.querySelector("[data-dir-collapse-all]");
+        var emptyHint = dialog.querySelector("[data-dir-empty]");
+        var hasFilterSnapshot = false;
+
+        function snapshotDefaultOpenState() {
+            treeHost.querySelectorAll("details.site-dir-branch-details").forEach(function (det) {
+                det.dataset.dirDefaultOpen = det.open ? "1" : "0";
+            });
+            hasFilterSnapshot = true;
+        }
+
+        function restoreDefaultTreeState() {
+            treeHost.querySelectorAll(".site-dir-item").forEach(function (item) {
+                item.hidden = false;
+            });
+            if (hasFilterSnapshot) {
+                treeHost.querySelectorAll("details.site-dir-branch-details").forEach(function (det) {
+                    det.open = det.dataset.dirDefaultOpen === "1";
+                });
+                hasFilterSnapshot = false;
+            }
+            if (emptyHint) {
+                emptyHint.hidden = true;
+            }
+        }
+
+        function filterList(listEl, needle) {
+            if (!listEl) return false;
+            var anyVisible = false;
+            Array.prototype.forEach.call(listEl.children, function (item) {
+                if (!item.classList || !item.classList.contains("site-dir-item")) return;
+                var rawTitle = item.getAttribute("data-dir-title");
+                if (rawTitle === null) {
+                    var link = item.querySelector(".site-dir-link");
+                    rawTitle = link ? link.textContent : "";
+                }
+                var titleText = (rawTitle || "").toLowerCase();
+                var selfMatched = titleText.indexOf(needle) !== -1;
+
+                var branchDetails = null;
+                var childMatched = false;
+                var wrap = item.firstElementChild;
+                if (wrap) {
+                    branchDetails = wrap.querySelector(":scope > details.site-dir-branch-details");
+                    if (branchDetails) {
+                        var subList = branchDetails.querySelector(":scope > ul.site-dir-list");
+                        childMatched = filterList(subList, needle);
+                    }
+                }
+
+                var visible = selfMatched || childMatched;
+                item.hidden = !visible;
+                if (branchDetails) {
+                    branchDetails.open = childMatched;
+                }
+                if (visible) {
+                    anyVisible = true;
+                }
+            });
+            return anyVisible;
+        }
+
+        function applyDirectoryFilter() {
+            var needle = filterInput ? filterInput.value.trim().toLowerCase() : "";
+            if (!needle) {
+                restoreDefaultTreeState();
+                return;
+            }
+            if (!hasFilterSnapshot) {
+                snapshotDefaultOpenState();
+            }
+            var rootList = treeHost.querySelector("ul.site-dir-list");
+            var hasMatch = filterList(rootList, needle);
+            if (emptyHint) {
+                emptyHint.hidden = hasMatch;
+            }
+        }
+
+        if (filterInput) {
+            filterInput.addEventListener("input", applyDirectoryFilter);
+        }
+
+        if (expandAllBtn) {
+            expandAllBtn.addEventListener("click", function () {
+                treeHost.querySelectorAll("details.site-dir-branch-details").forEach(function (det) {
+                    det.open = true;
+                    if (!filterInput || !filterInput.value.trim()) {
+                        det.dataset.dirDefaultOpen = "1";
+                    }
+                });
+            });
+        }
+
+        if (collapseAllBtn) {
+            collapseAllBtn.addEventListener("click", function () {
+                treeHost.querySelectorAll("details.site-dir-branch-details").forEach(function (det) {
+                    det.open = false;
+                    if (!filterInput || !filterInput.value.trim()) {
+                        det.dataset.dirDefaultOpen = "0";
+                    }
+                });
+            });
+        }
+    }
+
+    function initQuickSearchPalette() {
+        var dialog = document.getElementById("quick-search-dialog");
+        var input = dialog ? dialog.querySelector("[data-quick-search-input]") : null;
+        var resultsEl = dialog ? dialog.querySelector("[data-quick-search-results]") : null;
+        var closeBtn = dialog ? dialog.querySelector("[data-quick-search-close]") : null;
+        var fullLink = dialog ? dialog.querySelector("[data-quick-search-full-link]") : null;
+        var openTriggers = document.querySelectorAll("[data-quick-search-open]");
+
+        if (!dialog || !input || !resultsEl) return;
+        if (typeof dialog.showModal !== "function") return;
+        if (dialog.dataset.quickSearchBound === "1") return;
+        dialog.dataset.quickSearchBound = "1";
+
+        var quickUrl = dialog.getAttribute("data-quick-search-url") || "/search/quick/";
+        var searchPageUrl = dialog.getAttribute("data-search-page-url") || "/search/";
+        var debounceTimer = null;
+        var abortController = null;
+        var selectedIndex = -1;
+        var resultItems = [];
+
+        function isEditableTarget(target) {
+            if (!target) return false;
+            if (target.isContentEditable) return true;
+            var tag = (target.tagName || "").toUpperCase();
+            if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+            return Boolean(target.closest && target.closest("input, textarea, select, [contenteditable]"));
+        }
+
+        function safeHref(rawUrl) {
+            if (typeof rawUrl !== "string") return "#";
+            var trimmed = rawUrl.trim();
+            if (trimmed.charAt(0) === "/" || /^https?:\/\//i.test(trimmed)) {
+                return trimmed;
+            }
+            return "#";
+        }
+
+        function buildFullSearchUrl(q) {
+            var trimmed = (q || "").trim();
+            if (!trimmed) return searchPageUrl;
+            var sep = searchPageUrl.indexOf("?") === -1 ? "?" : "&";
+            return searchPageUrl + sep + "query=" + encodeURIComponent(trimmed);
+        }
+
+        function updateFullSearchLink(q) {
+            if (!fullLink) return;
+            var trimmed = (q || "").trim();
+            fullLink.setAttribute("href", buildFullSearchUrl(trimmed));
+            fullLink.textContent = trimmed ? ("查看 “" + trimmed + "” 完整搜索结果 →") : "前往完整搜索页 →";
+        }
+
+        function clearResultsContainer() {
+            while (resultsEl.firstChild) {
+                resultsEl.removeChild(resultsEl.firstChild);
+            }
+            resultItems = [];
+            selectedIndex = -1;
+            input.removeAttribute("aria-activedescendant");
+        }
+
+        function setSelectedIndex(nextIdx) {
+            if (!resultItems.length) {
+                selectedIndex = -1;
+                input.removeAttribute("aria-activedescendant");
+                return;
+            }
+            selectedIndex = ((nextIdx % resultItems.length) + resultItems.length) % resultItems.length;
+            resultItems.forEach(function (el, idx) {
+                var active = idx === selectedIndex;
+                el.classList.toggle("is-selected", active);
+                el.setAttribute("aria-selected", active ? "true" : "false");
+            });
+            var activeItem = resultItems[selectedIndex];
+            input.setAttribute("aria-activedescendant", activeItem.id);
+            if (typeof activeItem.scrollIntoView === "function") {
+                activeItem.scrollIntoView({ block: "nearest" });
+            }
+        }
+
+        function renderMessage(text, isError) {
+            clearResultsContainer();
+            var p = document.createElement("p");
+            p.className = isError ? "quick-search-status is-error" : "quick-search-status";
+            p.textContent = text;
+            resultsEl.appendChild(p);
+        }
+
+        function appendGroup(label, items, buildRowFn) {
+            if (!Array.isArray(items) || !items.length) return;
+            var groupEl = document.createElement("div");
+            groupEl.className = "quick-search-group";
+
+            var titleEl = document.createElement("div");
+            titleEl.className = "quick-search-group-title";
+            titleEl.textContent = label;
+            groupEl.appendChild(titleEl);
+
+            var listEl = document.createElement("div");
+            listEl.className = "quick-search-group-list";
+            items.forEach(function (item) {
+                var row = buildRowFn(item, resultItems.length);
+                if (row) {
+                    resultItems.push(row);
+                    listEl.appendChild(row);
+                }
+            });
+            if (listEl.childNodes.length) {
+                groupEl.appendChild(listEl);
+                resultsEl.appendChild(groupEl);
+            }
+        }
+
+        function createOptionLink(href, idx) {
+            var a = document.createElement("a");
+            a.className = "quick-search-item";
+            a.id = "quick-search-opt-" + idx;
+            a.setAttribute("role", "option");
+            a.setAttribute("aria-selected", "false");
+            a.setAttribute("href", safeHref(href));
+            a.addEventListener("click", function () {
+                closeQuickSearch();
+            });
+            return a;
+        }
+
+        function renderResults(payload, requestedQuery) {
+            clearResultsContainer();
+            var dirs = payload && Array.isArray(payload.directories) ? payload.directories : [];
+            var arts = payload && Array.isArray(payload.articles) ? payload.articles : [];
+            var tags = payload && Array.isArray(payload.tags) ? payload.tags : [];
+
+            appendGroup("栏目目录", dirs, function (d, idx) {
+                var a = createOptionLink(d.url, idx);
+                var titleSpan = document.createElement("span");
+                titleSpan.className = "quick-search-item-title";
+                titleSpan.textContent = d.title || "";
+                var metaSpan = document.createElement("span");
+                metaSpan.className = "quick-search-item-meta";
+                metaSpan.textContent = String(d.article_count || 0) + " 篇";
+                a.appendChild(titleSpan);
+                a.appendChild(metaSpan);
+                return a;
+            });
+
+            appendGroup("文章", arts, function (art, idx) {
+                var a = createOptionLink(art.url, idx);
+                var titleSpan = document.createElement("span");
+                titleSpan.className = "quick-search-item-title";
+                titleSpan.textContent = art.title || "";
+                var metaSpan = document.createElement("span");
+                metaSpan.className = "quick-search-item-meta";
+                if (art.authored_on) {
+                    var dateSpan = document.createElement("span");
+                    dateSpan.className = "quick-search-item-date";
+                    dateSpan.textContent = art.authored_on;
+                    metaSpan.appendChild(dateSpan);
+                }
+                if (art.type_label) {
+                    var badgeSpan = document.createElement("span");
+                    badgeSpan.className = "quick-search-item-badge";
+                    badgeSpan.textContent = art.type_label;
+                    metaSpan.appendChild(badgeSpan);
+                }
+                a.appendChild(titleSpan);
+                a.appendChild(metaSpan);
+                return a;
+            });
+
+            appendGroup("标签", tags, function (tg, idx) {
+                var a = createOptionLink(tg.url, idx);
+                var titleSpan = document.createElement("span");
+                titleSpan.className = "quick-search-item-title";
+                titleSpan.textContent = "#" + (tg.name || tg.slug || "");
+                var metaSpan = document.createElement("span");
+                metaSpan.className = "quick-search-item-meta";
+                metaSpan.textContent = String(tg.count || 0) + " 篇";
+                a.appendChild(titleSpan);
+                a.appendChild(metaSpan);
+                return a;
+            });
+
+            if (!resultItems.length) {
+                renderMessage(
+                    requestedQuery
+                        ? "未找到匹配的栏目、文章或标签，按 Enter 前往完整搜索页"
+                        : "暂无可展示的公开栏目",
+                    false
+                );
+            }
+        }
+
+        function fetchQuickSearch(query) {
+            if (abortController) {
+                abortController.abort();
+                abortController = null;
+            }
+            if (typeof window.AbortController === "function") {
+                abortController = new window.AbortController();
+            }
+            var sep = quickUrl.indexOf("?") === -1 ? "?" : "&";
+            var reqUrl = quickUrl + sep + "q=" + encodeURIComponent(query || "");
+            fetch(reqUrl, {
+                method: "GET",
+                headers: {
+                    "Accept": "application/json",
+                    "X-Requested-With": "XMLHttpRequest",
+                },
+                signal: abortController ? abortController.signal : undefined,
+            })
+                .then(function (resp) {
+                    if (!resp.ok) throw new Error("HTTP " + resp.status);
+                    return resp.json();
+                })
+                .then(function (data) {
+                    if (!dialog.open) return;
+                    renderResults(data, query);
+                })
+                .catch(function (err) {
+                    if (err && err.name === "AbortError") return;
+                    if (!dialog.open) return;
+                    renderMessage("快捷搜索暂时不可用，请按 Enter 前往完整搜索页", true);
+                });
+        }
+
+        function closeQuickSearch() {
+            if (debounceTimer) {
+                clearTimeout(debounceTimer);
+                debounceTimer = null;
+            }
+            if (abortController) {
+                abortController.abort();
+                abortController = null;
+            }
+            if (dialog.open) {
+                dialog.close();
+            }
+        }
+
+        function openQuickSearch() {
+            closeOtherDialogs(dialog);
+            var navCheck = document.getElementById("nav-toggle-check");
+            if (navCheck && navCheck.checked) {
+                navCheck.checked = false;
+            }
+            setThemeMenuOpen(false);
+            dialog.showModal();
+            input.focus();
+            if (input.value && typeof input.select === "function") {
+                input.select();
+            }
+            var trimmed = input.value.trim();
+            updateFullSearchLink(trimmed);
+            fetchQuickSearch(trimmed);
+        }
+
+        openTriggers.forEach(function (trigger) {
+            trigger.addEventListener("click", function (evt) {
+                evt.preventDefault();
+                if (dialog.open) {
+                    closeQuickSearch();
+                } else {
+                    openQuickSearch();
+                }
+            });
+        });
+
+        if (closeBtn) {
+            closeBtn.addEventListener("click", closeQuickSearch);
+        }
+
+        dialog.addEventListener("click", function (evt) {
+            if (evt.target === dialog) {
+                closeQuickSearch();
+            }
+        });
+
+        dialog.addEventListener("close", function () {
+            if (debounceTimer) {
+                clearTimeout(debounceTimer);
+                debounceTimer = null;
+            }
+            if (abortController) {
+                abortController.abort();
+                abortController = null;
+            }
+        });
+
+        input.addEventListener("input", function () {
+            var q = input.value.trim();
+            updateFullSearchLink(q);
+            if (debounceTimer) clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(function () {
+                fetchQuickSearch(q);
+            }, 160);
+        });
+
+        dialog.addEventListener("keydown", function (evt) {
+            if (evt.key === "ArrowDown") {
+                if (!resultItems.length) return;
+                evt.preventDefault();
+                setSelectedIndex(selectedIndex === -1 ? 0 : selectedIndex + 1);
+            } else if (evt.key === "ArrowUp") {
+                if (!resultItems.length) return;
+                evt.preventDefault();
+                setSelectedIndex(selectedIndex === -1 ? resultItems.length - 1 : selectedIndex - 1);
+            } else if (evt.key === "Enter") {
+                if (selectedIndex >= 0 && resultItems[selectedIndex]) {
+                    evt.preventDefault();
+                    var targetHref = resultItems[selectedIndex].getAttribute("href");
+                    closeQuickSearch();
+                    if (targetHref && targetHref !== "#") {
+                        window.location.href = targetHref;
+                    }
+                } else {
+                    var q = input.value.trim();
+                    if (q) {
+                        evt.preventDefault();
+                        closeQuickSearch();
+                        window.location.href = buildFullSearchUrl(q);
+                    }
+                }
+            }
+        });
+
+        document.addEventListener("keydown", function (evt) {
+            if ((evt.ctrlKey || evt.metaKey) && !evt.altKey && (evt.key === "k" || evt.key === "K")) {
+                evt.preventDefault();
+                if (dialog.open) {
+                    closeQuickSearch();
+                } else {
+                    openQuickSearch();
+                }
+                return;
+            }
+            if (!evt.ctrlKey && !evt.metaKey && !evt.altKey && evt.key === "/") {
+                if (!dialog.open && !isEditableTarget(evt.target)) {
+                    evt.preventDefault();
+                    openQuickSearch();
+                }
+            }
+        });
+    }
+
+    function initHeaderScrollState() {
+        var header = document.querySelector(".site-header");
+        if (!header || header.dataset.scrollBound === "1") return;
+        header.dataset.scrollBound = "1";
+        var syncScroll = function () {
+            var y = window.scrollY !== undefined ? window.scrollY : (window.pageYOffset || 0);
+            header.classList.toggle("is-scrolled", y > 8);
+        };
+        syncScroll();
+        window.addEventListener("scroll", syncScroll, { passive: true });
     }
 
     function mountSelects(root) {
@@ -394,6 +862,40 @@
         mountSelects(scope);
         mountDates(scope);
         mountCarousels(scope);
+        mountCollapsibleIntros(scope);
+    }
+
+    function mountCollapsibleIntros(root) {
+        var nodes = (root || document).querySelectorAll("[data-intro-collapsible]");
+        nodes.forEach(function (box) {
+            if (box.dataset.introBound === "1") return;
+            box.dataset.introBound = "1";
+
+            var wrap = box.parentElement;
+            var btn = wrap ? wrap.querySelector("[data-intro-toggle]") : null;
+            if (!btn) return;
+
+            var labelEl = btn.querySelector("span") || btn;
+            box.classList.add("is-collapsed");
+            box.classList.remove("is-expanded");
+            btn.setAttribute("aria-expanded", "false");
+            labelEl.textContent = "展开完整导读";
+
+            btn.addEventListener("click", function () {
+                var expanded = btn.getAttribute("aria-expanded") === "true";
+                if (expanded) {
+                    box.classList.add("is-collapsed");
+                    box.classList.remove("is-expanded");
+                    btn.setAttribute("aria-expanded", "false");
+                    labelEl.textContent = "展开完整导读";
+                } else {
+                    box.classList.remove("is-collapsed");
+                    box.classList.add("is-expanded");
+                    btn.setAttribute("aria-expanded", "true");
+                    labelEl.textContent = "收起导读";
+                }
+            });
+        });
     }
 
     window.MyblogUI = {
@@ -421,6 +923,8 @@
     document.addEventListener("DOMContentLoaded", function () {
         initThemeController();
         initSiteDirectoryDrawer();
+        initQuickSearchPalette();
+        initHeaderScrollState();
         initHtmxCsrf();
         mountAll(document);
     });

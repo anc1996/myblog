@@ -6,7 +6,7 @@
 
 {% block extra_css %}
 {% include "content_blocks/includes/_block_assets_css.html" %}
-<link rel="stylesheet" type="text/css" href="{% static 'css/detail-layout.css' %}?v=20261126b">
+<link rel="stylesheet" type="text/css" href="{% static 'css/detail-layout.css' %}?v=20261126c">
 <link rel="stylesheet" type="text/css" href="{% static 'analytics/css/article-rating.css' %}?v=20261124a">
 {% block detail_extra_css %}{% endblock %}
 {% endblock %}
@@ -23,14 +23,18 @@
             aria-expanded="false"
             aria-controls="detail-toc-dialog"
         >
-            📑 目录大纲 ({{ detail.toc_items|length }})
+            {% include "includes/_ui_icon.html" with name="list" %}
+            <span>目录大纲 ({{ detail.toc_items|length }})</span>
         </button>
         <a href="#page-top" class="detail-toc-quick-btn" data-toc-quick{% if detail.is_preview or request.in_preview_panel %} target="_self"{% endif %}>↑ 顶部</a>
     </div>
 
     <aside class="detail-toc-aside" id="detail-toc-aside" aria-label="页面目录大纲">
         <div class="detail-toc-aside-header">
-            <h2 class="detail-toc-heading">📑 目录大纲</h2>
+            <h2 class="detail-toc-heading">
+                {% include "includes/_ui_icon.html" with name="list" %}
+                <span>目录大纲</span>
+            </h2>
             <button
                 type="button"
                 class="detail-toc-collapse-btn"
@@ -48,8 +52,11 @@
     <dialog class="detail-toc-dialog" id="detail-toc-dialog" aria-label="页面目录抽屉">
         <div class="detail-toc-dialog-inner">
             <div class="detail-toc-dialog-header">
-                <h2 class="detail-toc-heading">📑 目录大纲</h2>
-                <button type="button" class="detail-toc-close-btn" data-toc-close aria-label="关闭目录">✕</button>
+                <h2 class="detail-toc-heading">
+                    {% include "includes/_ui_icon.html" with name="list" %}
+                    <span>目录大纲</span>
+                </h2>
+                <button type="button" class="detail-toc-close-btn" data-toc-close aria-label="关闭目录">{% include "includes/_ui_icon.html" with name="close" %}</button>
             </div>
             <div class="detail-toc-scroll">
                 {% include "detail/_detail_toc.html" %}
@@ -78,7 +85,10 @@
 
         {% if detail.has_toc %}
         <details class="detail-toc-nojs-details">
-            <summary class="detail-toc-nojs-summary">📑 展开本页目录大纲 ({{ detail.toc_items|length }})</summary>
+            <summary class="detail-toc-nojs-summary">
+                {% include "includes/_ui_icon.html" with name="list" %}
+                <span>展开本页目录大纲 ({{ detail.toc_items|length }})</span>
+            </summary>
             <div class="detail-toc-nojs-body">
                 {% include "detail/_detail_toc.html" %}
             </div>

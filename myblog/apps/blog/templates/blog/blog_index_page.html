@@ -22,17 +22,7 @@
     </nav>
     {% endif %}
 
-    <header class="listing-page-header">
-        {% if page.featured_image %}
-        <div class="listing-page-cover">
-            <img src="/media-gateway/image/{{ page.featured_image.public_id }}/" alt="{{ page.title }}" loading="lazy">
-        </div>
-        {% endif %}
-        <h1>{{ page.title }}</h1>
-        {% if intro_html %}
-        <div class="listing-page-intro rich-text">{{ intro_html }}</div>
-        {% endif %}
-    </header>
+    {% include "discovery/listing/_listing_header.html" %}
 
     <section class="blog-listing-section">
         {% include "discovery/listing/_listing_filters.html" %}

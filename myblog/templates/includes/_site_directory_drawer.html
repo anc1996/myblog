@@ -2,8 +2,8 @@
 <div class="site-dir-anchor">
     <details class="site-dir-nojs" data-dir-fallback>
         <summary class="site-dir-trigger" aria-label="打开全站栏目目录">
-            <span aria-hidden="true">📂</span>
-            <span>栏目目录</span>
+            {% include "includes/_ui_icon.html" with name="folder-tree" %}
+            <span>目录</span>
         </summary>
         <div class="site-dir-fallback-panel" data-dir-tree-host>
             <nav class="site-dir-nav" aria-label="全站栏目目录">
@@ -18,8 +18,8 @@
             aria-controls="site-directory-dialog"
             aria-expanded="false"
             hidden>
-        <span aria-hidden="true">📂</span>
-        <span>栏目目录</span>
+        {% include "includes/_ui_icon.html" with name="folder-tree" %}
+        <span>目录</span>
     </button>
 </div>
 {% endif %}

@@ -1,9 +1,11 @@
 from datetime import date, timedelta
+import logging
 import re
 from typing import Any
 from urllib.parse import urlencode
 
 from django.conf import settings
+from django.db import DatabaseError
 from django.db.models import Count, Q
 from django.http import JsonResponse
 from django.template.loader import render_to_string
@@ -17,21 +19,30 @@ from wagtail.models import Site
 
 from content_lifecycle.access import AccessContext, AccessMode
 from discovery.contracts import QuerySpec
+from discovery.detail_navigation import _get_nested_site_root_paths
 from discovery.eligibility import apply_public_eligibility_filter
 from discovery.facets import (
     _tag_name_priority,
     get_type_display_label,
 )
 from discovery.models import PublishedSearchAuthor, PublishedSearchDocument, PublishedSearchTag
+from discovery.navigation import (
+    build_tag_detail_url,
+    get_site_directory_tree,
+    resolve_site_for_navigation,
+    resolve_tag_index_page,
+)
 from discovery.pagination import (
     PageWindowExceededError,
     build_count_meta,
     build_pagination_payload,
 )
 from discovery.query import ContentQuery
-from discovery.registry import get_author_enabled_type_keys
+from discovery.registry import get_archive_enabled_type_keys, get_author_enabled_type_keys
 from people.author_identity import normalize_author_role, roles_for_filter_key
 from people.models import Person
+
+logger = logging.getLogger(__name__)
 
 
 TRUE_VALUES = {"1", "true", "on", "yes"}
@@ -85,12 +96,14 @@ SORT_LABELS = {
 MAX_SIDEBAR_TAG_FACETS = 20
 
 
-@never_cache
-@require_GET
-def tag_lookup_view(request):
-    """全站搜索页标签远程联想接口：只读返回当前站点公开已发布内容的活跃标签（最多 25 条）。"""
-    q = (request.GET.get("q") or "").strip()[:80]
-    site = Site.find_for_request(request)
+def _query_public_tag_items(
+    q: str,
+    *,
+    site: Site | None,
+    limit: int = 25,
+    exclude_nested_sites: bool = False,
+) -> list[dict[str, Any]]:
+    """只读聚合当前站点公开已发布文档的标签计数（大小写去重并排除草稿/回收/受限内容）。"""
     eligible_docs = PublishedSearchDocument.objects.filter(
         is_live=True,
         is_recycled=False,
@@ -98,6 +111,10 @@ def tag_lookup_view(request):
     )
     if site is not None:
         eligible_docs = eligible_docs.filter(site_id=site.id)
+        if exclude_nested_sites and getattr(site, "root_page", None) and getattr(site.root_page, "path", None):
+            eligible_docs = eligible_docs.filter(root_path__startswith=site.root_page.path)
+            for nested_path in _get_nested_site_root_paths(site):
+                eligible_docs = eligible_docs.exclude(root_path__startswith=nested_path)
     eligible_docs = apply_public_eligibility_filter(eligible_docs)
 
     tag_qs = PublishedSearchTag.objects.filter(document__in=eligible_docs)
@@ -131,13 +148,158 @@ def tag_lookup_view(request):
                 cur["name"] = raw_name
                 cur["value"] = slug_val
 
-    items = sorted(merged.values(), key=lambda x: (-x["count"], x["name"].lower()))[:25]
+    return sorted(merged.values(), key=lambda x: (-x["count"], x["name"].lower()))[:limit]
+
+
+@never_cache
+@require_GET
+def tag_lookup_view(request):
+    """全站搜索页标签远程联想接口：只读返回当前站点公开已发布内容的活跃标签（最多 25 条）。"""
+    q = (request.GET.get("q") or "").strip()[:80]
+    site = Site.find_for_request(request)
+    items = _query_public_tag_items(q, site=site, limit=25)
     return JsonResponse({
         "items": [
             {"value": it["value"], "label": f"#{it['name']} ({it['count']})"}
             for it in items
         ]
     })
+
+
+@require_GET
+def quick_search_view(request):
+    """
+    全站 Ctrl+K 快捷搜索只读接口（B-04）：
+    按当前站点安全返回最多 5 条栏目、5 条文章与 5 条标签；
+    任何 DatabaseError 或运行时异常均安全降级为空列表，不跨站且不泄漏受限/草稿/回收内容。
+    """
+    raw_q = request.GET.get("q")
+    q = (str(raw_q) if raw_q is not None else "").replace("\x00", "").strip()[:80]
+
+    directories: list[dict[str, Any]] = []
+    articles: list[dict[str, Any]] = []
+    tags: list[dict[str, Any]] = []
+
+    try:
+        site = resolve_site_for_navigation(request)
+    except Exception:
+        logger.warning("quick_search_view failed to resolve site", exc_info=True)
+        site = None
+
+    if site is not None:
+        # 1. 栏目匹配：空查询返回前 5 个一级主栏目；非空查询展平目录树按标题大小写不敏感子串匹配
+        try:
+            tree = get_site_directory_tree(request, site=site)
+            if not q:
+                for node in tree[:5]:
+                    directories.append({
+                        "title": str(node.get("title") or ""),
+                        "url": str(node.get("url") or ""),
+                        "article_count": int(node.get("article_count") or 0),
+                    })
+            else:
+                q_lower = q.lower()
+                queue = list(tree)
+                while queue:
+                    node = queue.pop(0)
+                    title = str(node.get("title") or "")
+                    if q_lower in title.lower():
+                        directories.append({
+                            "title": title,
+                            "url": str(node.get("url") or ""),
+                            "article_count": int(node.get("article_count") or 0),
+                        })
+                        if len(directories) >= 5:
+                            break
+                    for child in node.get("children") or []:
+                        queue.append(child)
+        except DatabaseError:
+            logger.debug("quick_search_view directories degraded on DatabaseError", exc_info=True)
+            directories = []
+        except Exception:
+            logger.warning("quick_search_view directories degraded gracefully", exc_info=True)
+            directories = []
+
+        # 2. 文章与标签匹配：仅在 q 非空时执行，空查询直接返回 [] 避免无意义全站查询
+        if q:
+            try:
+                archive_type_keys = get_archive_enabled_type_keys()
+                if archive_type_keys:
+                    result = ContentQuery.execute(
+                        QuerySpec(
+                            q=q,
+                            site_id=site.id,
+                            type_keys=archive_type_keys,
+                            page_size=5,
+                            count_mode="bounded",
+                            compute_facets_flag=False,
+                        ),
+                        AccessContext(mode=AccessMode.PUBLIC),
+                    )
+                    for it in result.items[:5]:
+                        articles.append({
+                            "title": str(it.title or ""),
+                            "url": str(it.url or ""),
+                            "type_label": get_type_display_label(it.type_key),
+                            "authored_on": it.authored_on.isoformat() if it.authored_on else "",
+                        })
+            except DatabaseError:
+                logger.debug("quick_search_view articles degraded on DatabaseError", exc_info=True)
+                articles = []
+            except Exception:
+                logger.warning("quick_search_view articles degraded gracefully", exc_info=True)
+                articles = []
+
+            try:
+                tag_items = _query_public_tag_items(
+                    q,
+                    site=site,
+                    limit=5,
+                    exclude_nested_sites=True,
+                )
+                tag_index = resolve_tag_index_page(request, site=site)
+                tag_base_url = ""
+                if tag_index is not None:
+                    try:
+                        tag_base_url = tag_index.get_url(request) or tag_index.url or ""
+                    except Exception:
+                        tag_base_url = getattr(tag_index, "url", "") or ""
+                try:
+                    search_base = reverse("search")
+                except NoReverseMatch:
+                    search_base = "/search/"
+
+                for it in tag_items[:5]:
+                    slug_val = str(it["value"] or "").strip()
+                    detail_url = build_tag_detail_url(
+                        tag_index,
+                        slug_val,
+                        base_url=tag_base_url,
+                        request=request,
+                    )
+                    if not detail_url:
+                        detail_url = f"{search_base}?{urlencode({'tag': slug_val})}"
+                    tags.append({
+                        "name": str(it["name"] or ""),
+                        "slug": slug_val,
+                        "url": detail_url,
+                        "count": int(it["count"] or 0),
+                    })
+            except DatabaseError:
+                logger.debug("quick_search_view tags degraded on DatabaseError", exc_info=True)
+                tags = []
+            except Exception:
+                logger.warning("quick_search_view tags degraded gracefully", exc_info=True)
+                tags = []
+
+    response = JsonResponse({
+        "q": q,
+        "directories": directories,
+        "articles": articles,
+        "tags": tags,
+    })
+    response["Cache-Control"] = "no-store"
+    return response
 
 
 def _parse_tag_tokens(request) -> list[str]:

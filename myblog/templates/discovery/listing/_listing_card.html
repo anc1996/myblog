@@ -1,67 +1,64 @@
-<article class="listing-card card mb-3 shadow-sm border-0 bg-white{% if item.cover_url %} has-cover{% endif %}" data-analytics-card="{{ item.page_id }}" data-analytics-type="{{ item.type_key }}">
-  <div class="card-body listing-card-layout">
+<article class="listing-card{% if item.cover_url %} has-cover{% endif %}" data-analytics-card="{{ item.page_id }}" data-analytics-type="{{ item.type_key }}">
+  <div class="listing-card-layout">
     {% if item.cover_url %}
     <a href="{{ item.url }}" class="listing-card-media" tabindex="-1" aria-hidden="true">
       <img src="{{ item.cover_url }}" alt="{{ item.title }}" loading="lazy">
     </a>
     {% endif %}
     <div class="listing-card-content">
-    <div class="d-flex justify-content-between align-items-start mb-1">
-      <h5 class="card-title mb-0">
-        <a href="{{ item.url }}" class="text-dark text-decoration-none hover-primary fw-bold">
-          {{ item.title }}
-        </a>
-      </h5>
-      <span class="badge bg-light text-secondary border small">成文于 {{ item.authored_on|date:"Y-m-d" }}</span>
-    </div>
-
-    {% if item.authors or item.view_count is not None %}
-      <div class="listing-card-meta-row">
-        {% if item.authors %}
-          <span class="listing-meta-authors">
-            作者：{% for au in item.authors %}<a href="{{ au.url }}" class="listing-author-link">{% if au.is_anonymous %}👤 {% endif %}{{ au.name }}</a>{% if not forloop.last %}、{% endif %}{% endfor %}
-          </span>
-        {% endif %}
-        {% if item.view_count is not None %}
-          <span class="listing-meta-pv" title="累计阅读次数">👁️ {{ item.view_count }} 次阅读</span>
-        {% endif %}
+      <div class="listing-card-head">
+        <h3 class="listing-card-title">
+          <a href="{{ item.url }}">{{ item.title }}</a>
+        </h3>
+        <time class="listing-card-date" datetime="{{ item.authored_on|date:'Y-m-d' }}">成文于 {{ item.authored_on|date:"Y-m-d" }}</time>
       </div>
-    {% endif %}
 
-    {% if item.column_metadata.difficulty_label %}
-      <div class="mb-2">
-        <span class="badge bg-info text-dark small me-1">难度: {{ item.column_metadata.difficulty_label }}</span>
-        {% if item.column_metadata.topic_name %}
-          <span class="badge bg-secondary small">专题: {{ item.column_metadata.topic_name }}</span>
-        {% endif %}
-      </div>
-    {% endif %}
-
-    {% if item.column_metadata.project_status_label %}
-      <div class="mb-2">
-        <span class="badge bg-success small me-1">状态: {{ item.column_metadata.project_status_label }}</span>
-        {% if item.column_metadata.primary_language %}
-          <span class="badge bg-dark small me-1">{{ item.column_metadata.primary_language }}</span>
-        {% endif %}
-      </div>
-    {% endif %}
-
-    <p class="card-text text-muted small mb-2 line-clamp-2">
-      {% if item.highlights %}
-        {{ item.highlights.0.snippet|safe }}
-      {% else %}
-        {{ item.summary|default:"暂无导语介绍" }}
+      {% if item.authors or item.view_count is not None %}
+        <div class="listing-card-meta-row">
+          {% if item.authors %}
+            <span class="listing-meta-authors">
+              作者：{% for au in item.authors %}<a href="{{ au.url }}" class="listing-author-link">{% if au.is_anonymous %}{% include "includes/_ui_icon.html" with name="user" %}{% endif %}<span>{{ au.name }}</span></a>{% if not forloop.last %}、{% endif %}{% endfor %}
+            </span>
+          {% endif %}
+          {% if item.view_count is not None %}
+            <span class="listing-meta-pv" title="累计阅读次数">{% include "includes/_ui_icon.html" with name="eye" %}<span>{{ item.view_count }} 次阅读</span></span>
+          {% endif %}
+        </div>
       {% endif %}
-    </p>
 
-    <div class="d-flex justify-content-between align-items-center">
-      <div class="listing-tags">
-        {% for t in item.tags %}
-          <a href="/tags/{{ t.slug }}/" class="home-tag-chip">#{{ t.name }}</a>
-        {% endfor %}
+      {% if item.column_metadata.difficulty_label or item.column_metadata.project_status_label %}
+        <div class="listing-card-chips">
+          {% if item.column_metadata.difficulty_label %}
+            <span class="listing-meta-chip is-accent">难度：{{ item.column_metadata.difficulty_label }}</span>
+            {% if item.column_metadata.topic_name %}
+              <span class="listing-meta-chip">专题：{{ item.column_metadata.topic_name }}</span>
+            {% endif %}
+          {% endif %}
+          {% if item.column_metadata.project_status_label %}
+            <span class="listing-meta-chip is-status">状态：{{ item.column_metadata.project_status_label }}</span>
+            {% if item.column_metadata.primary_language %}
+              <span class="listing-meta-chip">{{ item.column_metadata.primary_language }}</span>
+            {% endif %}
+          {% endif %}
+        </div>
+      {% endif %}
+
+      <p class="listing-card-summary line-clamp-2">
+        {% if item.highlights %}
+          {{ item.highlights.0.snippet|safe }}
+        {% else %}
+          {{ item.summary|default:"暂无导语介绍" }}
+        {% endif %}
+      </p>
+
+      <div class="listing-card-foot">
+        <div class="listing-tags">
+          {% for t in item.tags %}
+            <a href="/tags/{{ t.slug }}/" class="home-tag-chip">#{{ t.name }}</a>
+          {% endfor %}
+        </div>
+        <a href="{{ item.url }}" class="listing-card-more">阅读全文 &rarr;</a>
       </div>
-      <a href="{{ item.url }}" class="btn btn-sm btn-link text-decoration-none p-0">阅读全文 &rarr;</a>
-    </div>
     </div>
   </div>
 </article>

@@ -341,9 +341,12 @@ class Phase1CoverUiSeoAndRedirectsTests(TestCase):
 
         # 博客栏目与指南/标签列表页需展示可点击标签链接与佚名兜底
         col_html = self.client.get(col.url).content.decode("utf-8")
-        self.assertIn("👁️ 42 次阅读", col_html)
+        self.assertIn("42 次阅读", col_html)
+        self.assertIn('class="ui-icon"', col_html)
         self.assertIn('href="/tags/postgresql/"', col_html)
-        self.assertIn("👤 佚名", col_html)
+        self.assertIn("佚名", col_html)
+        self.assertNotIn("👁️", col_html)
+        self.assertNotIn("👤", col_html)
 
         # 关闭公开阅读量开关后列表页也不再暴露阅读次数
         ana_cfg.public_pv_display_enabled = False

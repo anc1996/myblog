@@ -35,7 +35,7 @@
 
     <div class="author-heatmap-box" aria-label="{{ ac.heatmap.month_label }}创作热力图">
         <div class="author-heatmap-header">
-            <span class="author-heatmap-title">📅 {{ ac.heatmap.month_label }}创作</span>
+            <span class="author-heatmap-title">{% include "includes/_ui_icon.html" with name="calendar" %}<span>{{ ac.heatmap.month_label }}创作</span></span>
             <span class="author-heatmap-summary">共 {{ ac.heatmap.month_total }} 篇</span>
         </div>
         <div class="author-heatmap-weekdays" aria-hidden="true">

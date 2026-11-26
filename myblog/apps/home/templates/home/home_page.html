@@ -7,27 +7,35 @@
 {% block analytics_meta %}{% analytics_page_meta page %}{% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" type="text/css" href="{% static 'blog/css/article.css' %}?v=20261124a">
+<link rel="stylesheet" type="text/css" href="{% static 'blog/css/article.css' %}?v=20261126a">
+<link rel="stylesheet" type="text/css" href="{% static 'css/pages/home.css' %}?v=20261126a">
 {% endblock extra_css %}
 
 {% block content %}
+{% wagtail_site as current_site %}
 <div class="home-portal-shell">
-    {# 1. Hero 标语导引区 #}
-    <div class="home-hero-banner">
-        <h1 class="home-hero-title">探索高并发与现代分布式技术</h1>
-        <p class="home-hero-desc">
-            基于 Django 6 + Wagtail 8.1 + PostgreSQL 18 构建，全面贯彻正文脱水、多维检索、不可变版本与全站知识图谱。
-        </p>
-        <div class="home-hero-actions">
-            {% if primary_blog_url %}
-            <a href="{{ primary_blog_url }}" class="ui-btn ui-btn-primary">浏览技术博客 &rarr;</a>
-            {% endif %}
-            {% if guide_index_url %}
-            <a href="{{ guide_index_url }}" class="ui-btn home-hero-btn-outline">查看专题指南</a>
-            {% endif %}
-            <a href="{% url 'search' %}" class="ui-btn home-hero-btn-outline">全站中文搜索</a>
+    {# 1. 克制出版物刊头（后台可配主标题与导语 + 站内快速搜索） #}
+    <header class="home-masthead">
+        <div class="home-masthead-copy">
+            <h1 class="home-masthead-title">{% if page.masthead_title %}{{ page.masthead_title }}{% elif current_site and current_site.site_name %}{{ current_site.site_name }}{% else %}{{ page.title }}{% endif %}</h1>
+            <p class="home-masthead-desc">{% if page.masthead_subtitle %}{{ page.masthead_subtitle }}{% elif settings.site_settings.FooterSettings.about_text %}{{ settings.site_settings.FooterSettings.about_text }}{% else %}记录思考、技术实践与专题归档。{% endif %}</p>
         </div>
-    </div>
+        <form action="{% url 'search' %}" method="get" class="home-masthead-search" role="search" aria-label="站内快速搜索">
+            <div class="home-masthead-search-box">
+                <span class="home-masthead-search-icon" aria-hidden="true">
+                    {% include "includes/_ui_icon.html" with name="search" %}
+                </span>
+                <input
+                    type="search"
+                    name="query"
+                    class="ui-input home-masthead-search-input"
+                    placeholder="搜索文章、指南、项目或标签…"
+                    aria-label="站内搜索关键词"
+                >
+                <button type="submit" class="ui-btn ui-btn-primary home-masthead-search-btn">搜索</button>
+            </div>
+        </form>
+    </header>
 
     {# 1.5 精选内容轮播 (Splide 响应式触控轮播) #}
     {% if featured_carousel_items %}
@@ -46,9 +54,9 @@
                                 <h3 class="ui-carousel-card-title">
                                     <a href="{{ item.url }}"{% if item.page_id %} data-analytics-card="{{ item.page_id }}"{% endif %}{% if item.type_key %} data-analytics-type="{{ item.type_key }}"{% endif %}>{{ item.title }}</a>
                                 </h3>
-                                <p class="small text-muted line-clamp-2 mb-2">{{ item.summary|truncatechars:90 }}</p>
+                                <p class="ui-carousel-card-summary line-clamp-2">{{ item.summary|truncatechars:90 }}</p>
                             </div>
-                            <div class="ui-carousel-card-meta d-flex justify-content-between align-items-center">
+                            <div class="ui-carousel-card-meta">
                                 <span>{{ item.date_label }}</span>
                                 <a href="{{ item.url }}" class="home-section-more"{% if item.page_id %} data-analytics-card="{{ item.page_id }}"{% endif %}{% if item.type_key %} data-analytics-type="{{ item.type_key }}"{% endif %}>阅读 &rarr;</a>
                             </div>
@@ -86,17 +94,17 @@
                         </a>
                     </h3>
                     <div class="home-article-meta">
-                        <span>成文于 {{ article.authored_on|date:"Y年m月d日" }}</span>
+                        <span class="home-meta-date">成文于 {{ article.authored_on|date:"Y年m月d日" }}</span>
                         {% if article.display_authors %}
-                            <span>
-                                作者：{% for au in article.display_authors %}<a href="{{ au.url }}" class="listing-author-link">{% if au.is_anonymous %}👤 {% endif %}{{ au.name }}</a>{% if not forloop.last %}、{% endif %}{% endfor %}
+                            <span class="home-meta-authors">
+                                作者：{% for au in article.display_authors %}<a href="{{ au.url }}" class="listing-author-link">{% if au.is_anonymous %}{% include "includes/_ui_icon.html" with name="user" %}{% endif %}<span>{{ au.name }}</span></a>{% if not forloop.last %}、{% endif %}{% endfor %}
                             </span>
                         {% endif %}
                         {% if article.public_view_count is not None %}
-                            <span class="listing-meta-pv" title="累计阅读次数">👁️ {{ article.public_view_count }} 次阅读</span>
+                            <span class="listing-meta-pv" title="累计阅读次数">{% include "includes/_ui_icon.html" with name="eye" %}<span>{{ article.public_view_count }} 次阅读</span></span>
                         {% endif %}
                         {% if article.display_tags %}
-                            <span>
+                            <span class="home-meta-tags">
                                 {% for tag in article.display_tags %}
                                     {% if tag.url %}
                                     <a href="{{ tag.url }}" class="home-tag-chip">#{{ tag.name }}</a>
@@ -117,32 +125,37 @@
                 </article>
                 {% endfor %}
             {% else %}
-                <div class="home-article-card text-center text-muted py-5">
+                <div class="home-article-card home-empty-state">
                     暂无已发布的博客文章。
                 </div>
             {% endif %}
 
             {# 核心栏目目录（N-03：全类型层级卡片，默认展开二级，三级及更深支持原地折叠） #}
             {% if directory_tree %}
-            <div class="home-section-title mt-4">
+            <div class="home-section-title home-section-title--spaced">
                 <span>博客目录与分类</span>
             </div>
             <div class="home-columns-grid">
                 {% for l1 in directory_tree %}
                 <article class="home-dir-card">
-                    <h3 class="home-dir-card-title">
-                        <a href="{{ l1.url }}">{{ l1.title }}</a>
-                    </h3>
+                    <div class="home-dir-card-head">
+                        <h3 class="home-dir-card-title">
+                            <a href="{{ l1.url }}">{{ l1.title }}</a>
+                        </h3>
+                        {% if l1.article_count > 0 %}
+                        <span class="home-dir-count" title="共 {{ l1.article_count }} 篇公开内容">{{ l1.article_count }}</span>
+                        {% endif %}
+                    </div>
                     {% if l1.children %}
                     <ul class="home-dir-l2-list">
-                        {% for l2 in l1.children %}
+                        {% for l2 in l1.children|slice:":6" %}
                         <li class="home-dir-l2-item{% if l2.children %} has-children{% endif %}">
                             {% if l2.children %}
                             <div class="site-dir-branch-wrap">
                                 <a href="{{ l2.url }}" class="site-dir-link site-dir-branch-link">{{ l2.title }}</a>
                                 <details class="site-dir-branch-details">
                                     <summary class="site-dir-branch-toggle" aria-label="展开或收起 {{ l2.title }} 子栏目">
-                                        <span class="site-dir-caret" aria-hidden="true">▸</span>
+                                        <span class="site-dir-caret" aria-hidden="true">{% include "includes/_ui_icon.html" with name="chevron-right" %}</span>
                                     </summary>
                                     {% include "includes/_site_directory_tree.html" with nodes=l2.children %}
                                 </details>
@@ -153,6 +166,33 @@
                         </li>
                         {% endfor %}
                     </ul>
+                    {% if l1.children|length > 6 %}
+                    <details class="home-dir-more-details">
+                        <summary class="home-dir-more-summary">
+                            {% include "includes/_ui_icon.html" with name="chevron-right" %}
+                            <span>展开其余 {{ l1.children|length|add:"-6" }} 个子栏目</span>
+                        </summary>
+                        <ul class="home-dir-l2-list home-dir-l2-list--more">
+                            {% for l2 in l1.children|slice:"6:" %}
+                            <li class="home-dir-l2-item{% if l2.children %} has-children{% endif %}">
+                                {% if l2.children %}
+                                <div class="site-dir-branch-wrap">
+                                    <a href="{{ l2.url }}" class="site-dir-link site-dir-branch-link">{{ l2.title }}</a>
+                                    <details class="site-dir-branch-details">
+                                        <summary class="site-dir-branch-toggle" aria-label="展开或收起 {{ l2.title }} 子栏目">
+                                            <span class="site-dir-caret" aria-hidden="true">{% include "includes/_ui_icon.html" with name="chevron-right" %}</span>
+                                        </summary>
+                                        {% include "includes/_site_directory_tree.html" with nodes=l2.children %}
+                                    </details>
+                                </div>
+                                {% else %}
+                                <a href="{{ l2.url }}" class="home-dir-l2-link">{{ l2.title }}</a>
+                                {% endif %}
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    </details>
+                    {% endif %}
                     {% endif %}
                 </article>
                 {% endfor %}
@@ -165,7 +205,10 @@
             {# 热门技术标签云 #}
             <div class="home-sidebar-widget">
                 <div class="home-widget-header">
-                    <h4>🏷️ 热门标签云</h4>
+                    <h4 class="home-widget-title">
+                        {% include "includes/_ui_icon.html" with name="tag" %}
+                        <span>热门标签云</span>
+                    </h4>
                     {% if tag_index_url %}
                     <a href="{{ tag_index_url }}" class="home-section-more">全部标签 &rarr;</a>
                     {% endif %}
@@ -175,17 +218,17 @@
                     {% for pt in popular_tags %}
                         {% if pt.url %}
                         <a href="{{ pt.url }}" class="home-tag-chip">
-                            #{{ pt.tag_name }} <span class="text-muted">{{ pt.count }}</span>
+                            #{{ pt.tag_name }} <span class="home-tag-count">{{ pt.count }}</span>
                         </a>
                         {% else %}
                         <span class="home-tag-chip">
-                            #{{ pt.tag_name }} <span class="text-muted">{{ pt.count }}</span>
+                            #{{ pt.tag_name }} <span class="home-tag-count">{{ pt.count }}</span>
                         </span>
                         {% endif %}
                     {% endfor %}
                 </div>
                 {% else %}
-                <p class="text-muted small mb-0">暂无活跃标签</p>
+                <p class="home-empty-note">暂无活跃标签</p>
                 {% endif %}
             </div>
 
@@ -193,7 +236,10 @@
             {% if featured_guides %}
             <div class="home-sidebar-widget">
                 <div class="home-widget-header">
-                    <h4>📚 精选专题指南</h4>
+                    <h4 class="home-widget-title">
+                        {% include "includes/_ui_icon.html" with name="book" %}
+                        <span>精选专题指南</span>
+                    </h4>
                     {% if guide_index_url %}
                     <a href="{{ guide_index_url }}" class="home-section-more">查看专栏 &rarr;</a>
                     {% endif %}
@@ -204,8 +250,8 @@
                         <a href="{{ g.url }}" data-analytics-card="{{ g.page_id }}" data-analytics-type="{{ g.type_key|default:'guide' }}">
                             {{ g.title }}
                         </a>
-                        <div class="small text-muted">
-                            {% if g.badge %}<span class="badge bg-info me-1">{{ g.badge }}</span>{% endif %}
+                        <div class="home-widget-meta">
+                            {% if g.badge %}<span class="home-widget-tag">{{ g.badge }}</span>{% endif %}
                             {% if g.page and g.page.get_difficulty_display %}<span>{{ g.page.get_difficulty_display }}</span>{% endif %}
                         </div>
                     </li>
@@ -218,7 +264,10 @@
             {% if featured_projects %}
             <div class="home-sidebar-widget">
                 <div class="home-widget-header">
-                    <h4>💻 精选开源项目</h4>
+                    <h4 class="home-widget-title">
+                        {% include "includes/_ui_icon.html" with name="code" %}
+                        <span>精选开源项目</span>
+                    </h4>
                     {% if portfolio_index_url %}
                     <a href="{{ portfolio_index_url }}" class="home-section-more">全部作品 &rarr;</a>
                     {% endif %}
@@ -229,8 +278,8 @@
                         <a href="{{ p.url }}" data-analytics-card="{{ p.page_id }}" data-analytics-type="{{ p.type_key|default:'project' }}">
                             {{ p.title }}
                         </a>
-                        <div class="small text-muted">
-                            {% if p.page and p.page.get_project_status_display %}<span class="badge bg-success me-1">{{ p.page.get_project_status_display }}</span>{% endif %}
+                        <div class="home-widget-meta">
+                            {% if p.page and p.page.get_project_status_display %}<span class="home-widget-tag home-widget-tag--status">{{ p.page.get_project_status_display }}</span>{% endif %}
                             {% if p.badge %}<span>{{ p.badge }}</span>{% endif %}
                         </div>
                     </li>
@@ -241,8 +290,11 @@
 
             {# 动态订阅挂件 #}
             <div class="home-sidebar-widget home-sub-widget">
-                <h4 class="mb-2">📡 全站内容动态订阅</h4>
-                <p class="small text-muted mb-3">
+                <h4 class="home-widget-title home-sub-title">
+                    {% include "includes/_ui_icon.html" with name="rss" %}
+                    <span>全站内容动态订阅</span>
+                </h4>
+                <p class="home-sub-desc">
                     支持 RSS 2.0 与 Atom 1.0 标准协议，文章与专栏更新即时推送到你的阅读器。
                 </p>
                 <div class="home-sub-actions">

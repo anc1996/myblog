@@ -103,6 +103,20 @@ def nav_has_url(nav_items, target_path: str) -> bool:
     return False
 
 
+def _is_nav_item_active(req_path: str, item_url: str, *, is_external: bool, home_url: str) -> bool:
+    """判定导航项是否处于当前激活态：首页仅精确匹配 /，其余入口按路径前缀或精确匹配。"""
+    if is_external or not req_path or not item_url:
+        return False
+    if not item_url.startswith("/") or item_url.startswith("//"):
+        return False
+    norm_req = "/" if req_path == "/" else "/" + req_path.strip("/") + "/"
+    norm_home = "/" if home_url == "/" else "/" + home_url.strip("/") + "/"
+    norm_item = "/" if item_url == "/" else "/" + item_url.strip("/") + "/"
+    if norm_item == norm_home:
+        return norm_req == norm_home
+    return norm_req == norm_item or norm_req.startswith(norm_item)
+
+
 @register.simple_tag(takes_context=True)
 def get_site_navigation_data(context, nav_setting) -> dict:
     """
@@ -160,6 +174,15 @@ def get_site_navigation_data(context, nav_setting) -> dict:
         nav_items.append({"label": "全站标签", "badge": "", "url": tag_index_url, "is_external": False})
     if not nav_has_url(nav_items, timeline_url):
         nav_items.append({"label": "时间线", "badge": "", "url": timeline_url, "is_external": False})
+
+    req_path = str(getattr(request, "path", "") or "").strip() if request is not None else ""
+    for item in nav_items:
+        item["is_active"] = _is_nav_item_active(
+            req_path,
+            str(item.get("url") or ""),
+            is_external=bool(item.get("is_external", False)),
+            home_url=home_url,
+        )
 
     if directory_tree:
         footer_hall_items = [{"label": "网站首页", "url": home_url, "is_external": False}] + [

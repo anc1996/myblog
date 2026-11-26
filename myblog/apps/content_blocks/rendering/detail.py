@@ -561,10 +561,20 @@ def build_detail_presentation(page: Any, request: Any = None, *, body_field: str
             item["indent_level"] = max(0, min(3, item["level"] - min_level))
     toc_tree = _build_toc_tree(toc_items)
 
+    from discovery.detail_navigation import resolve_site_readonly
+
+    breadcrumb_site = resolve_site_readonly(request, page)
+    breadcrumb_root = getattr(breadcrumb_site, "root_page", None) if breadcrumb_site is not None else None
+    breadcrumb_root_id = getattr(breadcrumb_site, "root_page_id", None) if breadcrumb_site is not None else None
+    min_breadcrumb_depth = int(getattr(breadcrumb_root, "depth", 2) or 2) if breadcrumb_root is not None else 2
+
     breadcrumbs = [
         ancestor
         for ancestor in page.get_ancestors()
-        if not ancestor.is_root() and not getattr(ancestor, "is_recycled", False)
+        if not ancestor.is_root()
+        and not getattr(ancestor, "is_recycled", False)
+        and int(getattr(ancestor, "depth", 0) or 0) > min_breadcrumb_depth
+        and (breadcrumb_root_id is None or ancestor.id != breadcrumb_root_id)
     ]
     tag_links = resolve_tag_links(page, request)
     is_preview = bool(

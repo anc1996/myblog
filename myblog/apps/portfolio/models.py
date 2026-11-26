@@ -240,6 +240,7 @@ class PortfolioIndexPage(HierarchicalListingMixin, CustomBasePage):
     intro = models.TextField(blank=True, verbose_name="大厅介绍导语")
 
     content_panels = Page.content_panels + [
+        FieldPanel("header_layout"),
         FieldPanel("intro"),
     ]
 

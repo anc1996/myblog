@@ -47,27 +47,27 @@
 <div class="search-layout">
     <div class="search-results-pane">
         {% if error_message %}
-        <div class="alert alert-warning mb-3" role="alert">
+        <div class="alert alert-warning search-alert" role="alert">
             <strong>分页提示：</strong> {{ error_message }}
         </div>
         {% endif %}
 
         {% if cursor_reset %}
-        <div class="alert alert-info mb-3" role="alert">
+        <div class="alert alert-info search-alert" role="alert">
             <strong>提示：</strong> 内容刚刚有更新，已为您自动刷新回最新结果第 1 页。
         </div>
         {% endif %}
 
-        <div class="search-summary-bar mb-3">
+        <div class="search-summary-bar">
             {% if search_query %}
-                <p class="text-muted mb-0">
-                    搜索 “<strong>{{ search_query }}</strong>” {% if title_only %}<span class="badge bg-secondary">仅搜标题</span> {% endif %}共找到 <strong>{{ total_count }}</strong> 条结果
+                <p class="search-summary-text">
+                    搜索 “<strong>{{ search_query }}</strong>” {% if title_only %}<span class="search-title-only-tag">仅搜标题</span> {% endif %}共找到 <strong>{{ total_count }}</strong> 条结果
                     {% if expansion_used %}
-                        <span class="ms-1 text-primary">(已自动扩展同义词)</span>
+                        <span class="search-expansion-note">(已自动扩展同义词)</span>
                     {% endif %}
                 </p>
             {% else %}
-                <p class="text-muted mb-0">
+                <p class="search-summary-text">
                     浏览全站已发布内容，{% if pagination_vm.count_meta.label %}<strong>{{ pagination_vm.count_meta.label }}</strong>{% else %}共 <strong>{{ total_count }}</strong> 条记录{% endif %}
                 </p>
             {% endif %}
@@ -77,7 +77,7 @@
             <ul class="search-result-list">
                 {% for entry in display_items %}
                 {% with item=entry.item %}
-                <li class="search-result-item card{% if item.cover_url %} has-cover{% endif %}">
+                <li class="search-result-item{% if item.cover_url %} has-cover{% endif %}">
                     {% if item.cover_url %}
                     <a href="{{ item.url }}" class="search-result-media" tabindex="-1" aria-hidden="true">
                         <img src="{{ item.cover_url }}" alt="{{ item.title }}" loading="lazy">
@@ -90,35 +90,37 @@
                         </h3>
                         <div class="search-result-badges">
                             <span class="search-type-pill">{{ entry.type_label }}</span>
+                            {% if item.match_mode == "A" or item.match_mode == "B" or item.match_mode == "C" %}
                             <span class="search-match-badge">
-                                {% if item.match_mode == "A" %}原句命中{% elif item.match_mode == "B" %}分词匹配{% elif item.match_mode == "C" %}同义扩展{% else %}已发布{% endif %}
+                                {% if item.match_mode == "A" %}原句命中{% elif item.match_mode == "B" %}分词匹配{% else %}同义扩展{% endif %}
                             </span>
+                            {% endif %}
                         </div>
                     </div>
-                    <p class="text-muted small mb-2">
-                        成文于 {{ item.authored_on|date:"Y-m-d" }}
+                    <p class="search-result-meta">
+                        <span class="search-result-date">成文于 {{ item.authored_on|date:"Y-m-d" }}</span>
                         {% with card_authors=entry.authors|default:item.authors %}
                         {% if card_authors %}
                             <span class="search-result-authors">
                                 · 作者：
                                 {% for au in card_authors %}
-                                    <a href="{{ au.url }}" class="search-result-author-link">{% if au.is_anonymous %}👤 {% endif %}{{ au.name }}</a>{% if not forloop.last %}、{% endif %}
+                                    <a href="{{ au.url }}" class="search-result-author-link">{% if au.is_anonymous %}{% include "includes/_ui_icon.html" with name="user" %}{% endif %}<span>{{ au.name }}</span></a>{% if not forloop.last %}、{% endif %}
                                 {% endfor %}
                             </span>
                         {% endif %}
                         {% endwith %}
                         {% if item.view_count is not None %}
-                            <span class="listing-meta-pv" title="累计阅读次数"> · 👁️ {{ item.view_count }} 次阅读</span>
+                            <span class="listing-meta-pv" title="累计阅读次数">{% include "includes/_ui_icon.html" with name="eye" %}<span>{{ item.view_count }} 次阅读</span></span>
                         {% endif %}
                     </p>
                     {% if item.highlights %}
-                        <p class="text-secondary small mb-2 search-result-snippet">
+                        <p class="search-result-snippet">
                             {% for h in item.highlights %}
                                 {{ h.snippet|safe }}
                             {% endfor %}
                         </p>
                     {% elif item.summary %}
-                        <p class="text-secondary small mb-2 search-result-snippet">{{ item.summary }}</p>
+                        <p class="search-result-snippet">{{ item.summary }}</p>
                     {% endif %}
                     {% if entry.tag_links %}
                         <div class="search-item-tags">
@@ -138,7 +140,7 @@
 
             {% if show_expand_button %}
             <div class="search-expand-box">
-                <p class="text-muted mb-2">当前仅显示完整原句匹配（共 {{ items|length }} 条），未达到 5 条。</p>
+                <p class="search-expand-note">当前仅显示完整原句匹配（共 {{ items|length }} 条），未达到 5 条。</p>
                 <a href="{{ show_expand_url }}" class="ui-btn ui-btn-primary search-ajax-link">
                     点击继续查看包含相关分词的更多结果（模式 B）
                 </a>
@@ -149,11 +151,11 @@
         {% elif not error_message %}
             <div class="search-empty-state">
                 {% if search_query %}
-                    <p class="fs-5 mb-1">未找到匹配 “{{ search_query }}” 的内容</p>
+                    <p class="search-empty-title">未找到匹配 “{{ search_query }}” 的内容</p>
                 {% else %}
-                    <p class="fs-5 mb-1">当前筛选条件下暂无已发布内容</p>
+                    <p class="search-empty-title">当前筛选条件下暂无已发布内容</p>
                 {% endif %}
-                <small class="text-muted">可以尝试放宽日期区间、取消部分标签或重置全部筛选条件。</small>
+                <small class="search-empty-hint">可以尝试放宽日期区间、取消部分标签或重置全部筛选条件。</small>
             </div>
         {% else %}
             {% include "discovery/listing/_listing_pagination.html" with view_model=pagination_vm %}
@@ -162,27 +164,10 @@
 
     <aside class="search-facets-pane" aria-label="组合筛选面板">
         <div class="search-facet-header">
-            <h4 class="mb-0">组合筛选</h4>
+            <h4 class="search-facet-heading">组合筛选</h4>
             {% if active_filter_pills %}
-            <a href="{{ reset_url }}" class="small text-primary text-decoration-none search-ajax-link" data-search-reset="1">清空</a>
+            <a href="{{ reset_url }}" class="search-facet-reset search-ajax-link" data-search-reset="1">清空</a>
             {% endif %}
-        </div>
-
-        <div class="search-facet-group">
-            <strong class="search-facet-title">内容类型</strong>
-            <ul class="search-facet-list">
-                {% for t in type_options %}
-                <li>
-                    <a
-                        href="{{ t.url }}"
-                        class="search-facet-link search-ajax-link{% if t.is_active %} is-active{% endif %}"
-                    >
-                        <span>{{ t.label }}</span>
-                        <span class="search-facet-badge">{{ t.count }}</span>
-                    </a>
-                </li>
-                {% endfor %}
-            </ul>
         </div>
 
         {% if tag_facet_items %}
@@ -224,7 +209,7 @@
                         href="{{ au.url }}"
                         class="search-facet-link search-ajax-link{% if au.is_active %} is-active{% endif %}"
                     >
-                        <span>{% if au.is_anonymous %}👤 {% endif %}{{ au.label }}</span>
+                        <span class="search-facet-author-label">{% if au.is_anonymous %}{% include "includes/_ui_icon.html" with name="user" %}{% endif %}<span>{{ au.label }}</span></span>
                         <span class="search-facet-badge">{{ au.count }}</span>
                     </a>
                 </li>

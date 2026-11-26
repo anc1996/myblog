@@ -11,20 +11,19 @@
     <nav class="detail-breadcrumbs guide-breadcrumbs" aria-label="面包屑导航">
         <a href="/">首页</a>
         {% for ancestor in breadcrumbs %}
-            <span>/</span>
+            <span class="breadcrumb-separator">/</span>
             <a href="{{ ancestor.url }}">{{ ancestor.title }}</a>
         {% endfor %}
-        <span>/</span>
-        <span class="fw-semibold text-dark" aria-current="page">{{ page.title }}</span>
+        <span class="breadcrumb-separator">/</span>
+        <span class="current-crumb" aria-current="page">{{ page.title }}</span>
     </nav>
     {% endif %}
 
-    <header class="listing-page-header">
-        <h1>{{ page.title }}</h1>
-        {% if page.intro %}
-            <p class="listing-page-intro">{{ page.intro }}</p>
-        {% endif %}
-    </header>
+    {% if page.featured_topic %}
+        {% include "discovery/listing/_listing_header.html" with header_badge_label="精选主题：" header_badge_value=page.featured_topic.name %}
+    {% else %}
+        {% include "discovery/listing/_listing_header.html" %}
+    {% endif %}
 
     <section class="guide-listing-section">
         {% include "discovery/listing/_listing_filters.html" %}

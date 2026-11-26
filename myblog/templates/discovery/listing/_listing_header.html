@@ -1,0 +1,50 @@
+{% with hp=header_presentation %}
+<header class="listing-page-header listing-header listing-header--{{ hp.layout }}{% if hp.has_visible_cover %} has-cover{% endif %}" data-header-layout="{{ hp.layout }}">
+  {% if hp.layout == "visual_banner" and hp.cover_url %}
+  <div class="listing-header-cover listing-page-cover">
+    <img src="{{ hp.cover_url }}" alt="{{ hp.cover_alt|default:page.title }}" class="listing-header-cover-img {{ hp.focal_class }}" loading="lazy">
+  </div>
+  {% endif %}
+
+  <div class="listing-header-main">
+    <div class="listing-header-text">
+      <h1 class="listing-header-title">{{ page.title }}</h1>
+
+      {% if view_model or header_badge_value %}
+      <div class="listing-header-meta">
+        {% if view_model %}
+        <span class="listing-header-stat">共 {{ view_model.total_count }} 项内容</span>
+        {% if view_model.navigation_total_count %}
+        <span class="listing-header-stat-sep" aria-hidden="true">·</span>
+        <span class="listing-header-stat">{{ view_model.navigation_total_count }} 个子栏目</span>
+        {% endif %}
+        {% endif %}
+        {% if header_badge_value %}
+        {% if view_model %}<span class="listing-header-stat-sep" aria-hidden="true">·</span>{% endif %}
+        <span class="listing-header-stat">{{ header_badge_label }}{{ header_badge_value }}</span>
+        {% endif %}
+      </div>
+      {% endif %}
+
+      {% if hp.intro_html %}
+      <div class="listing-intro-wrap">
+        <div class="listing-page-intro listing-intro-box rich-text{% if hp.is_long_intro %} is-collapsible{% endif %}"{% if hp.is_long_intro %} data-intro-collapsible{% endif %}>
+          {{ hp.intro_html }}
+        </div>
+        {% if hp.is_long_intro %}
+        <button type="button" class="listing-intro-toggle" data-intro-toggle aria-expanded="false">
+          <span>展开完整导读</span>
+        </button>
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
+
+    {% if hp.layout == "editorial_split" and hp.cover_url %}
+    <div class="listing-header-cover listing-page-cover">
+      <img src="{{ hp.cover_url }}" alt="{{ hp.cover_alt|default:page.title }}" class="listing-header-cover-img {{ hp.focal_class }}" loading="lazy">
+    </div>
+    {% endif %}
+  </div>
+</header>
+{% endwith %}

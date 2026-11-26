@@ -126,6 +126,7 @@ class BlogIndexPage(HierarchicalListingMixin, CustomBasePage):
     content_panels = Page.content_panels + [
         FieldPanel("authored_on"),
         FieldPanel("featured_image"),
+        FieldPanel("header_layout"),
         FieldPanel("intro"),
     ]
 
@@ -147,10 +148,13 @@ class BlogIndexPage(HierarchicalListingMixin, CustomBasePage):
             )
         return refs
 
+    def get_header_intro_html(self, request=None) -> str:
+        raw_intro = (getattr(self, "intro", "") or "").strip()
+        return mark_safe(render_richtext_field_html(raw_intro)) if raw_intro else ""
+
     def get_context(self, request, *args, **kwargs):
         context = super().get_context(request, *args, **kwargs)
-        raw_intro = (getattr(self, "intro", "") or "").strip()
-        context["intro_html"] = mark_safe(render_richtext_field_html(raw_intro)) if raw_intro else ""
+        context["intro_html"] = context["header_presentation"]["intro_html"]
         return context
 
 

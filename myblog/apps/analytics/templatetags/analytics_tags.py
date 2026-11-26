@@ -23,6 +23,7 @@ from django.db.models import Sum
 from django.template.loader import render_to_string
 from django.urls import NoReverseMatch, reverse
 from django.utils.html import format_html
+from django.utils.safestring import mark_safe
 from django.utils import timezone
 
 from analytics.collector import _get_redis_client, _resolve_prefix, resolve_page_analytics_spec
@@ -37,6 +38,15 @@ _RATING_GRADE_OPTIONS = (
     ("good", "👍", "良好"),
     ("pass", "👌", "及格"),
     ("poor", "👎", "差"),
+)
+
+_EYE_ICON_SVG = (
+    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+    'stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" '
+    'aria-hidden="true" class="ui-icon">'
+    '<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/>'
+    '<circle cx="12" cy="12" r="3"/>'
+    "</svg>"
 )
 
 
@@ -372,7 +382,8 @@ def analytics_public_stats(context, page: Any) -> str:
     today_pv = settled_today_pv + unsettled_today_pv
     total_pv = max(today_pv, settled_total_pv + unsettled_today_pv)
     return format_html(
-        '<span class="detail-stat-pill" title="累计阅读次数与今日阅读次数">👁️ 累计阅读 {} · 今日 {}</span>',
+        '<span class="detail-stat-pill" title="累计阅读次数与今日阅读次数">{}<span>累计阅读 {} · 今日 {}</span></span>',
+        mark_safe(_EYE_ICON_SVG),
         _format_compact_pv(total_pv),
         _format_compact_pv(today_pv),
     )

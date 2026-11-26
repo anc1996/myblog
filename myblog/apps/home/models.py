@@ -1,11 +1,30 @@
 from django.db import models
 from django.db.models import Count, Exists, OuterRef, Q
+from wagtail.admin.panels import FieldPanel
 from wagtail.models import Page
 
 
 class HomePage(Page):
     author_creatable = False
     author_allow_child_creation = False
+
+    masthead_title = models.CharField(
+        max_length=120,
+        blank=True,
+        verbose_name="首页刊头主标题",
+        help_text="留空时默认展示站点名称",
+    )
+    masthead_subtitle = models.TextField(
+        max_length=400,
+        blank=True,
+        verbose_name="首页刊头导语",
+        help_text="留空时回退为页脚关于导语或简洁默认介绍",
+    )
+
+    content_panels = Page.content_panels + [
+        FieldPanel("masthead_title"),
+        FieldPanel("masthead_subtitle"),
+    ]
 
     # 约束首页下可创建的子页面类型
     subpage_types = [

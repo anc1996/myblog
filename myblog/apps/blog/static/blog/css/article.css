@@ -140,7 +140,9 @@
     border-radius: 12px;
     font-size: 12px;
     text-decoration: none;
-    transition: all 0.2s ease;
+    transition: background-color var(--dur-fast) var(--ease-out-smooth),
+                border-color var(--dur-fast) var(--ease-out-smooth),
+                color var(--dur-fast) var(--ease-out-smooth);
 }
 
 .tag-pill:hover {
@@ -259,7 +261,9 @@
     padding: 3px 8px;
     font-size: 11px;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: background-color var(--dur-fast) var(--ease-out-smooth),
+                border-color var(--dur-fast) var(--ease-out-smooth),
+                color var(--dur-fast) var(--ease-out-smooth);
 }
 
 .copy-code-btn:hover {
@@ -449,7 +453,7 @@
 .lightbox-caption {
     position: absolute;
     bottom: 24px;
-    color: #f8fafc;
+    color: var(--hero-text);
     font-size: 14px;
     text-align: center;
     width: 100%;
@@ -461,7 +465,7 @@
     position: absolute;
     background: rgba(255, 255, 255, 0.15);
     border: none;
-    color: #ffffff;
+    color: var(--hero-text);
     font-size: 24px;
     width: 44px;
     height: 44px;
@@ -470,7 +474,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: background 0.2s;
+    transition: background-color var(--dur-fast) var(--ease-out-smooth);
 }
 
 .lightbox-btn:hover {

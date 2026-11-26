@@ -38,7 +38,12 @@
       }
       if (toggleBtn) {
         toggleBtn.setAttribute("aria-expanded", isOpen ? "true" : "false");
-        toggleBtn.textContent = isOpen ? "📅 收起热力日历" : "📅 展开热力日历";
+        var toggleLabel = toggleBtn.querySelector("[data-cal-toggle-label]");
+        if (toggleLabel) {
+          toggleLabel.textContent = isOpen ? "收起热力日历" : "展开热力日历";
+        } else {
+          toggleBtn.textContent = isOpen ? "收起热力日历" : "展开热力日历";
+        }
         toggleBtn.classList.toggle("ui-btn-primary", Boolean(isOpen));
         toggleBtn.classList.toggle("ui-btn-outline", !isOpen);
       }
@@ -157,12 +162,13 @@
         var yVal = ySel ? ySel.value.trim() : "";
         var mVal = mSel ? mSel.value.trim() : "";
         if (yVal) {
+          var isYearScope = mVal === "";
           fetchTimeline(
             buildUrlWithOverrides({
               year: yVal,
-              month: mVal || "1",
+              month: isYearScope ? null : mVal,
               day: null,
-              scope: null,
+              scope: isYearScope ? "year" : "month",
               cursor: null,
               page: null,
               seek_date: null,

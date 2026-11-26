@@ -3,24 +3,31 @@
 
 {% block title %}年月时间线归档 - {{ current_site.site_name|default:"myblog" }}{% endblock %}
 
+{% block extra_css %}
+<link rel="stylesheet" type="text/css" href="{% static 'css/pages/timeline.css' %}?v=20261127a">
+{% endblock %}
+
 {% block content %}
 <div class="timeline-page-container">
   {# 面包屑导航 #}
   <nav class="detail-breadcrumbs timeline-breadcrumbs" aria-label="面包屑导航">
     <a href="/">首页</a>
-    <span>/</span>
-    <span class="fw-semibold text-dark" aria-current="page">时间线归档</span>
+    <span aria-hidden="true">/</span>
+    <span class="timeline-breadcrumb-current" aria-current="page">时间线归档</span>
   </nav>
 
-  <header class="timeline-header mb-4 p-4 bg-white rounded border shadow-sm">
-    <div class="d-flex justify-content-between align-items-center">
-      <div>
-        <h1 class="fw-bold text-dark mb-1">📅 月历与年月时间线归档</h1>
-        <p class="text-muted small mb-0">按成文日期统计每日发表篇数；点击任意有记录的日期或月份，高速分页浏览。</p>
+  <header class="timeline-header">
+    <div class="timeline-header-inner">
+      <div class="timeline-header-main">
+        <h1 class="timeline-header-title">
+          {% include "includes/_ui_icon.html" with name="calendar" %}
+          <span>月历与年月时间线归档</span>
+        </h1>
+        <p class="timeline-header-desc">按成文日期统计每日发表篇数；支持一步直达任意年份全年，或展开热力日历按月、按日高速浏览。</p>
       </div>
-      <div class="text-end">
-        <span class="fs-4 fw-bold text-primary">{{ total_count }}</span>
-        <small class="text-muted d-block">全站沉淀内容</small>
+      <div class="timeline-header-stat">
+        <span class="timeline-header-stat-num">{{ total_count }}</span>
+        <span class="timeline-header-stat-label">全站沉淀内容</span>
       </div>
     </div>
   </header>
@@ -29,5 +36,8 @@
     {% include "discovery/timeline/_timeline_content.html" %}
   </div>
 </div>
-<script src="{% static 'discovery/js/timeline_controller.js' %}?v=20261123b" defer></script>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'discovery/js/timeline_controller.js' %}?v=20261127a" defer></script>
 {% endblock %}

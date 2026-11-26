@@ -17,12 +17,20 @@ from typing import Any
 from django.apps import apps as django_apps
 from django.contrib.contenttypes.models import ContentType
 from django.db import DatabaseError
+from django.db.models import Count
+from django.db.models.functions import Substr
 from django.urls import NoReverseMatch, reverse
 from wagtail.models import Page, Site
 
 from content_lifecycle.public_access import get_public_blocked_page_ids
 from discovery.detail_navigation import _get_nested_site_root_paths, resolve_site_readonly
-from discovery.registry import get_model_to_type_key_map, list_directory_index_models
+from discovery.eligibility import apply_public_eligibility_filter
+from discovery.models import PublishedSearchDocument
+from discovery.registry import (
+    get_archive_enabled_type_keys,
+    get_model_to_type_key_map,
+    list_directory_index_models,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -193,6 +201,7 @@ def get_site_directory_tree(
         if not ct_to_type_key:
             return []
 
+        nested_paths = _get_nested_site_root_paths(resolved_site)
         qs = Page.objects.filter(
             path__startswith=root_path,
             depth__gt=root_depth,
@@ -201,7 +210,7 @@ def get_site_directory_tree(
             live_revision_id__isnull=False,
             content_type_id__in=list(ct_to_type_key.keys()),
         )
-        for nested_path in _get_nested_site_root_paths(resolved_site):
+        for nested_path in nested_paths:
             qs = qs.exclude(path__startswith=nested_path)
 
         # 广度优先截断，确保所有一级、二级主栏目优先保留
@@ -246,6 +255,7 @@ def get_site_directory_tree(
                     "depth": int(r["depth"]) - root_depth,
                     "raw_depth": int(r["depth"]),
                     "path": r["path"],
+                    "article_count": 0,
                     "is_active": False,
                     "is_ancestor": False,
                     "children": [],
@@ -266,6 +276,35 @@ def get_site_directory_tree(
                     parent_node["children"].append(node)
                 else:
                     tree.append(node)
+
+            # B-01: 按节点实际存在的不同 path 长度分层聚合子树公开文章数（每层仅 1 条 SQL，严禁全量拉取到内存）
+            detail_type_keys = get_archive_enabled_type_keys()
+            if nodes_by_path and detail_type_keys:
+                paths_by_len: dict[int, list[str]] = {}
+                for node_path in nodes_by_path:
+                    paths_by_len.setdefault(len(node_path), []).append(node_path)
+
+                doc_qs = PublishedSearchDocument.objects.filter(
+                    is_live=True,
+                    is_recycled=False,
+                    type_key__in=detail_type_keys,
+                    root_path__startswith=root_path,
+                )
+                for nested_path in nested_paths:
+                    doc_qs = doc_qs.exclude(root_path__startswith=nested_path)
+                doc_qs = apply_public_eligibility_filter(doc_qs)
+
+                for path_len, paths_at_len in paths_by_len.items():
+                    count_rows = (
+                        doc_qs.annotate(prefix=Substr("root_path", 1, path_len))
+                        .filter(prefix__in=paths_at_len)
+                        .values("prefix")
+                        .annotate(cnt=Count("id"))
+                    )
+                    for row in count_rows:
+                        target_node = nodes_by_path.get(row["prefix"])
+                        if target_node is not None:
+                            target_node["article_count"] = int(row["cnt"] or 0)
 
         if request is not None:
             cache_map = getattr(request, "_site_directory_tree_cache", None)

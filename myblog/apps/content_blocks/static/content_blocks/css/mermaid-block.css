@@ -60,7 +60,9 @@
     font-size: 12px;
     cursor: pointer;
     line-height: 1.4;
-    transition: all 0.15s ease;
+    transition: background-color var(--dur-fast) var(--ease-out-smooth),
+                border-color var(--dur-fast) var(--ease-out-smooth),
+                color var(--dur-fast) var(--ease-out-smooth);
 }
 
 .cb-btn:hover {

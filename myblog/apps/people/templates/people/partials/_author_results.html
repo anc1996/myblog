@@ -101,7 +101,7 @@
                 </span>
             {% endif %}
             {% if item.view_count is not None %}
-                <span class="listing-meta-pv" title="累计阅读次数"> · 👁️ {{ item.view_count }} 次阅读</span>
+                <span class="listing-meta-pv" title="累计阅读次数"><span aria-hidden="true">·</span> {% include "includes/_ui_icon.html" with name="eye" %}<span>{{ item.view_count }} 次阅读</span></span>
             {% endif %}
         </p>
         {% if item.highlights %}

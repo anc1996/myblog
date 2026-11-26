@@ -1,18 +1,18 @@
 {% if view_model.navigation_items %}
-<div class="listing-subcategories mb-4 p-3 bg-light rounded border">
-  <div class="d-flex align-items-center mb-2">
-    <span class="badge bg-primary me-2">子栏目导航</span>
-    <small class="text-muted">本栏目下属直接子分类目录 (共 {{ view_model.navigation_total_count }} 个)</small>
+<section class="listing-subcategories" aria-label="子栏目导航">
+  <div class="listing-subcat-header">
+    <span class="listing-subcat-title">子栏目导航</span>
+    <span class="listing-subcat-count">本栏目下属直接子分类目录（共 {{ view_model.navigation_total_count }} 个）</span>
   </div>
-  <div class="d-flex flex-wrap gap-2">
+  <div class="listing-subcat-grid">
     {% for sub in view_model.navigation_items %}
-      <a href="{{ sub.url }}" class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center text-decoration-none">
-        <span class="fw-semibold">{{ sub.title }}</span>
+      <a href="{{ sub.url }}" class="listing-subcat-chip">
+        <span class="listing-subcat-name">{{ sub.title }}</span>
         {% if sub.summary %}
-          <small class="text-muted ms-1 d-none d-md-inline" title="{{ sub.summary }}">- {{ sub.summary|truncatechars:20 }}</small>
+          <span class="listing-subcat-desc" title="{{ sub.summary }}">{{ sub.summary|truncatechars:20 }}</span>
         {% endif %}
       </a>
     {% endfor %}
   </div>
-</div>
+</section>
 {% endif %}

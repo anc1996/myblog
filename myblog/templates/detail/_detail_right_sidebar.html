@@ -4,14 +4,20 @@
 
     {% if detail.tag_links %}
     <section class="detail-side-card detail-side-tags" aria-label="本文标签">
-        <h2 class="detail-side-heading">🏷️ 本文标签</h2>
+        <h2 class="detail-side-heading">
+            {% include "includes/_ui_icon.html" with name="tag" %}
+            <span>本文标签</span>
+        </h2>
         {% include "detail/_detail_tags.html" %}
     </section>
     {% endif %}
 
     {% if detail.announcement %}
     <section class="detail-side-card detail-side-announcement" aria-label="站点公告">
-        <h2 class="detail-side-heading">📢 {{ detail.announcement.title|default:"站点公告" }}</h2>
+        <h2 class="detail-side-heading">
+            {% include "includes/_ui_icon.html" with name="megaphone" %}
+            <span>{{ detail.announcement.title|default:"站点公告" }}</span>
+        </h2>
         {% if detail.announcement.body %}
         <p class="detail-side-ann-body">{{ detail.announcement.body|linebreaksbr }}</p>
         {% endif %}
@@ -25,7 +31,10 @@
     </section>
     {% elif detail.recommendations %}
     <section class="detail-side-card detail-side-recs" aria-label="同栏与相关推荐">
-        <h2 class="detail-side-heading">🧭 更多推荐</h2>
+        <h2 class="detail-side-heading">
+            {% include "includes/_ui_icon.html" with name="compass" %}
+            <span>更多推荐</span>
+        </h2>
         <ul class="detail-rec-list">
             {% for rec in detail.recommendations %}
             <li class="detail-rec-item">

@@ -6,11 +6,15 @@
 {% block title %}全站搜索与导览{% endblock %}
 {% block analytics_meta %}{% analytics_entry_meta entry_kind="search" entry_key="site_search" search_query=analytics_search_query search_total=analytics_search_total search_scoped=analytics_search_scoped %}{% endblock %}
 
+{% block extra_css %}
+<link rel="stylesheet" type="text/css" href="{% static 'css/pages/search.css' %}?v=20261126a">
+{% endblock %}
+
 {% block content %}
 <div class="search-container">
     <header class="search-page-header">
         <h1>全站搜索与内容发现</h1>
-        <p class="text-muted mb-0">支持中文原句、分词与同义词检索，并可与内容类型、多标签及成文日期自由组合筛选。</p>
+        <p class="search-page-desc">支持中文原句、分词与同义词检索，并可与内容类型、多标签及成文日期自由组合筛选。</p>
     </header>
 
     <form id="search-filter-form" action="{{ canonical_url }}" method="get" class="search-filter-card">
@@ -32,18 +36,21 @@
                     type="text"
                     id="search-query-input"
                     name="query"
-                    class="ui-input form-control"
+                    class="ui-input"
                     value="{{ search_query }}"
                     placeholder="输入关键词、原句或技术词 (如 C++、PostgreSQL 18)..."
                 >
-                <button type="submit" id="search-submit-btn" class="ui-btn ui-btn-primary">搜索</button>
+                <button type="submit" id="search-submit-btn" class="ui-btn ui-btn-primary">
+                    {% include "includes/_ui_icon.html" with name="search" %}
+                    <span>搜索</span>
+                </button>
             </div>
 
             <div class="search-sort-wrap">
                 <select
                     name="sort"
                     id="search-sort-select"
-                    class="ui-select form-select"
+                    class="ui-select"
                     data-ui-select
                     data-placeholder="选择排序方式"
                     aria-label="排序方式"
@@ -64,7 +71,7 @@
                 <label class="ui-check-label" for="search-title-only-check">
                     <input
                         type="checkbox"
-                        class="form-check-input"
+                        class="ui-check-input"
                         id="search-title-only-check"
                         name="title_only"
                         value="1"
@@ -80,7 +87,7 @@
                     id="search-author-select"
                     name="author"
                     multiple
-                    class="ui-select form-select"
+                    class="ui-select"
                     data-ui-select
                     data-ui-select-remote="{{ author_lookup_url }}"
                     data-placeholder="按作者筛选（输入名字搜索，支持多选）"
@@ -94,7 +101,7 @@
                 <select
                     id="search-author-role-select"
                     name="author_role"
-                    class="ui-select form-select"
+                    class="ui-select"
                     data-ui-select
                     data-placeholder="贡献角色"
                     aria-label="作者贡献角色"
@@ -111,7 +118,7 @@
                     id="search-tag-select"
                     name="tag"
                     multiple
-                    class="ui-select form-select"
+                    class="ui-select"
                     data-ui-select
                     data-ui-select-remote="{{ tag_lookup_url }}"
                     data-placeholder="按标签筛选（输入标签名搜索，支持多选）"
@@ -124,7 +131,7 @@
             </div>
 
             <div class="listing-date-range">
-                <span class="small text-muted">成文日期：</span>
+                <span class="listing-date-label">成文日期：</span>
                 <input
                     type="date"
                     id="search-date-from"
@@ -134,7 +141,7 @@
                     placeholder="开始日期"
                     value="{{ date_from }}"
                 >
-                <span class="small text-muted">至</span>
+                <span class="listing-date-label">至</span>
                 <input
                     type="date"
                     id="search-date-to"

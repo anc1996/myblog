@@ -8,26 +8,122 @@
 4. 自动注入 Vary 响应头 (Accept, X-Listing-Response, X-Requested-With)。
 """
 
+import html as html_lib
 import logging
+import re
 from typing import Any
+from django.db import models
 from django.http import Http404, JsonResponse
 from django.template.loader import render_to_string
+from django.utils.html import linebreaks, strip_tags
+from django.utils.safestring import mark_safe
 from wagtail.models import Site
 
+from discovery.detail_navigation import resolve_site_readonly
 from discovery.listing.contracts import ListingPolicy, ListingViewModel
 from discovery.listing.service import IndexListingService
 
 logger = logging.getLogger(__name__)
 
 
-class HierarchicalListingMixin:
+_BLOCK_INTRO_RE = re.compile(r"<(?:ul|ol|h2|h3|h4)\b", re.IGNORECASE)
+_PARAGRAPH_OPEN_RE = re.compile(r"<p\b", re.IGNORECASE)
+
+
+class HierarchicalListingMixin(models.Model):
     """
     Wagtail 页面通用层级列表与检索 Mixin。
     继承顺序须位于 CustomBasePage 之前以正确协作 MRO。
     """
+    HEADER_LAYOUT_EDITORIAL_SPLIT = "editorial_split"
+    HEADER_LAYOUT_COMPACT_DOC = "compact_doc"
+    HEADER_LAYOUT_VISUAL_BANNER = "visual_banner"
+    HEADER_LAYOUT_CHOICES = [
+        (HEADER_LAYOUT_EDITORIAL_SPLIT, "左文右图（默认，适合带配图的栏目）"),
+        (HEADER_LAYOUT_COMPACT_DOC, "精简文档头（适合文字长、公文或无需横幅大图的栏目）"),
+        (HEADER_LAYOUT_VISUAL_BANNER, "宽幅画报横幅（适合风景/建筑/宽图专题）"),
+    ]
+    header_layout = models.CharField(
+        max_length=24,
+        choices=HEADER_LAYOUT_CHOICES,
+        default=HEADER_LAYOUT_EDITORIAL_SPLIT,
+        verbose_name="页面头部排版样式",
+        help_text="控制本栏目页顶部排版：默认「左文右图」不切头；文字较多或公文资料推荐「精简文档头」；宽幅风景图可选「宽幅画报横幅」。",
+    )
+
     listing_policy: ListingPolicy = ListingPolicy(type_keys=("blog_page",))
     # 聚合大厅允许受限作者在其下创建声明了 author_creatable=True 的子内容页
     author_allow_child_creation = True
+
+    class Meta:
+        abstract = True
+
+    def get_header_intro_html(self, request: Any = None) -> str:
+        """获取用于栏目头部的安全 HTML 导读；富文本子类可重写以注入净化结果。"""
+        raw_intro = (getattr(self, "intro", "") or "").strip()
+        if not raw_intro:
+            return ""
+        return mark_safe(linebreaks(raw_intro, autoescape=True))
+
+    def get_header_presentation(
+        self,
+        request: Any = None,
+        *,
+        intro_html: str | None = None,
+    ) -> dict[str, Any]:
+        """构建统一的栏目页头部呈现契约，供共享模板 `_listing_header.html` 消费。"""
+        allowed_layouts = {
+            self.HEADER_LAYOUT_EDITORIAL_SPLIT,
+            self.HEADER_LAYOUT_COMPACT_DOC,
+            self.HEADER_LAYOUT_VISUAL_BANNER,
+        }
+        raw_layout = getattr(self, "header_layout", self.HEADER_LAYOUT_EDITORIAL_SPLIT)
+        layout = raw_layout if raw_layout in allowed_layouts else self.HEADER_LAYOUT_EDITORIAL_SPLIT
+
+        img = getattr(self, "featured_image", None)
+        cover_url = ""
+        cover_alt = getattr(self, "title", "") or ""
+        # 未设置焦点框时默认上偏（center 28%），避免左文右图/横幅裁切掉人物头部
+        focal_class = "is-focal-upper"
+        if img is not None and getattr(img, "public_id", None):
+            cover_url = f"/media-gateway/image/{img.public_id}/"
+            cover_alt = getattr(img, "title", None) or cover_alt
+            fp = img.get_focal_point() if hasattr(img, "get_focal_point") else None
+            img_height = getattr(img, "height", 0) or 0
+            if fp is not None and img_height > 0:
+                y_ratio = float(fp.y) / float(img_height)
+                if y_ratio < 0.28:
+                    focal_class = "is-focal-top"
+                elif y_ratio < 0.44:
+                    focal_class = "is-focal-upper"
+                elif y_ratio < 0.62:
+                    focal_class = "is-focal-center"
+                elif y_ratio < 0.78:
+                    focal_class = "is-focal-lower"
+                else:
+                    focal_class = "is-focal-bottom"
+
+        resolved_intro_html = intro_html if intro_html is not None else self.get_header_intro_html(request)
+        resolved_intro_html = (resolved_intro_html or "").strip()
+        plain = html_lib.unescape(strip_tags(resolved_intro_html)).strip() if resolved_intro_html else ""
+        is_long_intro = bool(
+            resolved_intro_html
+            and (
+                len(plain) > 180
+                or bool(_BLOCK_INTRO_RE.search(resolved_intro_html))
+                or len(_PARAGRAPH_OPEN_RE.findall(resolved_intro_html)) > 1
+            )
+        )
+
+        return {
+            "layout": layout,
+            "cover_url": cover_url,
+            "cover_alt": cover_alt,
+            "focal_class": focal_class,
+            "intro_html": mark_safe(resolved_intro_html) if resolved_intro_html else "",
+            "is_long_intro": is_long_intro,
+            "has_visible_cover": bool(cover_url and layout != self.HEADER_LAYOUT_COMPACT_DOC),
+        }
 
     def get_listing_policy(self, request: Any) -> ListingPolicy:
         """获取当前列表页面的能力策略定义，支持子类根据请求动态扩展"""
@@ -42,13 +138,20 @@ class HierarchicalListingMixin:
     def get_listing_breadcrumbs(self, request: Any) -> list[dict[str, Any]]:
         """
         生成经过公开与回收核验的面包屑导航结构：
-        站点根 HomePage -> 中间已发布的祖先栏目 -> 当前栏目
+        中间已发布的祖先栏目 -> 当前栏目（剔除站点根页，避免与模板头部「首页」重复）
         """
         breadcrumbs: list[dict[str, Any]] = []
         try:
+            site = resolve_site_readonly(request, self)
+            root_page = getattr(site, "root_page", None) if site is not None else None
+            root_page_id = getattr(site, "root_page_id", None) if site is not None else None
+            min_depth = int(getattr(root_page, "depth", 2) or 2) if root_page is not None else 2
             ancestors = [
                 a for a in self.get_ancestors()
-                if not a.is_root() and not getattr(a, "is_recycled", False)
+                if not a.is_root()
+                and not getattr(a, "is_recycled", False)
+                and int(getattr(a, "depth", 0) or 0) > min_depth
+                and (root_page_id is None or a.id != root_page_id)
             ]
             for anc in ancestors:
                 breadcrumbs.append({
@@ -137,4 +240,8 @@ class HierarchicalListingMixin:
 
         context["view_model"] = view_model
         context["breadcrumbs"] = self.get_listing_breadcrumbs(request)
+        context["header_presentation"] = self.get_header_presentation(
+            request,
+            intro_html=context.get("intro_html"),
+        )
         return context

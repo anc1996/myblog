@@ -11,20 +11,15 @@
     <nav class="detail-breadcrumbs portfolio-breadcrumbs" aria-label="面包屑导航">
         <a href="/">首页</a>
         {% for ancestor in breadcrumbs %}
-            <span>/</span>
+            <span class="breadcrumb-separator">/</span>
             <a href="{{ ancestor.url }}">{{ ancestor.title }}</a>
         {% endfor %}
-        <span>/</span>
-        <span class="fw-semibold text-dark" aria-current="page">{{ page.title }}</span>
+        <span class="breadcrumb-separator">/</span>
+        <span class="current-crumb" aria-current="page">{{ page.title }}</span>
     </nav>
     {% endif %}
 
-    <header class="listing-page-header portfolio-header">
-        <h1 class="portfolio-title">{{ page.title }}</h1>
-        {% if page.intro %}
-            <p class="listing-page-intro">{{ page.intro }}</p>
-        {% endif %}
-    </header>
+    {% include "discovery/listing/_listing_header.html" %}
 
     <section class="portfolio-listing-section">
         {% include "discovery/listing/_listing_filters.html" %}
