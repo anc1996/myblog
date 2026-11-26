@@ -166,6 +166,8 @@ class SearchResultItem:
     tags: list[dict[str, Any]] = field(default_factory=list)
     column_metadata: dict[str, Any] = field(default_factory=dict)
     cover_url: str = ""
+    authors: list[dict[str, Any]] = field(default_factory=list)
+    view_count: int | None = None
 
 
 @dataclass(frozen=True)

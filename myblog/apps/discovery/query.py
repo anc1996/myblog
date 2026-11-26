@@ -78,6 +78,94 @@ def _resolve_cover_url(extra_data: Any) -> str:
     return ""
 
 
+def _enrich_listing_cards_metadata(
+    docs: list[PublishedSearchDocument],
+    *,
+    site_id: int | None,
+) -> tuple[dict[int, list[dict[str, Any]]], dict[int, int] | None]:
+    """
+    为当前页展示条目批量补齐作者信息与公开阅读次数（零 N+1 查询，零具体页面硬编码）：
+    - 作者仅针对启用作者发现的详情页类型查询，无署名时回退「佚名」；
+    - 浏览次数仅针对 AnalyticsCapabilities.kind == 'detail' 类型查询，受站点 public_pv_display_enabled 门禁控制。
+    """
+    if not docs:
+        return {}, None
+
+    from django.conf import settings
+    from django.urls import NoReverseMatch, reverse
+    from discovery.registry import get_analytics_capabilities, get_author_enabled_type_keys
+    from people.models import Person
+
+    author_enabled_types = set(get_author_enabled_type_keys())
+    author_discovery_enabled = getattr(settings, "AUTHOR_DISCOVERY_ENABLED", True)
+    authors_by_doc_id: dict[int, list[dict[str, Any]]] = {}
+
+    if author_discovery_enabled and author_enabled_types:
+        author_doc_ids = [d.id for d in docs if d.type_key in author_enabled_types]
+        if author_doc_ids:
+            raw_rows = list(
+                PublishedSearchAuthor.objects.filter(document_id__in=author_doc_ids)
+                .order_by("sort_order", "id")
+                .values("document_id", "person_id", "author_name", "author_slug")
+            )
+            person_ids = {r["person_id"] for r in raw_rows if r.get("person_id")}
+            persons_map = (
+                {
+                    p["id"]: p
+                    for p in Person.objects.filter(id__in=person_ids).values("id", "name", "slug", "is_system_anonymous")
+                }
+                if person_ids
+                else {}
+            )
+
+            def _author_url(slug_val: str) -> str:
+                try:
+                    return reverse("people:author_detail", kwargs={"slug": slug_val})
+                except NoReverseMatch:
+                    return f"/authors/{slug_val}/"
+
+            for r in raw_rows:
+                p_info = persons_map.get(r["person_id"])
+                slug_val = p_info["slug"] if p_info else r["author_slug"]
+                name_val = p_info["name"] if p_info else r["author_name"]
+                is_anon = bool(p_info["is_system_anonymous"]) if p_info else (slug_val == "anonymous")
+                authors_by_doc_id.setdefault(r["document_id"], []).append({
+                    "name": name_val,
+                    "slug": slug_val,
+                    "url": _author_url(slug_val),
+                    "is_anonymous": is_anon,
+                })
+
+            anon_url = _author_url("anonymous")
+            for d in docs:
+                if d.type_key in author_enabled_types and not authors_by_doc_id.get(d.id):
+                    authors_by_doc_id[d.id] = [{
+                        "name": "佚名",
+                        "slug": "anonymous",
+                        "url": anon_url,
+                        "is_anonymous": True,
+                    }]
+
+    detail_pairs: list[tuple[int, int]] = []
+    for d in docs:
+        caps = get_analytics_capabilities(d.type_key)
+        if caps is not None and caps.kind == "detail":
+            detail_pairs.append((int(d.page_id), int(d.effective_revision_id or 0)))
+
+    pv_map: dict[int, int] | None = None
+    if detail_pairs:
+        effective_site_id = site_id
+        if effective_site_id is None:
+            effective_site_id = next((d.site_id for d in docs if d.site_id is not None), None)
+        try:
+            from analytics.services import get_batch_public_pv_readonly
+            pv_map = get_batch_public_pv_readonly(effective_site_id, detail_pairs)
+        except Exception:
+            pv_map = None
+
+    return authors_by_doc_id, pv_map
+
+
 def _expand_type_keys(type_keys: list[str] | None) -> list[str]:
     """将复合类型别名（如 navigation）展开为底层的具体页面 type_key 列表"""
     expanded: list[str] = []
@@ -522,6 +610,10 @@ class ContentQuery:
                 items_to_render = paged_docs[:page_size]
                 has_prev = offset > 0
 
+            authors_map, pv_map = _enrich_listing_cards_metadata(
+                items_to_render,
+                site_id=spec.site_id,
+            )
             items = [
                 SearchResultItem(
                     page_id=doc.page_id,
@@ -539,6 +631,8 @@ class ContentQuery:
                     ],
                     column_metadata=doc.extra_data,
                     cover_url=_resolve_cover_url(doc.extra_data),
+                    authors=authors_map.get(doc.id, []),
+                    view_count=pv_map.get(doc.page_id) if (pv_map is not None and doc.page_id in pv_map) else None,
                 )
                 for doc in items_to_render
             ]
@@ -788,6 +882,10 @@ class ContentQuery:
         paged_docs = [doc_dict[did] for did in items_ids if did in doc_dict]
 
         # 4. 生成展示项与高亮
+        authors_map, pv_map = _enrich_listing_cards_metadata(
+            paged_docs,
+            site_id=spec.site_id,
+        )
         items: list[SearchResultItem] = []
         for doc in paged_docs:
             item_mode = doc_item_mode_map.get(doc.id, match_mode)
@@ -816,6 +914,8 @@ class ContentQuery:
                     ],
                     column_metadata=doc.extra_data,
                     cover_url=_resolve_cover_url(doc.extra_data),
+                    authors=authors_map.get(doc.id, []),
+                    view_count=pv_map.get(doc.page_id) if (pv_map is not None and doc.page_id in pv_map) else None,
                 )
             )
 

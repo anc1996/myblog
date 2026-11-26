@@ -90,7 +90,20 @@
                 {% endif %}
             </div>
         </div>
-        <p class="text-muted small mb-2">成文日期：{{ item.authored_on|date:"Y-m-d" }}</p>
+        <p class="text-muted small mb-2">
+            成文于 {{ item.authored_on|date:"Y-m-d" }}
+            {% if item.authors %}
+                <span class="search-result-authors">
+                    · 作者：
+                    {% for au in item.authors %}
+                        <a href="{{ au.url }}" class="search-result-author-link">{% if au.is_anonymous %}👤 {% endif %}{{ au.name }}</a>{% if not forloop.last %}、{% endif %}
+                    {% endfor %}
+                </span>
+            {% endif %}
+            {% if item.view_count is not None %}
+                <span class="listing-meta-pv" title="累计阅读次数"> · 👁️ {{ item.view_count }} 次阅读</span>
+            {% endif %}
+        </p>
         {% if item.highlights %}
             <p class="text-secondary small mb-2 search-result-snippet">
                 {% for h in item.highlights %}{{ h.snippet|safe }}{% endfor %}

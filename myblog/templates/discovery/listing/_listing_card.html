@@ -12,8 +12,21 @@
           {{ item.title }}
         </a>
       </h5>
-      <span class="badge bg-light text-secondary border small">{{ item.authored_on|date:"Y-m-d" }}</span>
+      <span class="badge bg-light text-secondary border small">成文于 {{ item.authored_on|date:"Y-m-d" }}</span>
     </div>
+
+    {% if item.authors or item.view_count is not None %}
+      <div class="listing-card-meta-row">
+        {% if item.authors %}
+          <span class="listing-meta-authors">
+            作者：{% for au in item.authors %}<a href="{{ au.url }}" class="listing-author-link">{% if au.is_anonymous %}👤 {% endif %}{{ au.name }}</a>{% if not forloop.last %}、{% endif %}{% endfor %}
+          </span>
+        {% endif %}
+        {% if item.view_count is not None %}
+          <span class="listing-meta-pv" title="累计阅读次数">👁️ {{ item.view_count }} 次阅读</span>
+        {% endif %}
+      </div>
+    {% endif %}
 
     {% if item.column_metadata.difficulty_label %}
       <div class="mb-2">
@@ -44,7 +57,7 @@
     <div class="d-flex justify-content-between align-items-center">
       <div class="listing-tags">
         {% for t in item.tags %}
-          <span class="badge bg-light text-muted small me-1">#{{ t.name }}</span>
+          <a href="/tags/{{ t.slug }}/" class="home-tag-chip">#{{ t.name }}</a>
         {% endfor %}
       </div>
       <a href="{{ item.url }}" class="btn btn-sm btn-link text-decoration-none p-0">阅读全文 &rarr;</a>

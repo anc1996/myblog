@@ -81,6 +81,14 @@
                     </h3>
                     <div class="home-article-meta">
                         <span>成文于 {{ article.authored_on|date:"Y年m月d日" }}</span>
+                        {% if article.display_authors %}
+                            <span>
+                                作者：{% for au in article.display_authors %}<a href="{{ au.url }}" class="listing-author-link">{% if au.is_anonymous %}👤 {% endif %}{{ au.name }}</a>{% if not forloop.last %}、{% endif %}{% endfor %}
+                            </span>
+                        {% endif %}
+                        {% if article.public_view_count is not None %}
+                            <span class="listing-meta-pv" title="累计阅读次数">👁️ {{ article.public_view_count }} 次阅读</span>
+                        {% endif %}
                         {% if article.tags.all %}
                             <span>
                                 {% for tag in article.tags.all %}

@@ -24,6 +24,7 @@ from wagtail.images.forms import get_image_form
 from wagtail.models import Page, Site
 
 from blog.models import BlogIndexPage, BlogPage, BlogPagePerson
+from analytics.models import AnalyticsSettings, PageAnalyticsTotal
 from content_blocks.blocks.media import CustomDocumentBlock, CustomImageBlock
 from discovery.projection import project_page_to_discovery
 from guides.models import GuideIndexPage, GuidePage, GuideTopic
@@ -35,7 +36,7 @@ from media_library.models import (
     VisibilityChoices,
 )
 from people.models import Person
-from portfolio.models import PortfolioIndexPage, ProjectPage
+from portfolio.models import PortfolioIndexPage, ProjectPage, ProjectPagePerson
 from taxonomy.models import TagIndexPage
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -272,6 +273,7 @@ class Phase1CoverUiSeoAndRedirectsTests(TestCase):
             body=[("step", {"step_number": "1", "title": "步骤1", "content": "<p>ok</p>"})],
         )
         g_idx.add_child(instance=guide)
+        guide.authors.create(person=person, role="primary_author")
         guide.save_revision(user=owner).publish(user=owner)
 
         p_idx = PortfolioIndexPage(title="项目", slug=f"port-{uuid4().hex[:6]}")
@@ -284,6 +286,7 @@ class Phase1CoverUiSeoAndRedirectsTests(TestCase):
             body=[("markdown", {"markdown": "项目内容"})],
         )
         p_idx.add_child(instance=proj)
+        ProjectPagePerson.objects.create(page=proj, person=person, role="架构设计与主研发")
         proj.save_revision(user=owner).publish(user=owner)
 
         # 1. 详情页：样式 A 标题背景横幅图 + SEO 标签
@@ -312,9 +315,18 @@ class Phase1CoverUiSeoAndRedirectsTests(TestCase):
         self.assertNotIn("detail-hero-banner", p_html)
 
         # 2. 栏目列表页 / 搜索页 / 标签页 / 作者页 / 首页：左侧缩略图（仅限有封面条目）
+        site = Site.objects.filter(is_default_site=True).first()
+        ana_cfg = AnalyticsSettings.get_for_site_readonly(site)
+        ana_cfg.public_pv_display_enabled = True
+        ana_cfg.save()
+        PageAnalyticsTotal.objects.create(site=site, page=with_cover, total_pv=42)
+
         for route in (
             col.url,
+            g_idx.url,
+            p_idx.url,
             "/search/",
+            "/timeline/",
             f"{tag_index.url}postgresql/",
             f"/authors/{person.slug}/",
             home.url,
@@ -323,6 +335,23 @@ class Phase1CoverUiSeoAndRedirectsTests(TestCase):
             self.assertEqual(resp.status_code, 200, route)
             html = resp.content.decode("utf-8")
             self.assertIn(f"/media-gateway/image/{cover.public_id}/", html, route)
+            self.assertIn("成文于", html, route)
+            self.assertIn("次阅读", html, route)
+            self.assertIn("测试作者", html, route)
+
+        # 博客栏目与指南/标签列表页需展示可点击标签链接与佚名兜底
+        col_html = self.client.get(col.url).content.decode("utf-8")
+        self.assertIn("👁️ 42 次阅读", col_html)
+        self.assertIn('href="/tags/postgresql/"', col_html)
+        self.assertIn("👤 佚名", col_html)
+
+        # 关闭公开阅读量开关后列表页也不再暴露阅读次数
+        ana_cfg.public_pv_display_enabled = False
+        ana_cfg.save()
+        col_hidden_pv_html = self.client.get(col.url).content.decode("utf-8")
+        self.assertNotIn("次阅读", col_hidden_pv_html)
+        ana_cfg.public_pv_display_enabled = True
+        ana_cfg.save()
 
         # 无封面搜索时不渲染 media 容器
         no_cov_search = self.client.get("/search/?query=纯文字无封面")

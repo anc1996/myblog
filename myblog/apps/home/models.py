@@ -92,13 +92,46 @@ class HomePage(Page):
                 .order_by("-authored_on", "-id")
             )
             latest_ids = _select_public_pages(latest_qs, 6)
-            articles_by_id = {
-                a.id: a
-                for a in article_model.objects.filter(id__in=latest_ids)
-                .select_related("featured_image")
-                .prefetch_related("tags")
-            }
+            article_qs = article_model.objects.filter(id__in=latest_ids).select_related("featured_image").prefetch_related("tags")
+            if hasattr(article_model, "authors"):
+                article_qs = article_qs.prefetch_related("authors__person")
+            articles_by_id = {a.id: a for a in article_qs}
             latest_articles = [articles_by_id[pid] for pid in latest_ids if pid in articles_by_id]
+            if latest_articles:
+                from django.conf import settings
+                from django.urls import NoReverseMatch, reverse
+                from analytics.services import get_batch_public_pv_readonly
+                from people.attribution import extract_raw_author_refs_from_page, resolve_author_attributions
+
+                pv_map = get_batch_public_pv_readonly(
+                    site,
+                    [(int(a.id), int(getattr(a, "live_revision_id", 0) or 0)) for a in latest_articles],
+                )
+                author_enabled = getattr(settings, "AUTHOR_DISCOVERY_ENABLED", True)
+                for art in latest_articles:
+                    art.public_view_count = pv_map.get(art.id) if (pv_map is not None and art.id in pv_map) else None
+                    if author_enabled and hasattr(art, "authors"):
+                        raw_refs = extract_raw_author_refs_from_page(art)
+                        resolved = resolve_author_attributions(
+                            raw_refs,
+                            revision_id=getattr(art, "live_revision_id", None),
+                            allow_anonymous=True,
+                        )
+                        display_authors = []
+                        for au in resolved:
+                            try:
+                                au_url = reverse("people:author_detail", kwargs={"slug": au.slug})
+                            except NoReverseMatch:
+                                au_url = f"/authors/{au.slug}/"
+                            display_authors.append({
+                                "name": au.name,
+                                "slug": au.slug,
+                                "url": au_url,
+                                "is_anonymous": au.is_anonymous,
+                            })
+                        art.display_authors = display_authors
+                    else:
+                        art.display_authors = []
         context["latest_articles"] = latest_articles
 
         # 2. 编辑精选推荐位（仅从已批准池投放，无已批准内容时返回空列表，绝不用最新文章冒充精选）

@@ -2001,3 +2001,89 @@ def get_author_pages_analytics_list(
         "count_meta": count_meta,
         "pages_pagination": pagination_payload,
     }
+
+
+def get_batch_public_pv_readonly(
+    site: Any,
+    page_rev_pairs: list[tuple[int, int]],
+) -> dict[int, int] | None:
+    """
+    只读批量读取列表页公开累计阅读量（1 次 SQL + 1 次 Redis HMGET，零 N+1，绝不写库）：
+    - 若站点关闭 public_pv_display_enabled 或无有效站点，返回 None（前端隐藏浏览量）；
+    - 与详情页 analytics_public_stats 使用同一合并口径：max(今日已落库+Redis增量, 累计+Redis增量)。
+    """
+    from django.db import DatabaseError
+    from analytics.collector import _get_redis_client, _resolve_prefix
+
+    if not page_rev_pairs:
+        return {}
+
+    site_id = site.id if isinstance(site, Site) else site
+    if not site_id:
+        try:
+            default_site = Site.objects.filter(is_default_site=True).only("id").first()
+            site_id = default_site.id if default_site else None
+        except DatabaseError:
+            return None
+    if not site_id:
+        return None
+
+    ana_settings = AnalyticsSettings.get_for_site_readonly(site_id)
+    if not getattr(ana_settings, "public_pv_display_enabled", True):
+        return None
+
+    unique_pids = sorted({int(pid) for pid, _ in page_rev_pairs if pid})
+    if not unique_pids:
+        return {}
+
+    today = timezone.localdate()
+    settled_totals: dict[int, int] = {}
+    settled_today: dict[int, int] = {}
+    try:
+        settled_totals = {
+            int(pid): int(pv or 0)
+            for pid, pv in PageAnalyticsTotal.objects.filter(
+                site_id=site_id,
+                page_id__in=unique_pids,
+            ).values_list("page_id", "total_pv")
+        }
+        settled_today = {
+            int(row["page_id"]): int(row["total"] or 0)
+            for row in PageAnalyticsDaily.objects.filter(
+                site_id=site_id,
+                page_id__in=unique_pids,
+                stat_date=today,
+            )
+            .exclude(health_status="missing")
+            .values("page_id")
+            .annotate(total=Sum("pv"))
+        }
+    except DatabaseError:
+        return None
+
+    unsettled_by_pid: dict[int, int] = {}
+    valid_pairs = [(int(pid), int(rev)) for pid, rev in page_rev_pairs if pid and int(rev or 0) > 0]
+    if valid_pairs:
+        try:
+            client = _get_redis_client(write=False)
+            if client is not None:
+                prefix = _resolve_prefix()
+                active_key = f"{prefix}:analytics:active:pv:{site_id}:{today.isoformat()}"
+                fields = [f"{pid}|{rev}|pv" for pid, rev in valid_pairs]
+                raw_vals = client.hmget(active_key, fields)
+                for (pid, _), raw_val in zip(valid_pairs, raw_vals):
+                    if raw_val is not None:
+                        try:
+                            unsettled_by_pid[pid] = unsettled_by_pid.get(pid, 0) + max(0, int(raw_val))
+                        except (TypeError, ValueError):
+                            pass
+        except Exception:
+            pass
+
+    out: dict[int, int] = {}
+    for pid in unique_pids:
+        delta = unsettled_by_pid.get(pid, 0)
+        today_pv = settled_today.get(pid, 0) + delta
+        total_pv = max(today_pv, settled_totals.get(pid, 0) + delta)
+        out[pid] = total_pv
+    return out

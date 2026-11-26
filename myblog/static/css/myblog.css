@@ -2664,3 +2664,35 @@ span.flatpickr-weekday {
     height: 180px;
   }
 }
+
+.listing-card-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin: 4px 0 8px 0;
+  font-size: 0.82rem;
+  color: var(--color-muted);
+}
+
+.listing-author-link {
+  color: var(--color-text-secondary);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.listing-author-link:hover {
+  color: var(--color-primary);
+  text-decoration: underline;
+}
+
+.listing-meta-pv {
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.listing-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
