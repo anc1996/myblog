@@ -40,8 +40,15 @@ class CustomImage(AbstractImage):
         verbose_name="存储对象Key",
         help_text="RustFS 对象存储中的不可变对象键",
     )
+    caption = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        verbose_name="图片图注",
+        help_text="可选图注说明（媒体库元数据；文章图片块仍可独立设置图注）",
+    )
 
-    admin_form_fields = Image.admin_form_fields
+    admin_form_fields = tuple(Image.admin_form_fields) + ("caption",)
 
     class Meta(AbstractImage.Meta):
         verbose_name = "图片"
@@ -101,8 +108,14 @@ class CustomDocument(AbstractDocument):
         db_index=True,
         verbose_name="存储对象Key",
     )
+    description = models.TextField(
+        blank=True,
+        default="",
+        verbose_name="文档说明",
+        help_text="可选文档描述（媒体库元数据）",
+    )
 
-    admin_form_fields = Document.admin_form_fields
+    admin_form_fields = tuple(Document.admin_form_fields) + ("description",)
 
     class Meta(AbstractDocument.Meta):
         verbose_name = "文档"

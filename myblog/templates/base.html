@@ -3,13 +3,14 @@
 {% get_theme_settings as theme_cfg %}
 
 <!DOCTYPE html>
-<html lang="en"
+<html lang="zh-Hans"
       data-palette="{{ theme_cfg.default_palette }}"
       data-default-palette="{{ theme_cfg.default_palette }}"
       data-default-mode="{{ theme_cfg.default_appearance_mode }}"
       data-in-preview="{% if request.in_preview_panel %}1{% else %}0{% endif %}">
     <head>
         <meta charset="utf-8" />
+        {% get_seo_meta as seo_meta %}
         <title>
             {% block title %}
             {% if page.seo_title %}{{ page.seo_title }}{% else %}{{ page.title }}{% endif %}
@@ -22,6 +23,29 @@
         {% if page.search_description %}
         <meta name="description" content="{{ page.search_description }}" />
         {% endif %}
+        {% if seo_meta.is_preview %}
+        <meta name="robots" content="noindex, nofollow" />
+        {% endif %}
+        {% block canonical_link %}
+        {% if seo_meta.canonical_url %}
+        <link rel="canonical" href="{{ seo_meta.canonical_url }}" />
+        {% endif %}
+        {% endblock %}
+        <meta property="og:locale" content="zh_CN" />
+        <meta property="og:type" content="{% block og_type %}{{ seo_meta.og_type }}{% endblock %}" />
+        <meta property="og:site_name" content="{{ seo_meta.og_site_name }}" />
+        <meta property="og:title" content="{% block og_title %}{{ seo_meta.og_title }}{% endblock %}" />
+        {% if seo_meta.og_description %}
+        <meta property="og:description" content="{{ seo_meta.og_description }}" />
+        {% endif %}
+        {% if seo_meta.canonical_url %}
+        <meta property="og:url" content="{{ seo_meta.canonical_url }}" />
+        {% endif %}
+        {% block og_image %}
+        {% if seo_meta.og_image %}
+        <meta property="og:image" content="{{ seo_meta.og_image }}" />
+        {% endif %}
+        {% endblock %}
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <script>
             (function(){
@@ -125,10 +149,15 @@
         {# Global stylesheets: Tokens -> Vendor -> Site CSS -> Page Extra CSS #}
         <link rel="stylesheet" type="text/css" href="{% static 'css/themes/tokens.css' %}?v=20261124b">
         {% include "includes/_ui_assets_css.html" %}
-        <link rel="stylesheet" type="text/css" href="{% static 'css/myblog.css' %}?v=20261124e">
+        <link rel="stylesheet" type="text/css" href="{% static 'css/myblog.css' %}?v=20261126a">
 
         {% block extra_css %}
         {# Override this in templates to add extra stylesheets #}
+        {% endblock %}
+        {% block structured_data %}
+        {% if seo_meta.json_ld_str %}
+        <script type="application/ld+json">{{ seo_meta.json_ld_str|safe }}</script>
+        {% endif %}
         {% endblock %}
         {% block analytics_meta %}{% endblock %}
     </head>

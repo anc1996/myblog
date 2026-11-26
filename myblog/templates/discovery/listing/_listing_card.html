@@ -1,5 +1,11 @@
-<article class="listing-card card mb-3 shadow-sm border-0 bg-white" data-analytics-card="{{ item.page_id }}" data-analytics-type="{{ item.type_key }}">
-  <div class="card-body">
+<article class="listing-card card mb-3 shadow-sm border-0 bg-white{% if item.cover_url %} has-cover{% endif %}" data-analytics-card="{{ item.page_id }}" data-analytics-type="{{ item.type_key }}">
+  <div class="card-body listing-card-layout">
+    {% if item.cover_url %}
+    <a href="{{ item.url }}" class="listing-card-media" tabindex="-1" aria-hidden="true">
+      <img src="{{ item.cover_url }}" alt="{{ item.title }}" loading="lazy">
+    </a>
+    {% endif %}
+    <div class="listing-card-content">
     <div class="d-flex justify-content-between align-items-start mb-1">
       <h5 class="card-title mb-0">
         <a href="{{ item.url }}" class="text-dark text-decoration-none hover-primary fw-bold">
@@ -42,6 +48,7 @@
         {% endfor %}
       </div>
       <a href="{{ item.url }}" class="btn btn-sm btn-link text-decoration-none p-0">阅读全文 &rarr;</a>
+    </div>
     </div>
   </div>
 </article>

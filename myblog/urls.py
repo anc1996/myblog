@@ -1,5 +1,5 @@
 from django.conf import settings
-from django.urls import include, path
+from django.urls import include, path, re_path
 from django.contrib import admin
 from django.views.decorators.cache import never_cache
 
@@ -12,6 +12,11 @@ from identity.admin_account import CustomAccountView
 from search import views as search_views
 from discovery.timeline import timeline_view
 from discovery.seo import sitemap_view, robots_txt_view
+from discovery.redirects import (
+    legacy_archive_redirect_view,
+    legacy_author_pk_redirect_view,
+    legacy_zh_hans_redirect_view,
+)
 from content_blocks.embeds.views import (
     controlled_embed_chooser,
     controlled_embed_chooser_upload,
@@ -36,9 +41,13 @@ urlpatterns = [
     path("authors/", include("people.urls")),
     path("search/", search_views.search, name="search"),
     path("timeline/", timeline_view, name="timeline"),
+    path("archive/", legacy_archive_redirect_view, name="legacy_archive_redirect"),
+    path("blog/authors/<int:author_id>/", legacy_author_pk_redirect_view, name="legacy_author_pk_redirect"),
+    re_path(r"^zh-hans(?:/(?P<rest>.*))?$", legacy_zh_hans_redirect_view, name="legacy_zh_hans_redirect"),
     path("api/v1/", include("api.urls")),
     path("api/markdown-import/", include("markdown_import.urls")),
-    path("feed/", RedirectView.as_view(url="/feeds/", permanent=True)),
+    path("feed/rss/", RedirectView.as_view(url="/feeds/", permanent=True, query_string=True)),
+    path("feed/", RedirectView.as_view(url="/feeds/", permanent=True, query_string=True)),
     path("feeds/", include("discovery.urls")),
 ]
 

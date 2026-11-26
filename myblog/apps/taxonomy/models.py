@@ -8,7 +8,7 @@
 
 import hashlib
 from django.db import models
-from django.http import Http404, JsonResponse
+from django.http import Http404, HttpResponsePermanentRedirect, JsonResponse
 from django.template.loader import render_to_string
 from taggit.models import Tag
 from wagtail.models import Page
@@ -220,6 +220,28 @@ class TagIndexPage(RoutablePageMixin, CustomBasePage):
     @path("", name="directory")
     def directory_view(self, request):
         """模式一：全站标签大厅 (Top 20 热门云 + A-Z 分组 + 即时搜索)"""
+        raw_legacy_tag = (request.GET.get("tag") or "").strip()
+        if raw_legacy_tag and request.method in ("GET", "HEAD"):
+            from taxonomy.services.directory import _build_tag_detail_url
+            from discovery.models import PublishedSearchDocument, PublishedSearchTag
+            from discovery.eligibility import apply_public_eligibility_filter
+            from wagtail.models import Site
+            from django.db.models import Q
+
+            site = Site.find_for_request(request)
+            eligible_docs = PublishedSearchDocument.objects.filter(is_live=True, is_recycled=False)
+            if site is not None:
+                eligible_docs = eligible_docs.filter(site_id=site.id)
+            eligible_docs = apply_public_eligibility_filter(eligible_docs)
+            matched_slug = (
+                PublishedSearchTag.objects.filter(document__in=eligible_docs)
+                .filter(Q(tag_slug=raw_legacy_tag) | Q(tag_name__iexact=raw_legacy_tag))
+                .values_list("tag_slug", flat=True)
+                .first()
+            )
+            if matched_slug:
+                return HttpResponsePermanentRedirect(_build_tag_detail_url(self, request, matched_slug))
+
         from taxonomy.services.directory import TagDirectoryService
         view_model = TagDirectoryService.get_tag_directory(request=request, index_page=self)
         is_ajax = bool(

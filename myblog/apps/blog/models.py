@@ -14,14 +14,20 @@ BlogPage 与 BlogIndexPage 核心业务模型。
 
 from django.db import models
 from django.utils import timezone
+from django.utils.safestring import mark_safe
 from modelcluster.fields import ParentalKey
 from modelcluster.contrib.taggit import ClusterTaggableManager
 from taggit.models import TaggedItemBase
 from wagtail.models import Orderable, Page
-from wagtail.fields import StreamField
+from wagtail.fields import RichTextField, StreamField
 from wagtail.admin.panels import FieldPanel, InlinePanel, MultiFieldPanel
 
 from content_lifecycle.models import CustomBasePage
+from content_blocks.blocks.rich_text import (
+    DEFAULT_RICH_TEXT_FEATURES,
+    extract_richtext_field_media_refs,
+    render_richtext_field_html,
+)
 from media_library.models import CustomImage
 from people.models import Person
 from discovery.listing import HierarchicalListingMixin, ListingPolicy
@@ -97,7 +103,20 @@ class BlogIndexPage(HierarchicalListingMixin, CustomBasePage):
         verbose_name="成文日期",
         help_text="必填成文日期，默认当天，与实际发布时间完全独立",
     )
-    intro = models.TextField(blank=True, verbose_name="栏目简介")
+    featured_image = models.ForeignKey(
+        CustomImage,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        verbose_name="栏目封面图",
+        help_text="可选封面，无封面不留白框",
+    )
+    intro = RichTextField(
+        blank=True,
+        features=list(DEFAULT_RICH_TEXT_FEATURES),
+        verbose_name="栏目简介",
+    )
 
     # 页面树层级约束：只能在根首页或父栏目下创建
     parent_page_types = ["home.HomePage", "blog.BlogIndexPage"]
@@ -106,12 +125,33 @@ class BlogIndexPage(HierarchicalListingMixin, CustomBasePage):
 
     content_panels = Page.content_panels + [
         FieldPanel("authored_on"),
+        FieldPanel("featured_image"),
         FieldPanel("intro"),
     ]
 
     class Meta:
         verbose_name = "博客栏目"
         verbose_name_plural = "博客栏目"
+
+    def collect_media_references(self) -> list:
+        """补充采集 RichTextField 栏目简介中的图片嵌入、文档链接与受控网关引用。"""
+        refs = super().collect_media_references()
+        raw_intro = (getattr(self, "intro", "") or "").strip()
+        if raw_intro:
+            refs.extend(
+                extract_richtext_field_media_refs(
+                    raw_intro,
+                    path="intro",
+                    field_name="intro",
+                )
+            )
+        return refs
+
+    def get_context(self, request, *args, **kwargs):
+        context = super().get_context(request, *args, **kwargs)
+        raw_intro = (getattr(self, "intro", "") or "").strip()
+        context["intro_html"] = mark_safe(render_richtext_field_html(raw_intro)) if raw_intro else ""
+        return context
 
 
 class BlogPage(CustomBasePage):

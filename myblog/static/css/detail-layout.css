@@ -1832,3 +1832,89 @@ a.author-co-badge:hover {
   background: var(--color-primary-soft);
   color: var(--color-on-primary-soft);
 }
+
+/* D-06 样式 A：详情页标题背景横幅图（有封面展示，无封面自动退化为纯文字头部） */
+.detail-header-plain {
+  min-width: 0;
+}
+
+.detail-hero-banner {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  margin-bottom: 24px;
+  min-height: 220px;
+  display: flex;
+  align-items: flex-end;
+  background: var(--hero-bg);
+  border: 1px solid var(--color-border);
+}
+
+.detail-hero-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.detail-hero-scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(15, 23, 42, 0.25) 0%,
+    rgba(15, 23, 42, 0.68) 52%,
+    rgba(15, 23, 42, 0.90) 100%
+  );
+  pointer-events: none;
+}
+
+.detail-hero-header {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  margin-bottom: 0;
+  padding: 28px 28px 24px 28px;
+  color: var(--hero-text);
+}
+
+.detail-hero-header .detail-title {
+  color: var(--hero-text);
+  text-shadow: 0 1px 8px rgba(15, 23, 42, 0.45);
+}
+
+.detail-hero-header .detail-meta,
+.detail-hero-header .detail-meta time,
+.detail-hero-header .detail-meta span {
+  color: var(--hero-desc);
+}
+
+.detail-hero-header a {
+  color: var(--hero-text);
+}
+
+.detail-hero-header .detail-badge,
+.detail-hero-header .author-co-badge {
+  background: rgba(15, 23, 42, 0.56);
+  color: var(--hero-text);
+  border-color: var(--hero-outline-border);
+  backdrop-filter: blur(4px);
+}
+
+.detail-hero-header .detail-summary-box {
+  background: rgba(15, 23, 42, 0.62);
+  color: var(--hero-desc);
+  border-left-color: var(--hero-text);
+}
+
+@media (max-width: 640px) {
+  .detail-hero-banner {
+    min-height: 180px;
+  }
+
+  .detail-hero-header {
+    padding: 20px 18px 18px 18px;
+  }
+}

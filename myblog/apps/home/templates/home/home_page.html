@@ -3,7 +3,7 @@
 
 {% block body_class %}template-homepage{% endblock %}
 
-{% block title %}{{ page.title }} - 首页与综合技术门户{% endblock %}
+{% block title %}{% if page.seo_title %}{{ page.seo_title }}{% else %}{{ page.title }} - 首页与综合技术门户{% endif %}{% endblock %}
 {% block analytics_meta %}{% analytics_page_meta page %}{% endblock %}
 
 {% block extra_css %}
@@ -67,7 +67,13 @@
 
             {% if latest_articles %}
                 {% for article in latest_articles %}
-                <article class="home-article-card">
+                <article class="home-article-card{% if article.featured_image %} has-cover{% endif %}">
+                    {% if article.featured_image %}
+                    <a href="{% pageurl article %}" class="home-article-media" tabindex="-1" aria-hidden="true">
+                        <img src="/media-gateway/image/{{ article.featured_image.public_id }}/" alt="{{ article.title }}" loading="lazy">
+                    </a>
+                    {% endif %}
+                    <div class="home-article-content">
                     <h3 class="home-article-title">
                         <a href="{% pageurl article %}" data-analytics-card="{{ article.id }}" data-analytics-type="blog_page">
                             {{ article.title }}
@@ -89,6 +95,7 @@
                         </p>
                     {% endif %}
                     <a href="{% pageurl article %}" class="home-section-more" data-analytics-card="{{ article.id }}" data-analytics-type="blog_page">阅读全文 &rarr;</a>
+                    </div>
                 </article>
                 {% endfor %}
             {% else %}
@@ -108,7 +115,7 @@
                     <h4>
                         <a href="{% pageurl col %}">{{ col.title }}</a>
                     </h4>
-                    <p>{{ col.intro|truncatechars:60 }}</p>
+                    <p>{{ col.intro|striptags|truncatechars:60 }}</p>
                 </div>
                 {% endfor %}
             </div>

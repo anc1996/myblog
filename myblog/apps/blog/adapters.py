@@ -94,6 +94,9 @@ class BlogPageAdapter:
             "topic_slug": "",
             "topic_name": "",
         }
+        featured_img = getattr(page, "featured_image", None)
+        if featured_img is not None and getattr(featured_img, "public_id", None):
+            extra_data["cover_public_id"] = str(featured_img.public_id)
 
         # 生成摘要
         summary = intro_text[:200] if intro_text else body_text[:200]
@@ -230,13 +233,19 @@ class BlogIndexPageAdapter:
     )
 
     def extract(self, page: Any) -> PublishedPayload:
+        from content_blocks.blocks.rich_text import extract_richtext_field_text
+
         title = getattr(page, "title", "")
         doc_uuid = str(getattr(page, "document_uuid", ""))
         authored_on = getattr(page, "authored_on", None)
         if not authored_on:
             authored_on = date.today()
         url_path = page.get_url() if hasattr(page, "get_url") else getattr(page, "url_path", "")
-        intro_text = str(getattr(page, "intro", "")).strip()
+        intro_text = extract_richtext_field_text(getattr(page, "intro", ""))
+        extra_data: dict[str, Any] = {"intro": intro_text}
+        featured_img = getattr(page, "featured_image", None)
+        if featured_img is not None and getattr(featured_img, "public_id", None):
+            extra_data["cover_public_id"] = str(featured_img.public_id)
 
         segments = [
             TextSegment(field_name="title", text=title),
@@ -255,5 +264,5 @@ class BlogIndexPageAdapter:
             text_segments=segments,
             tag_ids=[],
             tags_data=[],
-            extra_data={"intro": intro_text},
+            extra_data=extra_data,
         )

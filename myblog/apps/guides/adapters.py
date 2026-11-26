@@ -103,6 +103,9 @@ class GuidePageAdapter:
             "estimated_minutes": getattr(page, "estimated_minutes", None),
             "last_published_at": page.last_published_at.isoformat() if getattr(page, "last_published_at", None) else None,
         }
+        featured_img = getattr(page, "featured_image", None)
+        if featured_img is not None and getattr(featured_img, "public_id", None):
+            extra_data["cover_public_id"] = str(featured_img.public_id)
 
         segments = [
             TextSegment(field_name="title", text=title),

@@ -65,6 +65,19 @@ from content_lifecycle.access import AccessContext, AccessMode
 logger = logging.getLogger(__name__)
 
 
+def _resolve_cover_url(extra_data: Any) -> str:
+    """从适配器通用 extra_data 解析受控封面地址（零具体页面硬编码）。"""
+    if not isinstance(extra_data, dict):
+        return ""
+    public_id = str(extra_data.get("cover_public_id") or "").strip()
+    if public_id:
+        return f"/media-gateway/image/{public_id}/"
+    raw_url = str(extra_data.get("cover_url") or "").strip()
+    if raw_url.startswith("/media-gateway/"):
+        return raw_url
+    return ""
+
+
 def _expand_type_keys(type_keys: list[str] | None) -> list[str]:
     """将复合类型别名（如 navigation）展开为底层的具体页面 type_key 列表"""
     expanded: list[str] = []
@@ -270,6 +283,7 @@ class ContentQuery:
                             "url": c.url_path,
                             "summary": c.summary,
                             "extra_data": c.extra_data,
+                            "cover_url": _resolve_cover_url(c.extra_data),
                         }
                         for c in child_indexes
                     ]
@@ -524,6 +538,7 @@ class ContentQuery:
                         for t in doc.search_tags.all()
                     ],
                     column_metadata=doc.extra_data,
+                    cover_url=_resolve_cover_url(doc.extra_data),
                 )
                 for doc in items_to_render
             ]
@@ -800,6 +815,7 @@ class ContentQuery:
                         for t in doc.search_tags.all()
                     ],
                     column_metadata=doc.extra_data,
+                    cover_url=_resolve_cover_url(doc.extra_data),
                 )
             )
 

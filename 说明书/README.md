@@ -1,6 +1,6 @@
 # myblog 项目工程与技术规范入口
 
-更新日期：2026-11-25。**全站 19 个业务子应用、57 份自动化测试文件及核心架构已落地；自 2026-11-24 起项目遵循《AGENTS.md》中借鉴 WordPress 四层解耦思想的防写死/防过度设计铁律（不再为个人站点叠加多库/大并发子系统）**。
+更新日期：2026-11-26。**全站 19 个业务子应用、58 份自动化测试文件及核心架构已落地；自 2026-11-24 起项目遵循《AGENTS.md》中借鉴 WordPress 四层解耦思想的防写死/防过度设计铁律（不再为个人站点叠加多库/大并发子系统）**。
 
 ## 建议阅读顺序
 
@@ -50,7 +50,12 @@
 - **全站 SEO 与爬虫收录协议**：
   - `/sitemap.xml`：集成 Wagtail 站点地图，严格排除回收站页面（`is_recycled=True`）与未发布草稿，仅收录公开发布的合法在线页面；
   - `/robots.txt`：阻断爬虫抓取 `/admin/`、`/django-admin/`、`/media-gateway/`、`/avatar-gateway/`、`/account/` 与 `/api/` 等私密网关，自动定位并引导抓取 `/sitemap.xml`。
-- **测试与质量**：`tests/` 目录现含 **57 份自动化测试文件**；各新增功能均需通过 `MYBLOG_ENV_FILE=.env.test python -B manage.py check`、`makemigrations --check --dry-run` 及定向回归测试。
+  - **Head 元数据与旧站 301 重定向（2026-11-26 Phase 1 前置改造）**：`base.html` 切换 `lang="zh-Hans"` 并通过 `get_seo_meta` 统一输出 `canonical`、Open Graph（含封面 `og:image`）与 `Article` JSON-LD，`detail_shell.html` 与 `home_page.html` 优先采用 `seo_title`；补齐 `/zh-hans/*`、`/archive/`、`/feed/rss/`、`/tags/?tag=` 与 `/blog/authors/<pk>/` 单跳 301 跳转。
+- **生产迁移前置能力（2026-11-26 Phase 1）**：
+  - `BlogIndexPage` 新增可选 `featured_image` 并升级 `intro` 为 `RichTextField`（含 `blog.0006` 历史纯文本转义迁移、`collect_media_references` 媒体引用登记与自动公开、适配器纯文本提取与净化渲染）；
+  - `CustomImage` 新增可选 `caption`、`CustomDocument` 新增可选 `description`（`media_library.0004`），正文块继续以块级字段为主不回退读取库字段；
+  - 列表/搜索/标签/作者/首页卡片通过通用 `PublishedPayload.extra_data["cover_public_id"]` 渲染「左图右文」封面（无封面不留占位），`detail_shell.html` 在有 `featured_image` 时展示标题背景横幅图（带昼夜自适应渐变遮罩）。
+- **测试与质量**：`tests/` 目录现含 **58 份自动化测试文件**；各新增功能均需通过 `MYBLOG_ENV_FILE=.env.test python -B manage.py check`、`makemigrations --check --dry-run` 及定向回归测试。
 - **前端与交互闭环**：
   - **全局响应式导航、浅深色主题与公共 UI 组件**：绑定 `site_settings`，支持 `data-theme="light|dark"` 切换与防闪烁恢复；通过 `vendor.lock.json` 统一挂载 `Alpine.js`、`HTMX`、`Tom Select`、`Flatpickr` 与 `Splide`；
   - **全站共享详情壳层、三栏互动与单次服务端 TOC 目录 (`detail_shell.html`)**：统一服务 `BlogPage`、`GuidePage`、`ProjectPage` 及后续 `XxPage`；后端单遍提取 `h1`–`h4` 与 `step` 锚点并注入 `[data-cb-block]` 防溢出容器，桌面宽屏（`>=1280px`，最高 `1800px` 居中适配全屏）采用「可折叠左侧 sticky 目录 + 主文/评价/上下篇/评论区 + 右侧作者名片/标签/公告或推荐」三栏布局，手机/iPad（`<=1024px`）使用粘性触发栏 + 原生 `<dialog>` 抽屉；标签统一反解本站 `TagIndexPage` 详情路由；

@@ -67,7 +67,13 @@
 <ul class="search-result-list">
     {% for entry in display_items %}
     {% with item=entry.item %}
-    <li class="search-result-item card">
+    <li class="search-result-item card{% if item.cover_url %} has-cover{% endif %}">
+        {% if item.cover_url %}
+        <a href="{{ item.url }}" class="search-result-media" tabindex="-1" aria-hidden="true">
+            <img src="{{ item.cover_url }}" alt="{{ item.title }}" loading="lazy">
+        </a>
+        {% endif %}
+        <div class="search-result-content">
         <div class="search-result-head">
             <h3 class="search-result-title">
                 <a href="{{ item.url }}">{{ item.title }}</a>
@@ -99,6 +105,7 @@
             {% endfor %}
         </div>
         {% endif %}
+        </div>
     </li>
     {% endwith %}
     {% endfor %}

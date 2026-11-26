@@ -165,6 +165,7 @@ class SearchResultItem:
     score_key: int = 0
     tags: list[dict[str, Any]] = field(default_factory=list)
     column_metadata: dict[str, Any] = field(default_factory=dict)
+    cover_url: str = ""
 
 
 @dataclass(frozen=True)
