@@ -1,6 +1,6 @@
 # myblog 项目工程与技术规范入口
 
-更新日期：2026-11-27。**全站 19 个业务子应用、64 份自动化测试文件及核心架构已落地；自 2026-11-24 起项目遵循《AGENTS.md》中借鉴 WordPress 四层解耦思想的防写死/防过度设计铁律（不再为个人站点叠加多库/大并发子系统）**。
+更新日期：2026-11-27。**全站 19 个业务子应用、65 份自动化测试文件及核心架构已落地；自 2026-11-24 起项目遵循《AGENTS.md》中借鉴 WordPress 四层解耦思想的防写死/防过度设计铁律（不再为个人站点叠加多库/大并发子系统）**。
 
 ## 建议阅读顺序
 
@@ -14,7 +14,7 @@
 8. [第一阶段技术实现方案与架构规范](myblog_第一阶段技术方案_v1.0.md)：**【核心必读】** 系统完整落地实现蓝图，涵盖彻底脱水模式、受控回收站原树恢复、中文搜索与 GIN 索引、专栏体系、通用评论系统、全站多页面 RSS/Atom 订阅与时间线归档、RESTful JSON API 规范与架构拓扑图。
 9. [全站多页面评论后台管理与多维治理系统 RFC](myblog_全站多页面评论管理与多维治理系统_RFC_2026-11-10.md)：**【RFC-020 已实施】** 全局分类与溯源中控台（动态注册表 Tab）、Page 编辑器【💬 评论与互动】Tab（100% 异步隔离 Wagtail 自动保存）、Purge 级联物理清空、作者自删占位、V1/V2 审核隔离与 24h 主体限制。
 10. [全站层级列表与多维检索通用框架 RFC](myblog_全站层级列表与多维检索通用框架_RFC_2026-11-09.md)：**【已实施】** 通用 `HierarchicalListingMixin`、`IndexListingService`、混合分页与签名游标、双模同构与 Wagtail 8.1 后台预览守卫闭环。
-11. [全站标签大厅与跨类型检索系统 RFC](myblog_全站标签大厅与跨类型检索系统_RFC_2026-11-09.md)：**【已实施】** `TagIndexPage` 路由、A-Z 分组、注册表驱动的多类型分栏 Tab、私有草稿标签防泄漏与 0 Mongo 访问闭环。
+11. [全站标签大厅与跨类型检索系统 RFC](myblog_全站标签大厅与跨类型检索系统_RFC_2026-11-09.md)：**【已实施，2026-11-27 升级方案 B 精简总览与 60/页 SQL 下推分页】** `TagIndexPage` 路由、Top 20 + A–Z 每字母最多 20 个精简总览、单字母/全站网格/搜索 60/页 SQL 分页、GET 100% 纯只读零写库（`Tag.post_save` 自动补齐元数据）、注册表驱动的多类型分栏 Tab、私有草稿标签防泄漏与 0 Mongo 访问闭环。
 12. [全站订阅与时间线归档通用接口框架方案](myblog_全站订阅与时间线归档通用接口框架方案_2026-11-07.md)：**【已实施】** `/feeds/` 通用多页面即插即用契约、弱 ETag 协商缓存与 Wagtail 8.1 刚性生命周期安全守卫。
 13. [portfolio 与 site_settings 架构与实现方案 RFC](myblog_portfolio与site_settings架构与实现方案_RFC_2026-11-07.md)：**【已实施】** `ProjectPage` 作品集、`NavigationSettings / SocialMediaSettings / FooterSettings / SiteThemeSettings / SiteAnnouncementSettings` 与安全降级。
 14. [子应用目录架构收敛与重构方案 RFC](myblog_子应用目录架构收敛与重构方案_RFC_2026-11-09.md)：**【已完成】** 将全部业务应用统一收敛至 `myblog/myblog/apps/*` 与 `myblog.bootstrap` 零表名漂移方案。
@@ -57,14 +57,14 @@
   - 列表/搜索/标签/作者/首页卡片通过通用 `PublishedPayload.extra_data["cover_public_id"]` 渲染「左图右文」封面（无封面不留占位），`detail_shell.html` 在有 `featured_image` 时展示标题背景横幅图（带昼夜自适应渐变遮罩）。
 - **生产数据幂等 ETL 迁移工具（2026-11-26 Phase 2）**：
   - 新增 `scripts/migrate_from_wagtailblog3.py` 与 `scripts/etl_wagtailblog3/`（`remote_export.py`、`transformer.py`、`loader.py`），支持 `--export`（只读抽取与 SHA-256 核验）、`--dry-run`（零写入预检）、`--apply`（目标库隔离守卫 + `OperationResult` 与 MongoDB `operation_id` 双重幂等 + 拓扑建树与发布）及 `--reconcile`（全量数量与 RustFS 物理文件对账），并已在独立暂存库 `myblog_staging` 完成首次迁移、二次幂等重放与全量对账。
-- **测试与质量**：`tests/` 目录现含 **64 份自动化测试文件**；各新增功能均需通过 `MYBLOG_ENV_FILE=.env.test python -B manage.py check`、`makemigrations --check --dry-run` 及定向回归测试。
+- **测试与质量**：`tests/` 目录现含 **65 份自动化测试文件**；各新增功能均需通过 `MYBLOG_ENV_FILE=.env.test python -B manage.py check`、`makemigrations --check --dry-run` 及定向回归测试。
 - **前端与交互闭环**：
   - **全站前端视觉与交互重塑（现代知识出版物风格，3 阶段 + 栏目头部 3 预设 + 时间线任意年全年筛选全落地）**：在 `tokens.css` 固化 3 档正文/界面字号令牌与平滑动效令牌，沉淀 `includes/_ui_icon.html` 单色线条 SVG 图标体系并彻底清除全站 UI 控件 Emoji 与全部 `transition: all`；顶栏采用三段式布局（目录抽屉与品牌 Wordmark / 带当前页激活态的主导航 / 快捷搜索与紧凑主题切换），支持滚动磨砂分离；左侧目录抽屉内置前端实时筛选、全部展开/收起及基于 PostgreSQL `Substr` 分层聚合的公开文章数（B-01）；首页移除写死营销横幅改为后台可配刊头（`HomePage.masthead_title` / `masthead_subtitle`，`home.0003`，B-02）并优化目录卡片折叠对齐；`HierarchicalListingMixin` 统一为全部 `*IndexPage` 提供后台可选 3 套头部预设（`editorial_split` 左文右图默认不切头 / `compact_doc` 精简文档头 / `visual_banner` 宽幅画报横幅 + Wagtail 原生焦点类，`blog.0007`/`guides.0006`/`portfolio.0006`）与共用 `_listing_header.html` 长导读平滑折叠；修复栏目与详情页重复 `Home` 面包屑（B-03）；`/timeline/` 新增「全年（全部月份）」选项与快捷年份直达胶囊并抽离 `static/css/pages/timeline.css`；搜索页移除右侧重复类型分面与冗余「已发布」徽章；重写列表子栏目与文章卡片清除 Bootstrap 残余；新增只读 `/search/quick/` 与全站 `Ctrl+K` / `/` 快捷搜索命令面板（B-04，零 `innerHTML` 安全渲染）；将首页、搜索页与时间线专属样式拆层至 `static/css/pages/{home,search,timeline}.css`；
   - **全站共享详情壳层、三栏互动与单次服务端 TOC 目录 (`detail_shell.html`)**：统一服务 `BlogPage`、`GuidePage`、`ProjectPage` 及后续 `XxPage`；后端单遍提取 `h1`–`h4` 与 `step` 锚点并注入 `[data-cb-block]` 防溢出容器，桌面宽屏（`>=1280px`，最高 `1800px` 居中适配全屏）采用「可折叠左侧 sticky 目录 + 主文/评价/上下篇/评论区 + 右侧作者名片/标签/公告或推荐」三栏布局，手机/iPad（`<=1024px`）使用粘性触发栏 + 原生 `<dialog>` 抽屉；标签统一反解本站 `TagIndexPage` 详情路由；
   - **详情页四级树形目录与动态定位**：`build_detail_presentation()` 构建 `h2→h3→h4`（兼容 `h1` 最多 4 级）可折叠树形目录；`detail-toc.js` 通过 `ResizeObserver` 动态测量顶部遮挡高度驱动 `--detail-anchor-offset`，提供「回到顶部」「正文开头」与精确阅读线高亮，窄屏无 JS 自动降级为原生 `<details>` 目录；
   - **首页综合门户**：Hero 标语导引 + Splide 精选轮播 + 文章流 + 专栏推荐 + 开源项目 + 热门标签云；
   - **有界计数混合分页与部分复合索引**：`discovery.pagination` 支持浅页直跳窗口（`1…4 5 [6] 7 8…100`，超出返回 HTTP 422 引导）、双向 Keyset 游标（`v2:` 上下翻页）、`seek_date` / `seek_direction=oldest` 日期定位及 `LIMIT 5001` 有界计数探测（精确 / 汇总 / 下限明标）；`PublishedSearchDocument` 挂载条件部分 B-tree 索引；
-  - **全站标签大厅**：RESTful 路由 `/tags/` 与 `/tags/<slug>/`，A-Z 首字母分组，跨类型 Tab 分栏；
+  - **全站标签大厅**：RESTful 路由 `/tags/` 与 `/tags/<slug>/`，方案 B 分层索引（Top 20 热门云 + A–Z 每字母最多 20 个精简总览，单字母/全站网格/服务端搜索 60 条/页 SQL 下推分页，GET 零写库，`pages/tags.css` 统一视觉）与跨类型 Tab 分栏；
   - **读者评论互动组件与 Typora 级 Markdown 引擎**：正文 `CustomMarkdownBlock` 与评论系统共享基于 `markdown-it-py 3.0.0` 的 `markdown_engine.py`（全面兼容 2 空格嵌套列表、引用内嵌套列表、混合有序/无序与中文标点加粗）；评论主评/回复/5 分钟内联编辑共用 Markdown 工具栏、Emoji 面板与只读实时分栏预览接口（`/api/v1/pages/<id>/comments/preview/`），支持点赞/点踩（本人禁用防误报）、`MemberProfile` 昵称头像、会员平等（3000 字 / 5 外链）与受限 `rowspan`/`colspan` 复合表格（禁图防 XSS），后台 `/admin/comments/inspect/<id>/` 同步富格式预览；
   - **月历归档与预聚合汇总表**：`/timeline/` 与 `/api/v1/archives/calendar/` 按 `authored_on` 提供按月日历网格与 12 月快速切换；只读 `ArchiveDailyCount`（单月最多 31 行），通过 `ArchiveContribution` 事务 +/-1 增量维护、既有 `ArchiveSyncOutbox`（早期既有实现，现行 `AGENTS.md` 规范不再为新需求新增 Outbox 表）与 `reconcile_archive_counts` 管理命令保障计数一致，点击日/月下钻走 SARGable 区间与混合分页。
 - **目录架构**：全站 **19 个业务子应用**物理收敛于 `myblog/myblog/apps/*`（与 `settings/`、`static/`、`templates/` 同级），通过 `myblog.bootstrap` 注入 `sys.path[0]`，保证数据库表名与 `ContentType` 100% 零漂移。

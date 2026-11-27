@@ -1,94 +1,23 @@
 /**
  * 全站标签大厅与跨类型检索前端控制器 (TagController)
- * 落实 D2-A (类型分栏 Tab 无刷切换) 与 D3-A (局部更新 + history.pushState 同步)
+ * 落实事件委托驱动：
+ * 1. 标签大厅 (/tags/): A–Z 字母导航、方案 B 展开、排序/视图切换、60/页分页跳转与 260ms 防抖服务端检索；
+ * 2. 标签详情 (/tags/<slug>/): 多类型分栏 Tab、混合筛选与游标/页码分页全部无刷同步 history.pushState。
  */
 (function () {
   'use strict';
 
   document.addEventListener('DOMContentLoaded', function () {
-    // 1. 标签大厅即时名称搜索过滤 (模式一)
-    const filterInput = document.getElementById('tag-directory-filter-input');
-    if (filterInput) {
-      filterInput.addEventListener('input', function () {
-        const term = this.value.trim().toLowerCase();
-        const tagCards = document.querySelectorAll('.tag-card-wrapper');
-        const groupSections = document.querySelectorAll('.tag-group-section');
-
-        tagCards.forEach(card => {
-          const name = card.getAttribute('data-tag-name') || '';
-          if (!term || name.includes(term)) {
-            card.style.display = '';
-          } else {
-            card.style.display = 'none';
-          }
-        });
-
-        // 隐藏空的分组
-        groupSections.forEach(sec => {
-          const visibleCards = sec.querySelectorAll('.tag-card-wrapper:not([style*="display: none"])');
-          sec.style.display = visibleCards.length > 0 ? '' : 'none';
-        });
-      });
-    }
-
-    // 2. 标签详情页：多类型 Tab 无刷切换与表单 AJAX 交互 (模式二)
-    const tagForm = document.getElementById('tag-filter-form');
-    const tagResultsContainer = document.getElementById('tag-results-container');
-    const activeTypeInput = document.getElementById('tag-active-type-input');
-    const tagCursorInput = document.getElementById('tag-cursor-input');
-
-    if (!tagForm || !tagResultsContainer) {
+    const dynamicArea = document.getElementById('tag-dynamic-content-area');
+    if (!dynamicArea) {
       return;
     }
 
     let abortCtrl = null;
+    let searchDebounceTimer = null;
 
-    function fetchTagResults(url, pushState = true) {
-      if (abortCtrl) abortCtrl.abort();
-      abortCtrl = new AbortController();
-
-      tagResultsContainer.style.opacity = '0.5';
-      tagResultsContainer.style.pointerEvents = 'none';
-
-      fetch(url, {
-        headers: {
-          'X-Listing-Response': 'fragment-v1',
-          'X-Requested-With': 'XMLHttpRequest',
-        },
-        signal: abortCtrl.signal,
-      })
-        .then(res => {
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          return res.json();
-        })
-        .then(data => {
-          tagResultsContainer.style.opacity = '1';
-          tagResultsContainer.style.pointerEvents = 'auto';
-          tagResultsContainer.innerHTML = data.html;
-          if (window.MyblogUI && typeof window.MyblogUI.mount === 'function') {
-            window.MyblogUI.mount(tagResultsContainer);
-          }
-
-          if (pushState && data.canonical_url) {
-            const targetUrl = new URL(url, window.location.origin);
-            window.history.pushState({ path: targetUrl.href }, '', targetUrl.href);
-          }
-        })
-        .catch(err => {
-          if (err.name === 'AbortError') return;
-          tagResultsContainer.style.opacity = '1';
-          tagResultsContainer.style.pointerEvents = 'auto';
-          console.error('Tag results fetch failed:', err);
-        });
-    }
-
-    function buildTagUrl(newCursor = null, extraOverrides = null) {
-      const formData = new FormData(tagForm);
-      if (newCursor) {
-        formData.set('cursor', newCursor);
-      } else {
-        formData.delete('cursor');
-      }
+    function buildUrlFromForm(form, extraOverrides) {
+      const formData = new FormData(form);
       if (extraOverrides) {
         Object.keys(extraOverrides).forEach(function (k) {
           if (extraOverrides[k] === null || extraOverrides[k] === '') {
@@ -101,112 +30,261 @@
 
       const params = new URLSearchParams();
       for (const [key, value] of formData.entries()) {
-        if (value !== '' && value !== null) {
-          params.append(key, value);
+        const trimmed = typeof value === 'string' ? value.trim() : value;
+        if (trimmed !== '' && trimmed !== null) {
+          params.append(key, trimmed);
         }
       }
-      const baseUrl = tagForm.getAttribute('action') || window.location.pathname;
+      const baseUrl = form.getAttribute('action') || window.location.pathname;
       const qs = params.toString();
       return qs ? `${baseUrl}?${qs}` : baseUrl;
     }
 
-    // 点击类型 Tab 无刷切换 (全部/博客/指南/项目)
-    document.querySelectorAll('#tag-type-tabs .nav-link').forEach(tabLink => {
-      tabLink.addEventListener('click', function (e) {
-        e.preventDefault();
-        const typeSlug = this.getAttribute('data-type');
-        if (activeTypeInput) activeTypeInput.value = typeSlug;
-        if (tagCursorInput) tagCursorInput.value = '';
+    function buildDetailUrl(tagForm, newCursor, extraOverrides) {
+      const overrides = Object.assign({}, extraOverrides || {});
+      if (newCursor) {
+        overrides.cursor = newCursor;
+      } else {
+        overrides.cursor = null;
+      }
+      return buildUrlFromForm(tagForm, overrides);
+    }
 
-        // 更新 Tab 高亮
-        document.querySelectorAll('#tag-type-tabs .nav-link').forEach(l => {
-          l.classList.remove('active', 'fw-bold', 'text-primary');
-          l.classList.add('text-muted');
+    function fetchPartial(url, pushState, options) {
+      const opts = options || {};
+      if (abortCtrl) {
+        abortCtrl.abort();
+      }
+      abortCtrl = new AbortController();
+
+      let savedSelStart = null;
+      let savedSelEnd = null;
+      const activeEl = document.activeElement;
+      const wasSearchFocused = Boolean(
+        opts.restoreSearchFocus && activeEl && activeEl.id === 'tag-directory-filter-input'
+      );
+      if (wasSearchFocused && typeof activeEl.selectionStart === 'number') {
+        savedSelStart = activeEl.selectionStart;
+        savedSelEnd = activeEl.selectionEnd;
+      }
+
+      dynamicArea.style.opacity = '0.55';
+      dynamicArea.style.pointerEvents = 'none';
+
+      fetch(url, {
+        headers: {
+          'X-Listing-Response': 'fragment-v1',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        signal: abortCtrl.signal,
+      })
+        .then(function (res) {
+          if (!res.ok) {
+            throw new Error(`HTTP ${res.status}`);
+          }
+          return res.json();
+        })
+        .then(function (data) {
+          dynamicArea.style.opacity = '1';
+          dynamicArea.style.pointerEvents = 'auto';
+
+          if (data && typeof data.html === 'string') {
+            dynamicArea.innerHTML = data.html;
+          }
+          if (window.MyblogUI && typeof window.MyblogUI.mount === 'function') {
+            window.MyblogUI.mount(dynamicArea);
+          }
+
+          if (pushState) {
+            const targetUrl = new URL(url, window.location.origin);
+            window.history.pushState({ path: targetUrl.href }, '', targetUrl.href);
+          }
+
+          if (wasSearchFocused) {
+            const nextInput = document.getElementById('tag-directory-filter-input');
+            if (nextInput) {
+              nextInput.focus({ preventScroll: true });
+              if (typeof savedSelStart === 'number' && typeof nextInput.setSelectionRange === 'function') {
+                const len = nextInput.value.length;
+                nextInput.setSelectionRange(Math.min(savedSelStart, len), Math.min(savedSelEnd, len));
+              }
+            }
+          }
+        })
+        .catch(function (err) {
+          if (err && err.name === 'AbortError') {
+            return;
+          }
+          dynamicArea.style.opacity = '1';
+          dynamicArea.style.pointerEvents = 'auto';
+          console.error('Tag partial fetch failed:', err);
         });
-        this.classList.add('active', 'fw-bold', 'text-primary');
-        this.classList.remove('text-muted');
+    }
 
-        const url = buildTagUrl(null);
-        fetchTagResults(url, true);
-      });
-    });
+    // 统一点击事件委托（标签大厅导航/分页/排序/视图 + 标签详情类型Tab/游标分页）
+    dynamicArea.addEventListener('click', function (e) {
+      const dirNavLink = e.target.closest('.tag-dir-nav-link');
+      if (dirNavLink) {
+        e.preventDefault();
+        const href = dirNavLink.getAttribute('href');
+        if (href) {
+          fetchPartial(href, true);
+        }
+        return;
+      }
 
-    // 表单提交
-    tagForm.addEventListener('submit', function (e) {
-      e.preventDefault();
-      if (tagCursorInput) tagCursorInput.value = '';
-      const url = buildTagUrl(null);
-      fetchTagResults(url, true);
-    });
+      const tabLink = e.target.closest('#tag-type-tabs .tag-tab-link, #tag-type-tabs [data-type]');
+      if (tabLink) {
+        e.preventDefault();
+        const tagForm = document.getElementById('tag-filter-form');
+        const activeTypeInput = document.getElementById('tag-active-type-input');
+        const tagCursorInput = document.getElementById('tag-cursor-input');
+        const typeSlug = tabLink.getAttribute('data-type');
+        if (activeTypeInput && typeSlug) {
+          activeTypeInput.value = typeSlug;
+        }
+        if (tagCursorInput) {
+          tagCursorInput.value = '';
+        }
+        if (tagForm) {
+          const url = buildDetailUrl(tagForm, null);
+          fetchPartial(url, true);
+        }
+        return;
+      }
 
-    // 排序与日期变动即时响应
-    tagForm.querySelectorAll('select, input[type="checkbox"], input[type="date"], input[data-ui-date]').forEach(el => {
-      el.addEventListener('change', function () {
-        if (tagCursorInput) tagCursorInput.value = '';
-        const url = buildTagUrl(null);
-        fetchTagResults(url, true);
-      });
-    });
+      const tagForm = document.getElementById('tag-filter-form');
+      if (!tagForm) {
+        return;
+      }
 
-    // 分页上一页 / 下一页事件委托
-    document.addEventListener('click', function (e) {
       const nextBtn = e.target.closest('.listing-page-next-btn');
       const prevBtn = e.target.closest('.listing-page-prev-btn');
       const pageNumBtn = e.target.closest('.listing-page-num-btn');
       const oldestBtn = e.target.closest('.listing-oldest-btn');
+
       if (nextBtn) {
         e.preventDefault();
         const cursorVal = nextBtn.getAttribute('data-cursor');
         if (cursorVal) {
-          const url = buildTagUrl(cursorVal);
-          fetchTagResults(url, true);
+          fetchPartial(buildDetailUrl(tagForm, cursorVal), true);
         }
       } else if (prevBtn) {
         e.preventDefault();
         const cursorVal = prevBtn.getAttribute('data-cursor');
         if (cursorVal) {
-          const url = buildTagUrl(cursorVal);
-          fetchTagResults(url, true);
+          fetchPartial(buildDetailUrl(tagForm, cursorVal), true);
         }
       } else if (pageNumBtn) {
         e.preventDefault();
         const pageVal = pageNumBtn.getAttribute('data-page');
         if (pageVal) {
-          const url = buildTagUrl(null, { page: pageVal, seek_date: null, seek_direction: null });
-          fetchTagResults(url, true);
+          fetchPartial(buildDetailUrl(tagForm, null, { page: pageVal, seek_date: null, seek_direction: null }), true);
         }
       } else if (oldestBtn) {
         e.preventDefault();
-        const url = buildTagUrl(null, { seek_direction: 'oldest', page: null, seek_date: null });
-        fetchTagResults(url, true);
+        fetchPartial(buildDetailUrl(tagForm, null, { seek_direction: 'oldest', page: null, seek_date: null }), true);
       }
     });
 
-    document.addEventListener('submit', function (e) {
+    // 统一表单提交委托（大厅搜索/页码跳转 + 详情检索/跳转）
+    dynamicArea.addEventListener('submit', function (e) {
+      const dirForm = e.target.closest('[data-tag-dir-form]');
+      if (dirForm) {
+        e.preventDefault();
+        if (searchDebounceTimer) {
+          clearTimeout(searchDebounceTimer);
+          searchDebounceTimer = null;
+        }
+        fetchPartial(buildUrlFromForm(dirForm, { page: null }), true);
+        return;
+      }
+
+      const dirJumpForm = e.target.closest('.tag-jump-form');
+      if (dirJumpForm) {
+        e.preventDefault();
+        fetchPartial(buildUrlFromForm(dirJumpForm), true);
+        return;
+      }
+
+      const tagForm = document.getElementById('tag-filter-form');
+      const tagResultsContainer = document.getElementById('tag-results-container');
+      if (!tagForm) {
+        return;
+      }
+
+      if (e.target === tagForm) {
+        e.preventDefault();
+        const tagCursorInput = document.getElementById('tag-cursor-input');
+        if (tagCursorInput) {
+          tagCursorInput.value = '';
+        }
+        fetchPartial(buildDetailUrl(tagForm, null), true);
+        return;
+      }
+
       const jumpForm = e.target.closest('.listing-jump-page-form');
       const seekForm = e.target.closest('.listing-seek-date-form');
-      if (jumpForm && tagResultsContainer.contains(jumpForm)) {
+      if (jumpForm && tagResultsContainer && tagResultsContainer.contains(jumpForm)) {
         e.preventDefault();
         const pInput = jumpForm.querySelector('input[name="page"]');
         const pVal = pInput ? pInput.value.trim() : '';
         if (pVal) {
-          const url = buildTagUrl(null, { page: pVal, seek_date: null, seek_direction: null });
-          fetchTagResults(url, true);
+          fetchPartial(buildDetailUrl(tagForm, null, { page: pVal, seek_date: null, seek_direction: null }), true);
         }
-      } else if (seekForm && tagResultsContainer.contains(seekForm)) {
+      } else if (seekForm && tagResultsContainer && tagResultsContainer.contains(seekForm)) {
         e.preventDefault();
         const dInput = seekForm.querySelector('input[name="seek_date"]');
         const dVal = dInput ? dInput.value.trim() : '';
         if (dVal) {
-          const url = buildTagUrl(null, { seek_date: dVal, page: null, seek_direction: null });
-          fetchTagResults(url, true);
+          fetchPartial(buildDetailUrl(tagForm, null, { seek_date: dVal, page: null, seek_direction: null }), true);
         }
+      }
+    });
+
+    // 标签大厅 260ms 防抖服务端搜索
+    dynamicArea.addEventListener('input', function (e) {
+      const dirInput = e.target.closest('#tag-directory-filter-input');
+      if (!dirInput) {
+        return;
+      }
+      const dirForm = dirInput.closest('[data-tag-dir-form]');
+      if (!dirForm) {
+        return;
+      }
+      if (searchDebounceTimer) {
+        clearTimeout(searchDebounceTimer);
+      }
+      searchDebounceTimer = setTimeout(function () {
+        searchDebounceTimer = null;
+        fetchPartial(buildUrlFromForm(dirForm, { page: null }), true, { restoreSearchFocus: true });
+      }, 260);
+    });
+
+    // 大厅字母范围复选框 & 详情筛选控件变更委托
+    dynamicArea.addEventListener('change', function (e) {
+      const letterScopeCheck = e.target.closest('[data-tag-letter-scope]');
+      if (letterScopeCheck) {
+        const dirForm = letterScopeCheck.closest('[data-tag-dir-form]');
+        if (dirForm) {
+          fetchPartial(buildUrlFromForm(dirForm, { page: null }), true);
+        }
+        return;
+      }
+
+      const tagForm = document.getElementById('tag-filter-form');
+      if (tagForm && tagForm.contains(e.target) && e.target.matches('select, input[type="checkbox"], input[type="date"], input[data-ui-date]')) {
+        const tagCursorInput = document.getElementById('tag-cursor-input');
+        if (tagCursorInput) {
+          tagCursorInput.value = '';
+        }
+        fetchPartial(buildDetailUrl(tagForm, null), true);
       }
     });
 
     // 浏览器前进/后退
     window.addEventListener('popstate', function () {
-      fetchTagResults(window.location.href, false);
+      fetchPartial(window.location.href, false);
     });
   });
 })();

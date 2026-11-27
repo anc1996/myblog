@@ -12,21 +12,25 @@
 {% endblock %}
 {% block analytics_meta %}{% if mode == "detail" and data.tag %}{% analytics_page_meta page entry_key=data.tag.slug %}{% elif current_tag %}{% analytics_page_meta page entry_key=current_tag.slug %}{% else %}{% analytics_page_meta page %}{% endif %}{% endblock %}
 
+{% block extra_css %}
+<link rel="stylesheet" type="text/css" href="{% static 'css/pages/tags.css' %}?v=20261127a">
+{% endblock %}
+
 {% block content %}
 <div class="tag-page-container">
   {# 面包屑导航 #}
   <nav class="detail-breadcrumbs tag-breadcrumbs" aria-label="面包屑导航">
     <a href="/">首页</a>
-    <span>/</span>
+    <span class="breadcrumb-separator" aria-hidden="true">/</span>
     {% if mode == "directory" %}
-      <span class="fw-semibold text-dark" aria-current="page">{{ page.title }}</span>
+      <span class="current-crumb" aria-current="page">{{ page.title }}</span>
     {% else %}
       <a href="{{ page.url }}">{{ page.title }}</a>
-      <span>/</span>
+      <span class="breadcrumb-separator" aria-hidden="true">/</span>
       {% if mode == "detail" and data.tag %}
-        <span class="fw-semibold text-dark" aria-current="page">#{{ data.tag.name }}</span>
+        <span class="current-crumb" aria-current="page">#{{ data.tag.name }}</span>
       {% else %}
-        <span class="fw-semibold text-dark" aria-current="page">#{{ data.tag_slug }}</span>
+        <span class="current-crumb" aria-current="page">#{{ data.tag_slug }}</span>
       {% endif %}
     {% endif %}
   </nav>
@@ -41,6 +45,8 @@
     {% endif %}
   </div>
 </div>
+{% endblock %}
 
-<script src="{% static 'taxonomy/js/tag_controller.js' %}?v=20261122e"></script>
+{% block extra_js %}
+<script src="{% static 'taxonomy/js/tag_controller.js' %}?v=20261127a" defer></script>
 {% endblock %}

@@ -1,72 +1,294 @@
 <div class="tag-directory-shell">
-  <header class="tag-directory-header mb-4">
-    <h1 class="fw-bold text-dark mb-2">{{ page.title }}</h1>
-    {% if page.intro %}
-      <p class="text-muted lead fs-6 mb-3">{{ page.intro }}</p>
-    {% endif %}
-
-    <!-- 标签即时快速搜索过滤框 (决策三-A) -->
-    <div class="tag-search-box p-3 bg-white rounded border shadow-sm mb-4">
-      <div class="input-group">
-        <span class="input-group-text bg-light border-end-0">🔍</span>
-        <input type="text" id="tag-directory-filter-input" class="form-control border-start-0" placeholder="快速筛选标签名称（输入中英文实时过滤）..." value="{{ view_model.search_query }}">
+  <header class="tag-directory-header">
+    <div class="tag-directory-header-inner">
+      <div class="tag-directory-header-main">
+        <h1 class="tag-directory-title">
+          {% include "includes/_ui_icon.html" with name="tag" %}
+          <span>{{ page.title }}</span>
+        </h1>
+        {% if page.intro %}
+          <p class="tag-directory-desc">{{ page.intro }}</p>
+        {% else %}
+          <p class="tag-directory-desc">按热门度与 A–Z 首字母分层浏览全站公开标签，支持单字母分页与服务端关键词检索。</p>
+        {% endif %}
+      </div>
+      <div class="tag-directory-stat">
+        <span class="tag-directory-stat-num">{{ view_model.site_total_count }}</span>
+        <span class="tag-directory-stat-label">全站活跃标签</span>
       </div>
     </div>
   </header>
 
-  {% if view_model.is_empty %}
-    <div class="text-center py-5 text-muted bg-white rounded border">
-      <p class="fs-5 mb-1">暂无匹配的活跃标签</p>
-      <small>仅统计包含至少 1 篇已发布公开内容的有效标签。</small>
+  {# 服务端检索与字母内范围筛选表单 #}
+  <form method="get" action="{{ view_model.canonical_url }}" class="tag-search-card" data-tag-dir-form>
+    {% if view_model.active_sort == "name" %}
+      <input type="hidden" name="sort" value="name" data-tag-sort-input>
+    {% endif %}
+    {% if view_model.view_mode == "grid" %}
+      <input type="hidden" name="view" value="grid" data-tag-view-input>
+    {% endif %}
+
+    <div class="tag-search-row">
+      <div class="tag-search-input-wrap">
+        <span class="tag-search-icon" aria-hidden="true">
+          {% include "includes/_ui_icon.html" with name="search" %}
+        </span>
+        <input
+          type="search"
+          id="tag-directory-filter-input"
+          name="q"
+          maxlength="80"
+          class="ui-input"
+          placeholder="搜索全站标签名称（支持中英文关键词，按回车或输入自动检索）..."
+          value="{{ view_model.search_query }}"
+          aria-label="搜索标签名称"
+          autocomplete="off"
+        >
+      </div>
+      <div class="tag-search-actions">
+        <button type="submit" class="ui-btn ui-btn-primary">搜索</button>
+        {% if view_model.search_query %}
+          <a href="{{ view_model.reset_search_url }}" class="ui-btn ui-btn-outline tag-dir-nav-link" data-tag-clear-btn>清空</a>
+        {% endif %}
+      </div>
     </div>
-  {% else %}
-    <!-- 热门推荐标签云 Top 20 (决策三-A) -->
-    {% if view_model.top_tags %}
-      <section class="tag-popular-cloud mb-5 p-4 bg-white rounded border shadow-sm">
-        <div class="d-flex align-items-center mb-3">
-          <span class="badge bg-danger me-2">🔥 热门标签</span>
-          <h5 class="fw-bold mb-0 text-dark">全站高频技术标签 Top 20</h5>
+
+    {% if view_model.active_letter %}
+      <div class="tag-scope-check">
+        <label class="ui-check-label" for="tag-letter-scope-check">
+          <input
+            type="checkbox"
+            id="tag-letter-scope-check"
+            name="letter"
+            value="{{ view_model.active_letter_param }}"
+            checked
+            data-tag-letter-scope
+          >
+          <span>仅在 <strong>{{ view_model.active_letter }}</strong> 开头标签内搜索</span>
+        </label>
+      </div>
+    {% endif %}
+  </form>
+
+  {% if view_model.site_total_count > 0 %}
+    {# A–Z + # 字母导航条 #}
+    <nav class="tag-alphabet-nav" aria-label="标签首字母导航">
+      <a
+        href="{{ view_model.all_tags_url }}"
+        class="tag-alpha-btn{% if not view_model.active_letter %} is-active{% endif %} tag-dir-nav-link"
+      >
+        <span>全部</span>
+        <span class="tag-alpha-count">{{ view_model.site_total_count }}</span>
+      </a>
+      {% for alpha in view_model.alphabet_counts %}
+        {% if alpha.has_items or alpha.is_active %}
+          <a
+            href="{{ alpha.url }}"
+            class="tag-alpha-btn{% if alpha.is_active %} is-active{% endif %} tag-dir-nav-link"
+            data-tag-letter="{{ alpha.query_value }}"
+            title="{{ alpha.letter }} 开头共 {{ alpha.count }} 个标签"
+          >
+            <span>{{ alpha.letter }}</span>
+            <span class="tag-alpha-count">{{ alpha.count }}</span>
+          </a>
+        {% else %}
+          <span class="tag-alpha-btn is-disabled" aria-disabled="true" title="{{ alpha.letter }} 暂无标签">
+            <span>{{ alpha.letter }}</span>
+          </span>
+        {% endif %}
+      {% endfor %}
+    </nav>
+
+    {# 排序与视图模式分段工具栏 #}
+    <div class="tag-toolbar">
+      <div class="tag-toolbar-status">
+        {% if view_model.view_mode == "overview" %}
+          <span class="tag-toolbar-summary">
+            A–Z 精简总览（每字母最多展示 20 个，全站共 <strong>{{ view_model.site_total_count }}</strong> 个活跃标签）
+          </span>
+        {% elif view_model.view_mode == "letter" %}
+          <a href="{{ view_model.all_tags_url }}" class="tag-back-all-link tag-dir-nav-link">&larr; 返回全部标签</a>
+          <span class="tag-toolbar-summary">
+            首字母 <strong>{{ view_model.active_letter }}</strong>
+            {% if view_model.search_query %}· 关键词「{{ view_model.search_query }}」{% endif %}
+            · 共 <strong>{{ view_model.filtered_count }}</strong> 个标签
+          </span>
+        {% elif view_model.view_mode == "search" %}
+          <a href="{{ view_model.all_tags_url }}" class="tag-back-all-link tag-dir-nav-link">&larr; 返回全部标签</a>
+          <span class="tag-toolbar-summary">
+            搜索「<strong>{{ view_model.search_query }}</strong>」· 共匹配 <strong>{{ view_model.filtered_count }}</strong> 个标签
+          </span>
+        {% else %}
+          <a href="{{ view_model.all_tags_url }}" class="tag-back-all-link tag-dir-nav-link">&larr; 返回全部标签</a>
+          <span class="tag-toolbar-summary">
+            全站分页网格 · 共 <strong>{{ view_model.filtered_count }}</strong> 个标签
+          </span>
+        {% endif %}
+      </div>
+
+      <div class="tag-toolbar-controls">
+        <div class="tag-segmented" role="group" aria-label="标签排序方式">
+          <a
+            href="{{ view_model.sort_popular_url }}"
+            class="tag-seg-btn{% if view_model.active_sort == 'popular' %} is-active{% endif %} tag-dir-nav-link"
+          >按文章数热门</a>
+          <a
+            href="{{ view_model.sort_name_url }}"
+            class="tag-seg-btn{% if view_model.active_sort == 'name' %} is-active{% endif %} tag-dir-nav-link"
+          >按名称 A–Z</a>
         </div>
-        <div class="d-flex flex-wrap gap-2">
+
+        {% if not view_model.active_letter and not view_model.search_query %}
+          <div class="tag-segmented" role="group" aria-label="目录展示模式">
+            <a
+              href="{{ view_model.view_overview_url }}"
+              class="tag-seg-btn{% if view_model.view_mode == 'overview' %} is-active{% endif %} tag-dir-nav-link"
+            >A–Z 精简总览</a>
+            <a
+              href="{{ view_model.view_grid_url }}"
+              class="tag-seg-btn{% if view_model.view_mode == 'grid' %} is-active{% endif %} tag-dir-nav-link"
+            >分页网格</a>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  {% endif %}
+
+  {% if view_model.is_empty %}
+    <div class="tag-empty-state">
+      <p class="tag-empty-title">暂无匹配的活跃标签</p>
+      <p class="tag-empty-hint">仅统计包含至少 1 篇已发布公开内容的有效标签。</p>
+      {% if view_model.search_query or view_model.active_letter %}
+        <a href="{{ view_model.all_tags_url }}" class="ui-btn ui-btn-sm ui-btn-primary tag-dir-nav-link">返回全部标签</a>
+      {% endif %}
+    </div>
+  {% elif view_model.view_mode == "overview" %}
+    {# 方案 B 默认总览：Top 20 热门标签云 + A–Z 每字母最多 20 个精简卡片组 #}
+    {% if view_model.top_tags %}
+      <section class="tag-popular-section" aria-label="全站高频热门标签 Top 20">
+        <div class="tag-section-head">
+          <h2 class="tag-section-title">
+            {% include "includes/_ui_icon.html" with name="sparkle" %}
+            <span>全站高频热门标签 Top 20</span>
+          </h2>
+          <span class="tag-section-sub">按关联公开内容篇数降序</span>
+        </div>
+        <div class="tag-popular-cloud">
           {% for tag in view_model.top_tags %}
-            <a href="{{ tag.url }}" class="btn btn-sm btn-outline-primary rounded-pill d-inline-flex align-items-center tag-cloud-item text-decoration-none">
+            <a href="{{ tag.url }}" class="tag-cloud-item">
               <span>#{{ tag.name }}</span>
-              <span class="badge bg-primary rounded-pill ms-2">{{ tag.count }}</span>
+              <span class="tag-cloud-count">{{ tag.count }}</span>
             </a>
           {% endfor %}
         </div>
       </section>
     {% endif %}
 
-    <!-- A-Z 快速字母跳转导航栏 -->
-    <div class="tag-alphabet-nav sticky-top bg-light p-2 rounded border mb-4 d-flex flex-wrap gap-1 justify-content-center">
-      {% for letter, tags in view_model.grouped_tags.items %}
-        <a href="#tag-group-{{ letter }}" class="btn btn-sm btn-outline-secondary px-2 py-1 text-decoration-none fw-semibold">
-          {{ letter }}
-        </a>
-      {% endfor %}
-    </div>
-
-    <!-- A-Z 首字母详细分组列表 -->
-    <section class="tag-alphabet-groups">
-      {% for letter, tags in view_model.grouped_tags.items %}
-        <div class="tag-group-section mb-4 p-3 bg-white rounded border shadow-sm" id="tag-group-{{ letter }}">
-          <div class="d-flex align-items-center border-bottom pb-2 mb-3">
-            <h4 class="fw-bold text-primary mb-0 me-2">{{ letter }}</h4>
-            <small class="text-muted">({{ tags|length }} 个标签)</small>
+    <section class="tag-alphabet-groups" aria-label="按首字母精简索引">
+      {% for group in view_model.overview_groups %}
+        <div class="tag-group-section" id="tag-group-{{ group.letter }}">
+          <div class="tag-group-header">
+            <div class="tag-group-title-wrap">
+              <h3 class="tag-group-letter">{{ group.letter }}</h3>
+              <span class="tag-group-meta">
+                共 {{ group.total_count }} 个标签{% if group.has_more %}（仅展示前 {{ group.items|length }} 个）{% endif %}
+              </span>
+            </div>
           </div>
           <div class="tag-group-grid">
-            {% for tag in tags %}
+            {% for tag in group.items %}
               <div class="tag-card-wrapper" data-tag-name="{{ tag.name|lower }}">
-                <a href="{{ tag.url }}" class="tag-card-link">
-                  <span class="fw-medium text-truncate">#{{ tag.name }}</span>
-                  <span class="badge bg-light text-muted border ms-1">{{ tag.count }}</span>
+                <a href="{{ tag.url }}" class="tag-card-link" title="#{{ tag.name }}（{{ tag.count }} 篇）">
+                  <span class="tag-card-name">#{{ tag.name }}</span>
+                  <span class="tag-card-count">{{ tag.count }}</span>
                 </a>
               </div>
             {% endfor %}
           </div>
+          {% if group.has_more %}
+            <div class="tag-group-more-row">
+              <a href="{{ group.more_url }}" class="tag-group-more-link tag-dir-nav-link">
+                查看 {{ group.letter }} 开头全部 {{ group.total_count }} 个标签 &rarr;
+              </a>
+            </div>
+          {% endif %}
         </div>
       {% endfor %}
+    </section>
+  {% else %}
+    {# 单字母 / 全站分页网格 / 搜索结果分页（每页最多 60 个） #}
+    <section class="tag-flat-section" aria-label="标签分页列表">
+      <div class="tag-group-grid tag-flat-grid">
+        {% for tag in view_model.page_items %}
+          <div class="tag-card-wrapper" data-tag-name="{{ tag.name|lower }}">
+            <a href="{{ tag.url }}" class="tag-card-link" title="#{{ tag.name }}（{{ tag.count }} 篇）">
+              <span class="tag-card-name">#{{ tag.name }}</span>
+              <span class="tag-card-count">{{ tag.count }}</span>
+            </a>
+          </div>
+        {% endfor %}
+      </div>
+
+      {% if view_model.pagination.total_count > 0 %}
+        <div class="tag-pagination-wrap">
+          <div class="tag-pagination-top">
+            <span class="tag-pagination-info">
+              第 <strong>{{ view_model.pagination.start_index }}–{{ view_model.pagination.end_index }}</strong> 条，
+              共 <strong>{{ view_model.pagination.total_count }}</strong> 个标签（第 {{ view_model.pagination.current_page }}/{{ view_model.pagination.total_pages }} 页）
+              {% if view_model.pagination.is_window_capped %}
+                · 页码直跳上限 {{ view_model.pagination.max_jump_page }} 页
+              {% endif %}
+            </span>
+            <div class="tag-pagination-prevnext">
+              {% if view_model.pagination.has_previous %}
+                <a href="{{ view_model.pagination.prev_url }}" class="ui-btn ui-btn-sm ui-btn-outline tag-dir-nav-link">&larr; 上一页</a>
+              {% else %}
+                <span class="ui-btn ui-btn-sm ui-btn-outline" aria-disabled="true">&larr; 上一页</span>
+              {% endif %}
+              {% if view_model.pagination.has_next %}
+                <a href="{{ view_model.pagination.next_url }}" class="ui-btn ui-btn-sm ui-btn-outline tag-dir-nav-link">下一页 &rarr;</a>
+              {% else %}
+                <span class="ui-btn ui-btn-sm ui-btn-outline" aria-disabled="true">下一页 &rarr;</span>
+              {% endif %}
+            </div>
+          </div>
+
+          {% if view_model.pagination.total_pages > 1 %}
+            <div class="tag-pagination-bar">
+              <nav class="tag-page-numbers" aria-label="标签页码导航">
+                {% for pl in view_model.pagination.page_links %}
+                  {% if pl.number is None %}
+                    <span class="tag-page-ellipsis" aria-hidden="true">…</span>
+                  {% elif pl.is_current %}
+                    <span class="ui-btn ui-btn-sm ui-btn-primary tag-page-current" aria-current="page">{{ pl.number }}</span>
+                  {% else %}
+                    <a href="{{ pl.url }}" class="ui-btn ui-btn-sm ui-btn-outline tag-page-num-btn tag-dir-nav-link">{{ pl.number }}</a>
+                  {% endif %}
+                {% endfor %}
+              </nav>
+
+              <form method="get" action="{{ view_model.canonical_url }}" class="tag-jump-form">
+                {% if view_model.active_letter %}<input type="hidden" name="letter" value="{{ view_model.active_letter_param }}">{% endif %}
+                {% if view_model.search_query %}<input type="hidden" name="q" value="{{ view_model.search_query }}">{% endif %}
+                {% if view_model.active_sort == "name" %}<input type="hidden" name="sort" value="name">{% endif %}
+                {% if view_model.view_mode == "grid" %}<input type="hidden" name="view" value="grid">{% endif %}
+                <label class="tag-jump-label" for="tag-jump-page-input">跳至第</label>
+                <input
+                  type="number"
+                  id="tag-jump-page-input"
+                  name="page"
+                  min="1"
+                  max="{{ view_model.pagination.max_jump_page }}"
+                  value="{{ view_model.pagination.current_page }}"
+                  class="ui-input tag-jump-input"
+                >
+                <span class="tag-jump-label">页</span>
+                <button type="submit" class="ui-btn ui-btn-sm ui-btn-outline">前往</button>
+              </form>
+            </div>
+          {% endif %}
+        </div>
+      {% endif %}
     </section>
   {% endif %}
 </div>

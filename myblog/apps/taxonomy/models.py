@@ -258,7 +258,9 @@ class TagIndexPage(RoutablePageMixin, CustomBasePage):
             return JsonResponse({
                 "html": html,
                 "total_count": view_model.total_count,
-                "canonical_url": self.get_url(request),
+                "canonical_url": view_model.canonical_url or self.get_url(request),
+                "full_url": view_model.full_url or self.get_url(request),
+                "view_mode": view_model.view_mode,
             })
 
         return self.render(
