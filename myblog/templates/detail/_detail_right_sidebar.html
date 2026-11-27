@@ -1,5 +1,25 @@
 {% if detail.has_right_sidebar %}
-<aside class="detail-right-aside" aria-label="页面侧栏信息">
+<aside class="detail-right-aside" id="detail-right-aside" aria-label="页面侧栏信息">
+    <div class="detail-right-aside-header">
+        <h2 class="detail-right-heading">
+            {% include "includes/_ui_icon.html" with name="panel-right-open" %}
+            <span>页面信息</span>
+            <span class="detail-right-mobile-hint">· 作者 / 标签 / 推荐</span>
+        </h2>
+        <button
+            type="button"
+            class="detail-right-collapse-btn"
+            data-right-collapse
+            aria-expanded="true"
+            aria-controls="detail-right-body"
+            aria-label="收起右侧信息栏"
+            title="收起右侧信息栏"
+        >
+            <span class="icon-collapse">{% include "includes/_ui_icon.html" with name="panel-right-close" %}</span>
+            <span class="icon-expand">{% include "includes/_ui_icon.html" with name="panel-right-open" %}</span>
+        </button>
+    </div>
+    <div class="detail-right-body" id="detail-right-body">
     {% include "detail/_detail_author_card.html" %}
 
     {% if detail.tag_links %}
@@ -52,5 +72,6 @@
         </ul>
     </section>
     {% endif %}
+    </div>
 </aside>
 {% endif %}

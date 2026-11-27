@@ -9,6 +9,9 @@
     "use strict";
 
     var STORAGE_KEY = "myblog_detail_toc_collapsed";
+    var STORAGE_RIGHT_KEY = "myblog_detail_right_collapsed";
+    var ATTR_TOC_COLLAPSED = "data-detail-toc-collapsed";
+    var ATTR_RIGHT_COLLAPSED = "data-detail-right-collapsed";
     var cachedOcclusion = 82;
 
     function measureTopOcclusion(mobileBar) {
@@ -61,6 +64,124 @@
             });
         }
 
+        function isNarrowViewport() {
+            return window.matchMedia && window.matchMedia("(max-width: 1024px)").matches;
+        }
+
+        function navigateToHash(href) {
+            if (!href || href.charAt(0) !== "#") return;
+            var targetId = href.slice(1);
+            var targetEl = document.getElementById(targetId);
+            var navCheck = document.getElementById("nav-toggle-check");
+            if (navCheck && navCheck.checked) {
+                navCheck.checked = false;
+            }
+            var tocDialog = document.getElementById("detail-toc-dialog");
+            var tocOpenBtn = shell.querySelector("[data-toc-open]");
+            if (tocDialog && tocDialog.open) {
+                tocDialog.close();
+                if (tocOpenBtn) tocOpenBtn.setAttribute("aria-expanded", "false");
+            }
+            if (!targetEl) return;
+            var offset = measureTopOcclusion(mobileBar);
+            var prefersReduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+            if (targetId === "page-top") {
+                window.scrollTo({ top: 0, behavior: prefersReduce ? "auto" : "smooth" });
+            } else {
+                var targetTop = window.scrollY + targetEl.getBoundingClientRect().top - offset;
+                window.scrollTo({ top: Math.max(0, targetTop), behavior: prefersReduce ? "auto" : "smooth" });
+            }
+            if (window.history && typeof window.history.pushState === "function") {
+                try {
+                    window.history.pushState(null, "", "#" + targetId);
+                } catch (_e) {}
+            }
+        }
+
+        var quickLinks = Array.prototype.slice.call(shell.querySelectorAll("[data-toc-quick]"));
+        quickLinks.forEach(function (link) {
+            link.addEventListener("click", function (evt) {
+                var href = link.getAttribute("href") || "";
+                if (href.charAt(0) === "#") {
+                    evt.preventDefault();
+                    navigateToHash(href);
+                }
+            });
+        });
+
+        // A. 右侧信息栏可折叠与窄屏快捷入口（独立初始化，兼容无目录页）
+        if (shell.classList.contains("has-right")) {
+            var rightCollapseBtn = shell.querySelector("[data-right-collapse]");
+            var rightAside = document.getElementById("detail-right-aside");
+            var rightMobileJump = shell.querySelector("[data-right-mobile-jump]");
+
+            function syncRightUi() {
+                var narrow = isNarrowViewport();
+                var collapsed = narrow
+                    ? shell.classList.contains("is-mobile-right-collapsed")
+                    : shell.classList.contains("is-right-collapsed");
+                if (rightCollapseBtn) {
+                    rightCollapseBtn.setAttribute("aria-expanded", collapsed ? "false" : "true");
+                    var label = collapsed ? "展开右侧信息栏" : "收起右侧信息栏";
+                    rightCollapseBtn.setAttribute("title", label);
+                    rightCollapseBtn.setAttribute("aria-label", label);
+                }
+            }
+
+            function setDesktopRightCollapsed(collapsed, persist) {
+                shell.classList.toggle("is-right-collapsed", collapsed);
+                if (collapsed) {
+                    document.documentElement.setAttribute(ATTR_RIGHT_COLLAPSED, "1");
+                } else {
+                    document.documentElement.removeAttribute(ATTR_RIGHT_COLLAPSED);
+                }
+                if (persist) {
+                    try {
+                        localStorage.setItem(STORAGE_RIGHT_KEY, collapsed ? "1" : "0");
+                    } catch (_e) {}
+                }
+                syncRightUi();
+            }
+
+            // 桌面端恢复偏好；窄屏默认收起为单行条避免把评论顶到几屏之后
+            var initialDesktopCollapsed = false;
+            try {
+                initialDesktopCollapsed = localStorage.getItem(STORAGE_RIGHT_KEY) === "1";
+            } catch (_e) {}
+            setDesktopRightCollapsed(initialDesktopCollapsed, false);
+            shell.classList.add("is-mobile-right-collapsed");
+            syncRightUi();
+
+            if (rightCollapseBtn) {
+                rightCollapseBtn.addEventListener("click", function () {
+                    if (isNarrowViewport()) {
+                        shell.classList.toggle("is-mobile-right-collapsed");
+                        syncRightUi();
+                    } else {
+                        setDesktopRightCollapsed(!shell.classList.contains("is-right-collapsed"), true);
+                    }
+                });
+            }
+
+            if (rightMobileJump && rightAside) {
+                rightMobileJump.addEventListener("click", function () {
+                    shell.classList.remove("is-mobile-right-collapsed");
+                    syncRightUi();
+                    var navCheck = document.getElementById("nav-toggle-check");
+                    if (navCheck && navCheck.checked) {
+                        navCheck.checked = false;
+                    }
+                    var offset = measureTopOcclusion(mobileBar);
+                    var prefersReduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+                    var targetTop = window.scrollY + rightAside.getBoundingClientRect().top - offset;
+                    window.scrollTo({ top: Math.max(0, targetTop), behavior: prefersReduce ? "auto" : "smooth" });
+                });
+            }
+
+            window.addEventListener("resize", syncRightUi, { passive: true });
+        }
+
+        // B. 左侧目录大纲控制器
         if (!shell.classList.contains("has-toc")) {
             return;
         }
@@ -70,15 +191,18 @@
         var dialog = document.getElementById("detail-toc-dialog");
         var closeBtn = dialog ? dialog.querySelector("[data-toc-close]") : null;
         var tocLinks = Array.prototype.slice.call(shell.querySelectorAll("[data-toc-link]"));
-        var quickLinks = Array.prototype.slice.call(shell.querySelectorAll("[data-toc-quick]"));
         var branchToggles = Array.prototype.slice.call(shell.querySelectorAll("[data-toc-branch-toggle]"));
 
         // 1. 桌面折叠状态恢复与切换
         function setCollapsed(collapsed) {
             shell.classList.toggle("is-toc-collapsed", collapsed);
+            if (collapsed) {
+                document.documentElement.setAttribute(ATTR_TOC_COLLAPSED, "1");
+            } else {
+                document.documentElement.removeAttribute(ATTR_TOC_COLLAPSED);
+            }
             if (collapseBtn) {
                 collapseBtn.setAttribute("aria-expanded", collapsed ? "false" : "true");
-                collapseBtn.textContent = collapsed ? "☰" : "◧";
                 collapseBtn.setAttribute("title", collapsed ? "展开目录" : "收起目录");
                 collapseBtn.setAttribute("aria-label", collapsed ? "展开目录" : "收起目录");
             }
@@ -175,35 +299,8 @@
             });
         }
 
-        function navigateToHash(href) {
-            if (!href || href.charAt(0) !== "#") return;
-            var targetId = href.slice(1);
-            var targetEl = document.getElementById(targetId);
-            var navCheck = document.getElementById("nav-toggle-check");
-            if (navCheck && navCheck.checked) {
-                navCheck.checked = false;
-            }
-            if (dialog && dialog.open) {
-                closeDrawer();
-            }
-            if (!targetEl) return;
-            var offset = measureTopOcclusion(mobileBar);
-            var prefersReduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-            if (targetId === "page-top") {
-                window.scrollTo({ top: 0, behavior: prefersReduce ? "auto" : "smooth" });
-            } else {
-                var targetTop = window.scrollY + targetEl.getBoundingClientRect().top - offset;
-                window.scrollTo({ top: Math.max(0, targetTop), behavior: prefersReduce ? "auto" : "smooth" });
-            }
-            if (window.history && typeof window.history.pushState === "function") {
-                try {
-                    window.history.pushState(null, "", "#" + targetId);
-                } catch (_e) {}
-            }
-        }
-
-        // 点击目录锚点或快捷返回链接：关闭抽屉/菜单后精准定位
-        tocLinks.concat(quickLinks).forEach(function (link) {
+        // 点击目录锚点：关闭抽屉/菜单后精准定位
+        tocLinks.forEach(function (link) {
             link.addEventListener("click", function (evt) {
                 var href = link.getAttribute("href") || "";
                 if (href.charAt(0) === "#") {

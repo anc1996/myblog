@@ -6,7 +6,7 @@
 
 {% block extra_css %}
 {% include "content_blocks/includes/_block_assets_css.html" %}
-<link rel="stylesheet" type="text/css" href="{% static 'css/detail-layout.css' %}?v=20261127a">
+<link rel="stylesheet" type="text/css" href="{% static 'css/detail-layout.css' %}?v=20261127c">
 <link rel="stylesheet" type="text/css" href="{% static 'analytics/css/article-rating.css' %}?v=20261124a">
 {% block detail_extra_css %}{% endblock %}
 {% endblock %}
@@ -14,8 +14,9 @@
 {% block content %}
 <div id="page-top" class="detail-top-anchor" tabindex="-1" aria-hidden="true"></div>
 <div class="detail-shell {% if detail.has_toc %}has-toc{% else %}no-toc{% endif %} {% if detail.has_right_sidebar %}has-right{% else %}no-right{% endif %}" data-detail-shell>
-    {% if detail.has_toc %}
+    {% if detail.has_toc or detail.has_right_sidebar %}
     <div class="detail-toc-mobile-bar">
+        {% if detail.has_toc %}
         <button
             type="button"
             class="detail-toc-drawer-btn"
@@ -26,9 +27,25 @@
             {% include "includes/_ui_icon.html" with name="list" %}
             <span>目录大纲 ({{ detail.toc_items|length }})</span>
         </button>
-        <a href="#page-top" class="detail-toc-quick-btn" data-toc-quick{% if detail.is_preview or request.in_preview_panel %} target="_self"{% endif %}>↑ 顶部</a>
+        {% endif %}
+        <div class="detail-mobile-bar-actions">
+            {% if detail.has_right_sidebar %}
+            <button
+                type="button"
+                class="detail-toc-quick-btn detail-right-mobile-btn"
+                data-right-mobile-jump
+                aria-controls="detail-right-aside"
+            >
+                {% include "includes/_ui_icon.html" with name="panel-right-open" %}
+                <span>信息</span>
+            </button>
+            {% endif %}
+            <a href="#page-top" class="detail-toc-quick-btn" data-toc-quick{% if detail.is_preview or request.in_preview_panel %} target="_self"{% endif %}>↑ 顶部</a>
+        </div>
     </div>
+    {% endif %}
 
+    {% if detail.has_toc %}
     <aside class="detail-toc-aside" id="detail-toc-aside" aria-label="页面目录大纲">
         <div class="detail-toc-aside-header">
             <h2 class="detail-toc-heading">
@@ -40,11 +57,15 @@
                 class="detail-toc-collapse-btn"
                 data-toc-collapse
                 aria-expanded="true"
+                aria-controls="detail-toc-scroll"
                 aria-label="收起目录"
                 title="收起目录"
-            >◧</button>
+            >
+                <span class="icon-collapse">{% include "includes/_ui_icon.html" with name="panel-left-close" %}</span>
+                <span class="icon-expand">{% include "includes/_ui_icon.html" with name="panel-left-open" %}</span>
+            </button>
         </div>
-        <div class="detail-toc-scroll">
+        <div class="detail-toc-scroll" id="detail-toc-scroll">
             {% include "detail/_detail_toc.html" %}
         </div>
     </aside>
@@ -119,7 +140,7 @@
 
 {% block extra_js %}
 {% include "content_blocks/includes/_block_assets_js.html" %}
-<script type="text/javascript" src="{% static 'js/detail-toc.js' %}?v=20261126b" defer></script>
+<script type="text/javascript" src="{% static 'js/detail-toc.js' %}?v=20261127a" defer></script>
 <script type="text/javascript" src="{% static 'analytics/js/article-rating.js' %}?v=20261123a" defer></script>
 {% block detail_extra_js %}{% endblock %}
 {% endblock %}

@@ -150,7 +150,8 @@ class DetailShellAndTocTests(TestCase):
 
             self.assertIn("no-toc", html_text)
             self.assertNotIn("detail-toc-aside", html_text)
-            self.assertNotIn("detail-toc-mobile-bar", html_text)
+            self.assertNotIn("data-toc-open", html_text)
+            self.assertNotIn("detail-toc-dialog", html_text)
             self.assertIn('<span class="tag-pill">#PlainTag</span>', html_text)
         finally:
             for tp in existing_tags_pages:
@@ -357,3 +358,65 @@ class DetailShellAndTocTests(TestCase):
         self.assertIn('id="listing-filter-form"', idx_html)
         self.assertIn('data-ui-select', idx_html)
         self.assertIn('data-ui-date="single"', idx_html)
+
+    def test_detail_right_sidebar_collapsible_and_fullscreen_reading_hygiene(self):
+        """全站详情页支持右侧信息栏收起、无目录页移动栏入口、双 SVG 切换与零内联样式/裸色值守卫"""
+        blog_with_toc = BlogPage(
+            title="右栏可收起测试文章",
+            slug=f"right-col-toc-{uuid4().hex[:6]}",
+            authored_on=date(2026, 11, 27),
+            body=[("markdown", "## 第一节\n正文内容")],
+        )
+        self.home.add_child(instance=blog_with_toc)
+        blog_with_toc.tags.add("ArchTag")
+        blog_with_toc.save_revision().publish()
+        self.created_pages.append(blog_with_toc)
+
+        resp_toc = blog_with_toc.serve(self.factory.get(blog_with_toc.url_path))
+        resp_toc.render()
+        html_toc = resp_toc.content.decode("utf-8")
+        self.assertIn("has-toc has-right", html_toc)
+        self.assertIn('data-toc-collapse', html_toc)
+        self.assertIn('data-right-collapse', html_toc)
+        self.assertIn('aria-controls="detail-right-body"', html_toc)
+        self.assertIn('id="detail-right-aside"', html_toc)
+        self.assertIn('id="detail-right-body"', html_toc)
+        self.assertIn('data-right-mobile-jump', html_toc)
+        self.assertIn('myblog_detail_right_collapsed', html_toc)
+        self.assertNotIn("◧", html_toc)
+
+        # 无目录但有右侧栏的页面仍保留移动快捷栏中的「信息」跳转入口
+        blog_no_toc = BlogPage(
+            title="无目录右栏测试文章",
+            slug=f"right-col-notoc-{uuid4().hex[:6]}",
+            authored_on=date(2026, 11, 27),
+            body=[("markdown", "没有标题的纯段落内容")],
+        )
+        self.home.add_child(instance=blog_no_toc)
+        blog_no_toc.tags.add("RightOnlyTag")
+        blog_no_toc.save_revision().publish()
+        self.created_pages.append(blog_no_toc)
+
+        resp_notoc = blog_no_toc.serve(self.factory.get(blog_no_toc.url_path))
+        resp_notoc.render()
+        html_notoc = resp_notoc.content.decode("utf-8")
+        self.assertIn("no-toc has-right", html_notoc)
+        self.assertIn("detail-toc-mobile-bar", html_notoc)
+        self.assertNotIn("data-toc-open", html_notoc)
+        self.assertIn("data-right-mobile-jump", html_notoc)
+
+        # 模板零内联样式 & CSS 零 transition: all / 零裸 #hex
+        for rel_tpl in (
+            "myblog/templates/detail/detail_shell.html",
+            "myblog/templates/detail/_detail_right_sidebar.html",
+            "myblog/templates/includes/_ui_icon.html",
+        ):
+            tpl_txt = (PROJECT_ROOT / rel_tpl).read_text(encoding="utf-8")
+            self.assertNotIn("style=", tpl_txt, rel_tpl)
+            self.assertNotIn("<style", tpl_txt.lower(), rel_tpl)
+
+        detail_css = (PROJECT_ROOT / "myblog/static/css/detail-layout.css").read_text(encoding="utf-8")
+        self.assertNotIn("transition: all", detail_css)
+        detail_js = (PROJECT_ROOT / "myblog/static/js/detail-toc.js").read_text(encoding="utf-8")
+        self.assertIn("myblog_detail_right_collapsed", detail_js)
+        self.assertIn("has-right", detail_js)

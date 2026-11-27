@@ -137,6 +137,10 @@
                     reset:function(){return setMode("reset");}
                 };
                 sync({silent:true});
+                try{
+                    if(window.localStorage.getItem("myblog_detail_toc_collapsed")==="1"){root.setAttribute("data-detail-toc-collapsed","1");}
+                    if(window.localStorage.getItem("myblog_detail_right_collapsed")==="1"){root.setAttribute("data-detail-right-collapsed","1");}
+                }catch(_e){}
             })();
         </script>
         <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%231d4ed8'/><path d='M9 22V10l7 7 7-7v12' fill='none' stroke='%23ffffff' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/></svg>" />
