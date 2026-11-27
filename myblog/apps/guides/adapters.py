@@ -183,12 +183,26 @@ class GuidePageAdapter:
             "tags": tags,
         }
 
-    def serialize_api_detail(self, page: Any) -> dict[str, Any]:
+    def serialize_api_detail(self, page: Any, request: Any = None) -> dict[str, Any]:
+        from django.utils.safestring import mark_safe
+        from wagtail.models import Page as WagtailPage
+        from content_blocks.blocks.rich_text import sanitize_block_value_for_public
+        from content_lifecycle.public_access import filter_public_pages, resolve_public_site_for_request
+
+        block_context = {"request": request, "page": page, "is_preview": False}
         blocks_data = []
         steps_toc = []
+        rendered_html_parts = []
         for b in page.body:
             val = b.block.get_prep_value(b.value) if hasattr(b.block, "get_prep_value") else b.value
+            val = sanitize_block_value_for_public(val, context=block_context)
             blocks_data.append({"type": b.block_type, "value": val})
+            if hasattr(b.block, "render_clean"):
+                chunk = b.block.render_clean(b.value, context=block_context).html
+            else:
+                chunk = b.render(context=block_context)
+            if chunk:
+                rendered_html_parts.append(chunk)
             if b.block_type == "step":
                 num = str(val.get("step_number") or len(steps_toc) + 1)
                 steps_toc.append({
@@ -211,11 +225,22 @@ class GuidePageAdapter:
                 })
 
         tags_data = [{"id": t.id, "name": t.name, "slug": t.slug} for t in page.tags.all()]
-        related_data = [
-            {"id": r.related_page.id, "title": r.related_page.title, "url": r.related_page.url}
-            for r in page.related_guides.select_related("related_page").all()
-            if r.related_page.live and not getattr(r.related_page.specific, "is_recycled", False)
+        rel_ids = [
+            int(r.related_page_id)
+            for r in page.related_guides.all()
+            if getattr(r, "related_page_id", None) is not None
         ]
+        ordered_rel = []
+        if rel_ids:
+            rel_map = {p.id: p for p in WagtailPage.objects.filter(id__in=rel_ids)}
+            ordered_rel = [rel_map[pid] for pid in rel_ids if pid in rel_map]
+        rel_site = resolve_public_site_for_request(request, page=page)
+        allowed_rel = filter_public_pages(ordered_rel, site=rel_site, request=request) if rel_site is not None else []
+        related_data = []
+        for p in allowed_rel:
+            p_url = (p.get_url(request=request) if hasattr(p, "get_url") else p.url) or ""
+            if p_url:
+                related_data.append({"id": p.id, "title": p.title, "url": p_url})
 
         cover_data = None
         if page.featured_image:
@@ -226,11 +251,12 @@ class GuidePageAdapter:
                 "url": f"/media-gateway/image/{page.featured_image.public_id}/",
             }
 
+        page_url = (page.get_url(request=request) if hasattr(page, "get_url") else page.url) or page.url
         return {
             "id": page.id,
             "title": page.title,
             "slug": page.slug,
-            "url": page.url,
+            "url": page_url,
             "topic": {"name": page.topic.name, "slug": page.topic.slug} if page.topic else None,
             "difficulty": page.difficulty,
             "difficulty_label": page.get_difficulty_display(),
@@ -245,7 +271,7 @@ class GuidePageAdapter:
             "tags": tags_data,
             "steps_toc": steps_toc,
             "blocks": blocks_data,
-            "safe_html": str(page.body),
+            "safe_html": mark_safe("\n".join(rendered_html_parts)),
             "related_guides": related_data,
         }
 

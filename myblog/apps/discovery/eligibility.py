@@ -9,18 +9,18 @@
 """
 
 import logging
-from django.db.models import Exists, OuterRef, Q, QuerySet
-from wagtail.models import Page, PageViewRestriction
-from content_lifecycle.models import RecycleEntry
+from django.db.models import Exists, OuterRef, QuerySet
+from wagtail.models import Page, Site
+from content_lifecycle.public_access import get_public_blocked_path_prefixes
 
 logger = logging.getLogger(__name__)
 
 
-def apply_public_eligibility_filter(candidates: QuerySet) -> QuerySet:
+def apply_public_eligibility_filter(candidates: QuerySet, *, site: Site | None = None) -> QuerySet:
     """
     对 PublishedSearchDocument 候选集施加严格的公开资格过滤。
     仅保留当前在 PostgreSQL 中 live=True、非别名、路径与深度匹配的正式发布页面，
-    并剔除被已回收或私有受限祖先阻断的内容。
+    并剔除被已回收、未发布祖先或私有受限祖先阻断的内容。
     """
     # 1. 联合校验当前 Wagtail Page 实体状态与生效版本 (BLK-02)
     valid_page_exists = Page.objects.filter(
@@ -33,25 +33,8 @@ def apply_public_eligibility_filter(candidates: QuerySet) -> QuerySet:
     )
     qs = candidates.filter(index_generation=1).filter(Exists(valid_page_exists))
 
-    # 2. 检查处于受控回收状态的页面路径 (BLK-02)
-    recycled_page_ids = RecycleEntry.objects.filter(
-        batch__status__in=["recycled", "restoring"]
-    ).values("page_id")
-    recycled_paths = list(
-        Page.objects.filter(pk__in=recycled_page_ids).values_list("path", flat=True)
-    )
-    if recycled_paths:
-        for rp in recycled_paths:
-            if rp:
-                qs = qs.exclude(root_path__startswith=rp)
-
-    # 3. 检查私有权限限制 (PageViewRestriction) 祖先节点路径
-    restricted_paths = list(
-        PageViewRestriction.objects.values_list("page__path", flat=True)
-    )
-    if restricted_paths:
-        for rp in restricted_paths:
-            if rp:
-                qs = qs.exclude(root_path__startswith=rp)
+    # 2. 统一复用 content_lifecycle.public_access 的去重阻断前缀（受限/回收/未发布祖先）
+    for bad_prefix in get_public_blocked_path_prefixes(site=site):
+        qs = qs.exclude(root_path__startswith=bad_prefix)
 
     return qs

@@ -3,6 +3,7 @@
 
 连接目标由运行时环境变量 / CLI 传入，绝不硬编码任何密码或私钥：
 - WB3_SSH_HOST, WB3_SSH_PORT, WB3_SSH_USER, WB3_SSH_PASSWORD
+- WB3_SSH_KNOWN_HOSTS（默认 ~/.ssh/known_hosts，强制启用 StrictHostKeyChecking=yes）
 - WB3_REMOTE_DIR, WB3_REMOTE_PYTHON
 
 远程脚本全程严格只读（仅 ORM 查询、MongoDB find() 与 MinIO get_object()），
@@ -20,6 +21,8 @@ import tarfile
 from pathlib import Path
 from typing import Any
 
+SNAPSHOT_SCHEMA_VERSION = 2
+
 _REMOTE_READONLY_DUMP_SCRIPT = r"""
 import hashlib, json, os, sys
 from pathlib import Path
@@ -32,13 +35,15 @@ django.setup()
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from django.contrib.contenttypes.models import ContentType
+from django.db.models import Q
 from pymongo import MongoClient
 from taggit.models import Tag, TaggedItem
 from wagtail.contrib.redirects.models import Redirect
 from wagtail.documents import get_document_model
 from wagtail.images import get_image_model
-from wagtail.models import Site
+from wagtail.models import PageViewRestriction, Site
 
 from blog.models import (
     Author,
@@ -111,6 +116,39 @@ users_data = [
 
 site = Site.objects.filter(is_default_site=True).first() or Site.objects.first()
 home = HomePage.objects.first()
+
+# 全站页面访问限制元信息（绝不导出明文密码或口令哈希）
+restrictions_data = []
+referenced_group_ids = set()
+for pvr in PageViewRestriction.objects.select_related("page").prefetch_related("groups").order_by("id"):
+    gnames = []
+    for g in pvr.groups.all():
+        referenced_group_ids.add(g.id)
+        if g.name:
+            gnames.append(g.name)
+    gnames = sorted(set(gnames))
+    page_obj = getattr(pvr, "page", None)
+    restrictions_data.append({
+        "id": pvr.id,
+        "page_id": pvr.page_id,
+        "page_path": getattr(page_obj, "path", "") or "",
+        "page_url_path": getattr(page_obj, "url_path", "") or "",
+        "restriction_type": str(pvr.restriction_type),
+        "group_names": gnames,
+        "has_password": bool(getattr(pvr, "password", None)),
+    })
+
+# 导出非空（有成员）或被 PageViewRestriction 引用的用户组名列表
+group_q = Q(user__isnull=False)
+if referenced_group_ids:
+    group_q |= Q(id__in=referenced_group_ids)
+groups_data = sorted(
+    {
+        name
+        for name in Group.objects.filter(group_q).distinct().values_list("name", flat=True)
+        if name
+    }
+)
 
 nav = NavigationSettings.objects.first()
 social_links = []
@@ -209,6 +247,8 @@ for idx in BlogIndexPage.objects.order_by("path"):
         "seo_title": idx.seo_title or "",
         "search_description": idx.search_description or "",
         "live": bool(idx.live),
+        "has_unpublished_changes": bool(getattr(idx, "has_unpublished_changes", False)),
+        "live_revision_id": getattr(idx, "live_revision_id", None),
         "date": idx.date.isoformat() if getattr(idx, "date", None) else None,
         "first_published_at": _dt(idx.first_published_at),
         "last_published_at": _dt(idx.last_published_at),
@@ -217,38 +257,128 @@ for idx in BlogIndexPage.objects.order_by("path"):
         "intro": idx.intro or "",
     })
 
+def _parse_revision_content(rev):
+    if rev is None:
+        return {}
+    content = getattr(rev, "content", None)
+    if isinstance(content, dict):
+        return content
+    if isinstance(content, str):
+        try:
+            parsed = json.loads(content)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            pass
+    return {}
+
+def _fetch_mongo_body_version(vid):
+    if not vid:
+        return None
+    return (
+        mdb["content_body_versions"].find_one({"body_version_id": vid})
+        or mdb["content_body_versions"].find_one({"_id": vid})
+    )
+
+def _fetch_legacy_blog_content(mongo_content_id):
+    if not mongo_content_id:
+        return None
+    from bson import ObjectId
+    try:
+        oid = ObjectId(str(mongo_content_id))
+        return mdb["blog_content"].find_one({"_id": oid})
+    except Exception:
+        return None
+
 blog_pages_data = []
 for bp in BlogPage.objects.order_by("path"):
     ps = pub_states.get(bp.id)
     body_blocks = None
     body_source = None
+    published_body_unresolved = False
+    is_live = bool(bp.live)
+    has_unpublished = bool(getattr(bp, "has_unpublished_changes", False))
+    live_rev_id = getattr(bp, "live_revision_id", None)
     pub_vid = getattr(ps, "published_body_version_id", None) or getattr(ps, "published_version_id", None) if ps else None
-    if pub_vid:
-        doc = mdb["content_body_versions"].find_one({"body_version_id": pub_vid}) or mdb["content_body_versions"].find_one({"_id": pub_vid})
-        if doc:
-            body_blocks = doc.get("body")
-            body_source = "content_body_versions"
-    if body_blocks is None:
+
+    if is_live:
+        # 已发布页面严格只取正式发布版本，绝不回退读取 MongoDB 最新草稿
+        if pub_vid:
+            doc = _fetch_mongo_body_version(pub_vid)
+            if doc and doc.get("body") is not None:
+                body_blocks = doc.get("body")
+                body_source = "published_content_body_versions"
+
+        if body_blocks is None and live_rev_id:
+            live_rev = getattr(bp, "live_revision", None)
+            rev_content = _parse_revision_content(live_rev)
+            rev_vid = rev_content.get("published_body_version_id") or rev_content.get("body_version_id")
+            if rev_vid:
+                doc = _fetch_mongo_body_version(rev_vid)
+                if doc and doc.get("body") is not None:
+                    body_blocks = doc.get("body")
+                    body_source = "live_revision_content_body_versions"
+            if body_blocks is None and rev_content.get("mongo_content_id"):
+                old_doc = _fetch_legacy_blog_content(rev_content.get("mongo_content_id"))
+                if old_doc and old_doc.get("body") is not None:
+                    body_blocks = old_doc.get("body")
+                    body_source = "live_revision_blog_content"
+            if body_blocks is None and live_rev is not None:
+                try:
+                    live_obj = live_rev.as_object()
+                    if hasattr(live_obj, "body") and live_obj.body is not None:
+                        cand = live_obj.body.get_prep_value() if hasattr(live_obj.body, "get_prep_value") else []
+                        if cand:
+                            body_blocks = cand
+                            body_source = "live_revision_inline"
+                except Exception:
+                    pass
+
+        if body_blocks is None and not has_unpublished and getattr(bp, "mongo_content_id", None):
+            old_doc = _fetch_legacy_blog_content(getattr(bp, "mongo_content_id", None))
+            if old_doc and old_doc.get("body") is not None:
+                body_blocks = old_doc.get("body")
+                body_source = "blog_content_clean_live"
+
+        if body_blocks is None and not has_unpublished:
+            cand = bp.body.get_prep_value() if hasattr(bp.body, "get_prep_value") else []
+            if cand:
+                body_blocks = cand
+                body_source = "mysql_inline_clean_live"
+
+        if body_blocks is None:
+            body_blocks = []
+            body_source = "missing_published_body"
+            published_body_unresolved = True
+    else:
+        # 草稿页面（live=False）允许读取最新草稿版本，但快照中明确标注 live=False
         doc = mdb["content_body_versions"].find_one(
             {"aggregate_type": "blog.BlogPage", "aggregate_id": str(bp.id)},
             sort=[("_id", -1)],
         ) or mdb["content_body_versions"].find_one({"page_id": bp.id}, sort=[("_id", -1)])
-        if doc:
+        if doc and doc.get("body") is not None:
             body_blocks = doc.get("body")
-            body_source = "content_body_versions_fallback"
-    if body_blocks is None and getattr(bp, "mongo_content_id", None):
-        from bson import ObjectId
-        try:
-            oid = ObjectId(str(bp.mongo_content_id))
-            old_doc = mdb["blog_content"].find_one({"_id": oid})
-            if old_doc:
+            body_source = "draft_content_body_versions"
+        if body_blocks is None and getattr(bp, "mongo_content_id", None):
+            old_doc = _fetch_legacy_blog_content(getattr(bp, "mongo_content_id", None))
+            if old_doc and old_doc.get("body") is not None:
                 body_blocks = old_doc.get("body")
-                body_source = "blog_content"
-        except Exception:
-            pass
-    if body_blocks is None:
-        body_blocks = bp.body.get_prep_value() if hasattr(bp.body, "get_prep_value") else []
-        body_source = "mysql_inline"
+                body_source = "draft_blog_content"
+        if body_blocks is None:
+            latest_rev = bp.get_latest_revision() if hasattr(bp, "get_latest_revision") else None
+            if latest_rev is not None:
+                try:
+                    latest_obj = latest_rev.as_object()
+                    if hasattr(latest_obj, "body") and latest_obj.body is not None:
+                        cand = latest_obj.body.get_prep_value() if hasattr(latest_obj.body, "get_prep_value") else []
+                        if cand:
+                            body_blocks = cand
+                            body_source = "draft_latest_revision"
+                except Exception:
+                    pass
+        if body_blocks is None:
+            body_blocks = bp.body.get_prep_value() if hasattr(bp.body, "get_prep_value") else []
+            body_source = "draft_mysql_inline"
 
     author_ids = []
     if hasattr(bp, "authors"):
@@ -276,7 +406,11 @@ for bp in BlogPage.objects.order_by("path"):
         "show_in_menus": bool(bp.show_in_menus),
         "seo_title": bp.seo_title or "",
         "search_description": bp.search_description or "",
-        "live": bool(bp.live),
+        "live": is_live,
+        "has_unpublished_changes": has_unpublished,
+        "live_revision_id": live_rev_id,
+        "published_body_version_id": str(pub_vid) if pub_vid else None,
+        "published_body_unresolved": published_body_unresolved,
         "date": bp.date.isoformat() if getattr(bp, "date", None) else None,
         "first_published_at": _dt(bp.first_published_at),
         "last_published_at": _dt(bp.last_published_at),
@@ -338,6 +472,7 @@ for rd in Redirect.objects.order_by("id"):
     })
 
 snapshot = {
+    "schema_version": 2,
     "source": "wagtailblog3@192.168.20.2",
     "site": {
         "site_name": site.site_name if site else "我的博客",
@@ -346,6 +481,8 @@ snapshot = {
         "home_url_path": home.url_path if home else "/welcome/",
     },
     "users": users_data,
+    "groups": groups_data,
+    "page_view_restrictions": restrictions_data,
     "social_links": social_links,
     "authors": authors_data,
     "categories": categories_data,
@@ -361,7 +498,10 @@ snapshot = {
     "redirects": redirects_data,
 }
 (OUT_DIR / "snapshot.json").write_text(json.dumps(snapshot, ensure_ascii=False), encoding="utf-8")
-print(json.dumps({
+summary_payload = {
+    "schema_version": 2,
+    "groups": len(groups_data),
+    "page_view_restrictions": len(restrictions_data),
     "index_pages": len(index_pages_data),
     "blog_pages": len(blog_pages_data),
     "images": len(images_data),
@@ -370,8 +510,57 @@ print(json.dumps({
     "comments": len(comments_data),
     "page_views": len(pv_data),
     "redirects": len(redirects_data),
-}, ensure_ascii=False))
+}
+(OUT_DIR / "export_summary.json").write_text(json.dumps(summary_payload, ensure_ascii=False), encoding="utf-8")
 """
+
+
+def resolve_ssh_known_hosts(ssh_known_hosts: str | Path | None = None) -> str:
+    """解析 SSH known_hosts 路径，默认使用 ~/.ssh/known_hosts，严禁退化到 /dev/null。"""
+    raw = str(ssh_known_hosts).strip() if ssh_known_hosts is not None else ""
+    if not raw:
+        raw = os.environ.get("WB3_SSH_KNOWN_HOSTS", "").strip()
+    if not raw:
+        raw = str(Path.home() / ".ssh" / "known_hosts")
+    resolved = str(Path(raw).expanduser())
+    if resolved.lower() in {"/dev/null", "nul", "none"}:
+        raise ValueError("ssh_known_hosts 不允许指向 /dev/null，必须提供真实主机指纹文件。")
+    return resolved
+
+
+def build_ssh_command(
+    *,
+    ssh_host: str,
+    ssh_port: int,
+    ssh_user: str,
+    ssh_known_hosts: str | Path | None = None,
+) -> list[str]:
+    """构造强制主机指纹核验（StrictHostKeyChecking=yes）的 SSH 命令。"""
+    known_hosts_path = resolve_ssh_known_hosts(ssh_known_hosts)
+    return [
+        "sshpass", "-e", "ssh",
+        "-o", "StrictHostKeyChecking=yes",
+        "-o", f"UserKnownHostsFile={known_hosts_path}",
+        "-p", str(int(ssh_port)),
+        f"{ssh_user}@{ssh_host}",
+    ]
+
+
+def build_remote_export_command(*, remote_dir: str, remote_python: str) -> str:
+    """
+    构造单次 SSH 远端只读导出并流式打包回传命令：
+    - 通过 mktemp -d 创建独立随机临时目录，避免固定 /tmp 路径竞态或残留；
+    - 通过 trap 在正常结束或异常中断时无条件清理临时目录；
+    - 将远端 Python stdout 重定向至 stderr，保证 stdout 仅承载纯净 tar.gz 流。
+    """
+    return (
+        "set -euo pipefail; "
+        'TMPDIR=$(mktemp -d /tmp/wb3_readonly_export.XXXXXX); '
+        'trap \'rm -rf "$TMPDIR"\' EXIT INT TERM; '
+        f"cd {shlex.quote(remote_dir)}; "
+        f"{shlex.quote(remote_python)} - \"$TMPDIR\" >&2; "
+        'tar -C "$TMPDIR" -czf - .'
+    )
 
 
 def export_production_snapshot(
@@ -383,55 +572,51 @@ def export_production_snapshot(
     ssh_password: str,
     remote_dir: str,
     remote_python: str,
+    ssh_known_hosts: str | Path | None = None,
 ) -> dict[str, Any]:
     """
     在远端执行只读导出并将 snapshot.json 与 blobs 打包回传至本地 out_dir，
-    随后清理远端 /tmp 临时目录并逐文件校验 SHA-256。
+    通过 mktemp -d + trap 保障远端临时目录自动清理，并逐文件校验 SHA-256。
     """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    remote_tmp = "/tmp/wb3_readonly_export"
     tar_local = out_dir / "wb3_snapshot.tar.gz"
+
+    known_hosts_path = resolve_ssh_known_hosts(ssh_known_hosts)
+    if not Path(known_hosts_path).is_file():
+        raise FileNotFoundError(
+            f"SSH known_hosts 文件不存在：{known_hosts_path}。"
+            "请先核验远端主机公钥并写入 known_hosts，或通过 --ssh-known-hosts 指定路径。"
+        )
 
     env = os.environ.copy()
     env["SSHPASS"] = ssh_password
-    ssh_base = [
-        "sshpass", "-e", "ssh",
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null",
-        "-p", str(int(ssh_port)),
-        f"{ssh_user}@{ssh_host}",
-    ]
-
-    # 1. 远端只读导出到 /tmp/wb3_readonly_export
-    remote_cmd = (
-        f"rm -rf {shlex.quote(remote_tmp)} && mkdir -p {shlex.quote(remote_tmp)} && "
-        f"cd {shlex.quote(remote_dir)} && "
-        f"{shlex.quote(remote_python)} - {shlex.quote(remote_tmp)}"
+    ssh_base = build_ssh_command(
+        ssh_host=ssh_host,
+        ssh_port=ssh_port,
+        ssh_user=ssh_user,
+        ssh_known_hosts=known_hosts_path,
     )
-    proc = subprocess.run(
-        ssh_base + [remote_cmd],
-        input=_REMOTE_READONLY_DUMP_SCRIPT,
-        text=True,
-        capture_output=True,
-        env=env,
-        check=False,
+    remote_cmd = build_remote_export_command(
+        remote_dir=remote_dir,
+        remote_python=remote_python,
     )
-    if proc.returncode != 0:
-        raise RuntimeError(f"Remote read-only export failed: {proc.stderr.strip()}")
 
-    # 2. 流式打包回传并立即清理远端临时目录
-    stream_cmd = f"tar -C {shlex.quote(remote_tmp)} -czf - . && rm -rf {shlex.quote(remote_tmp)}"
+    # 单次安全 SSH 会话完成只读导出、流式打包回传与 trap 自动清理远端临时目录
     with tar_local.open("wb") as fp:
         pull_proc = subprocess.run(
-            ssh_base + [stream_cmd],
+            ssh_base + [remote_cmd],
+            input=_REMOTE_READONLY_DUMP_SCRIPT.encode("utf-8"),
             stdout=fp,
             stderr=subprocess.PIPE,
             env=env,
             check=False,
         )
     if pull_proc.returncode != 0:
-        raise RuntimeError(f"Snapshot transfer failed: {pull_proc.stderr.decode('utf-8', 'replace')}")
+        tar_local.unlink(missing_ok=True)
+        raise RuntimeError(
+            f"Remote read-only export/transfer failed: {pull_proc.stderr.decode('utf-8', 'replace').strip()}"
+        )
 
     with tarfile.open(tar_local, "r:gz") as tf:
         tf.extractall(out_dir, filter="data")
@@ -439,8 +624,13 @@ def export_production_snapshot(
 
     snap_path = out_dir / "snapshot.json"
     snapshot = json.loads(snap_path.read_text(encoding="utf-8"))
+    if int(snapshot.get("schema_version") or 0) < SNAPSHOT_SCHEMA_VERSION:
+        raise ValueError(
+            f"Exported snapshot schema_version={snapshot.get('schema_version')} "
+            f"is lower than required {SNAPSHOT_SCHEMA_VERSION}."
+        )
 
-    # 3. 本地校验所有已下载对象的字节数与 SHA-256
+    # 本地校验所有已下载对象的字节数与 SHA-256
     verified_blobs = 0
     for group_key in ("images", "documents", "media"):
         for row in snapshot.get(group_key, []):
@@ -456,8 +646,26 @@ def export_production_snapshot(
                     raise ValueError(f"Checksum mismatch for blob {b['local_rel_path']}")
                 verified_blobs += 1
 
+    summary_file = out_dir / "export_summary.json"
+    if summary_file.is_file():
+        summary = json.loads(summary_file.read_text(encoding="utf-8"))
+    else:
+        summary = {
+            "schema_version": snapshot.get("schema_version"),
+            "groups": len(snapshot.get("groups", [])),
+            "page_view_restrictions": len(snapshot.get("page_view_restrictions", [])),
+            "index_pages": len(snapshot.get("index_pages", [])),
+            "blog_pages": len(snapshot.get("blog_pages", [])),
+            "images": len(snapshot.get("images", [])),
+            "documents": len(snapshot.get("documents", [])),
+            "media": len(snapshot.get("media", [])),
+            "comments": len(snapshot.get("comments", [])),
+            "page_views": len(snapshot.get("page_views", [])),
+            "redirects": len(snapshot.get("redirects", [])),
+        }
+
     return {
         "snapshot_path": str(snap_path),
         "verified_blobs": verified_blobs,
-        "summary": json.loads(proc.stdout.strip().splitlines()[-1]),
+        "summary": summary,
     }

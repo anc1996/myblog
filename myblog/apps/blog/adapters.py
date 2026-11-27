@@ -166,11 +166,33 @@ class BlogPageAdapter:
             "tags": tags,
         }
 
-    def serialize_api_detail(self, page: Any) -> dict[str, Any]:
+    def serialize_api_detail(self, page: Any, request: Any = None) -> dict[str, Any]:
+        from django.utils.safestring import mark_safe
+        from content_blocks.blocks.rich_text import sanitize_block_value_for_public
+
+        block_context = {"request": request, "page": page, "is_preview": False}
         blocks_data = []
+        rendered_html_parts = []
         for b in page.body:
             val = b.block.get_prep_value(b.value) if hasattr(b.block, "get_prep_value") else b.value
+            val = sanitize_block_value_for_public(val, context=block_context)
             blocks_data.append({"type": b.block_type, "value": val})
+            if hasattr(b.block, "render_clean"):
+                chunk = b.block.render_clean(b.value, context=block_context).html
+            else:
+                chunk = b.render(context=block_context)
+            if chunk:
+                rendered_html_parts.append(chunk)
+
+        intro_html_parts = []
+        if page.intro:
+            for ib in page.intro:
+                if hasattr(ib.block, "render_clean"):
+                    ichunk = ib.block.render_clean(ib.value, context=block_context).html
+                else:
+                    ichunk = ib.render(context=block_context)
+                if ichunk:
+                    intro_html_parts.append(ichunk)
 
         authors_data = []
         from people.models import extract_person_bio_text
@@ -197,18 +219,19 @@ class BlogPageAdapter:
                 "height": page.featured_image.height,
             }
 
+        page_url = (page.get_url(request=request) if hasattr(page, "get_url") else page.url) or page.url
         return {
             "id": page.id,
             "title": page.title,
             "slug": page.slug,
-            "url": page.url,
+            "url": page_url,
             "authored_on": page.authored_on.strftime("%Y-%m-%d") if page.authored_on else None,
-            "intro": str(page.intro) if page.intro else "",
+            "intro": "\n".join(intro_html_parts),
             "featured_image": cover_data,
             "authors": authors_data,
             "tags": tags_data,
             "blocks": blocks_data,
-            "safe_html": str(page.body),
+            "safe_html": mark_safe("\n".join(rendered_html_parts)),
         }
 
 

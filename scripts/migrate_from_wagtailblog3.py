@@ -32,17 +32,21 @@ if str(ROOT_DIR) not in sys.path:
 def main() -> int:
     parser = argparse.ArgumentParser(description="wagtailblog3 -> myblog 只读抽取与幂等迁移工具")
     parser.add_argument("--snapshot-dir", default=str(ROOT_DIR / "output" / "etl_wagtailblog3"), help="本地快照目录（默认 output/etl_wagtailblog3）")
-    parser.add_argument("--batch-id", default="wb3_v1", help="幂等批次前缀（默认 wb3_v1）")
+    parser.add_argument("--batch-id", default="wb3_v2", help="幂等批次前缀（默认 wb3_v2；历史批次如 wb3_v1 仅支持只读 --reconcile）")
     parser.add_argument("--export", action="store_true", help="从远端生产库执行只读快照导出")
     parser.add_argument("--dry-run", action="store_true", help="仅预检转换与校验，不写入目标库")
-    parser.add_argument("--apply", action="store_true", help="执行幂等落库（拒绝写 myblog_dev，除非传 --allow-dev）")
+    parser.add_argument("--apply", action="store_true", help="执行幂等落库（强制三端目标隔离，严禁写入 myblog_dev/旧站库/本地文件存储）")
     parser.add_argument("--reconcile", action="store_true", help="执行目标库、MongoDB 与 RustFS 实体对账")
-    parser.add_argument("--allow-dev", action="store_true", help="显式允许写入 myblog_dev（默认禁止）")
     parser.add_argument("--include-test-pages", action="store_true", help="连同源库 测试页(id=526) 分支一并迁入")
     parser.add_argument("--ssh-host", default=os.environ.get("WB3_SSH_HOST", "192.168.20.2"))
     parser.add_argument("--ssh-port", type=int, default=int(os.environ.get("WB3_SSH_PORT", "22")))
     parser.add_argument("--ssh-user", default=os.environ.get("WB3_SSH_USER", "root"))
     parser.add_argument("--ssh-password", default=os.environ.get("WB3_SSH_PASSWORD", ""))
+    parser.add_argument(
+        "--ssh-known-hosts",
+        default=os.environ.get("WB3_SSH_KNOWN_HOSTS", ""),
+        help="SSH known_hosts 文件路径（默认 ~/.ssh/known_hosts，强制 StrictHostKeyChecking=yes）",
+    )
     parser.add_argument("--remote-dir", default=os.environ.get("WB3_REMOTE_DIR", "/home/source/Django/wagtail/wagtailblog3"))
     parser.add_argument("--remote-python", default=os.environ.get("WB3_REMOTE_PYTHON", "/root/anaconda3/envs/wagtailblog/bin/python"))
     args = parser.parse_args()
@@ -64,6 +68,7 @@ def main() -> int:
             ssh_password=ssh_pwd,
             remote_dir=args.remote_dir,
             remote_python=args.remote_python,
+            ssh_known_hosts=args.ssh_known_hosts or None,
         )
 
     if any((args.dry_run, args.apply, args.reconcile)):
@@ -80,7 +85,6 @@ def main() -> int:
             rep = apply_snapshot(
                 snap_dir,
                 batch_id=args.batch_id,
-                allow_dev=args.allow_dev,
                 include_test_pages=args.include_test_pages,
             )
             reports["apply"] = rep

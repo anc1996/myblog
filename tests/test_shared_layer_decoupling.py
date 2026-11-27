@@ -122,6 +122,9 @@ class SharedLayerDecouplingAstGuardTests(TestCase):
 
     def test_generic_content_registry_api_endpoints(self):
         """通用 /api/v1/content/<type_slug>/ 与详情接口可无缝服务已注册页面类型"""
+        from django.test import Client
+
+        client = Client(HTTP_HOST="localhost")
         home = HomePage.objects.first()
         if not home:
             root = Page.get_first_root_node() or Page.add_root(title="Root")
@@ -139,21 +142,24 @@ class SharedLayerDecouplingAstGuardTests(TestCase):
         home.add_child(instance=post)
         post.save_revision().publish()
 
-        resp_list = self.client.get("/api/v1/content/blog/")
+        resp_list = client.get("/api/v1/content/blog/")
         self.assertEqual(resp_list.status_code, 200)
         slugs = [it["slug"] for it in resp_list.json()["items"]]
         self.assertIn(post.slug, slugs)
 
-        resp_detail = self.client.get(f"/api/v1/content/blog/{post.slug}/")
+        resp_detail = client.get(f"/api/v1/content/blog/{post.slug}/")
         self.assertEqual(resp_detail.status_code, 200)
         self.assertEqual(resp_detail.json()["data"]["id"], post.id)
         self.assertIn("hello generic api", resp_detail.json()["data"]["safe_html"])
 
-        resp_unknown = self.client.get("/api/v1/content/not-exists-type/")
+        resp_unknown = client.get("/api/v1/content/not-exists-type/")
         self.assertEqual(resp_unknown.status_code, 404)
 
     def test_legacy_typed_api_endpoints_backward_compatible(self):
         """通过注册表重构后的 /api/v1/{posts,guides,projects}/ 保持原有 JSON 契约兼容"""
+        from django.test import Client
+
+        client = Client(HTTP_HOST="localhost")
         home = HomePage.objects.first()
         if not home:
             root = Page.get_first_root_node() or Page.add_root(title="Root")
@@ -192,17 +198,17 @@ class SharedLayerDecouplingAstGuardTests(TestCase):
         p_idx.add_child(instance=proj)
         proj.save_revision().publish()
 
-        r_posts = self.client.get("/api/v1/posts/")
+        r_posts = client.get("/api/v1/posts/")
         self.assertEqual(r_posts.status_code, 200)
         self.assertIn(post.slug, [x["slug"] for x in r_posts.json()["items"]])
-        self.assertEqual(self.client.get(f"/api/v1/posts/{post.slug}/").status_code, 200)
+        self.assertEqual(client.get(f"/api/v1/posts/{post.slug}/").status_code, 200)
 
-        r_guides = self.client.get("/api/v1/guides/")
+        r_guides = client.get("/api/v1/guides/")
         self.assertEqual(r_guides.status_code, 200)
         self.assertIn(guide.slug, [x["slug"] for x in r_guides.json()["items"]])
-        self.assertEqual(self.client.get(f"/api/v1/guides/{guide.slug}/").status_code, 200)
+        self.assertEqual(client.get(f"/api/v1/guides/{guide.slug}/").status_code, 200)
 
-        r_projs = self.client.get("/api/v1/projects/")
+        r_projs = client.get("/api/v1/projects/")
         self.assertEqual(r_projs.status_code, 200)
         self.assertIn(proj.slug, [x["slug"] for x in r_projs.json()["data"]])
-        self.assertEqual(self.client.get(f"/api/v1/projects/{proj.slug}/").status_code, 200)
+        self.assertEqual(client.get(f"/api/v1/projects/{proj.slug}/").status_code, 200)

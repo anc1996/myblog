@@ -497,10 +497,29 @@ class GuidePage(CustomBasePage):
         context["is_outdated"] = is_outdated
         context["outdated_warning"] = warning_msg
         context["steps_toc"] = self.get_steps_toc()
-        # 过滤未发布或已回收的关联指南
+        # 批量通过统一公开资格过滤关联指南（兼容 modelcluster 预览内存集合，消除 N+1 .specific）
+        from wagtail.models import Page as WagtailPage
+        from content_lifecycle.public_access import filter_public_pages, resolve_public_site_for_request
+
+        rel_ids = [
+            int(r.related_page_id)
+            for r in self.related_guides.all()
+            if getattr(r, "related_page_id", None) is not None
+        ]
+        ordered_pages = []
+        if rel_ids:
+            pages_map = {p.id: p for p in WagtailPage.objects.filter(id__in=rel_ids)}
+            ordered_pages = [pages_map[pid] for pid in rel_ids if pid in pages_map]
+        rel_site = resolve_public_site_for_request(request, page=self)
+        allowed_rel = filter_public_pages(ordered_pages, site=rel_site, request=request) if rel_site is not None else []
         context["active_related_guides"] = [
-            r for r in self.related_guides.select_related("related_page").all()
-            if r.related_page.live and not getattr(r.related_page.specific, "is_recycled", False)
+            {
+                "id": p.id,
+                "title": p.title,
+                "url": (p.get_url(request=request) if hasattr(p, "get_url") else p.url) or "",
+            }
+            for p in allowed_rel
+            if (p.get_url(request=request) if hasattr(p, "get_url") else p.url)
         ]
         from content_blocks.rendering.detail import build_detail_presentation
         context["detail"] = build_detail_presentation(self, request)

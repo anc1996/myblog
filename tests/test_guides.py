@@ -34,7 +34,7 @@ class GuidesSystemTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.client = Client()
+        cls.client = Client(HTTP_HOST="localhost")
         cls.home = HomePage.objects.first()
         # 创建公共专栏技术主题
         cls.topic = GuideTopic.objects.create(

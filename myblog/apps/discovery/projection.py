@@ -105,6 +105,8 @@ def project_page_to_discovery(page: Any, index_generation: int = 1) -> Published
                 actual_url = actual_url[5:] or "/"
 
         merged_extra = dict(payload.extra_data or {})
+        merged_extra["extractor_version"] = int(getattr(adapter, "extractor_version", 1) or 1)
+        merged_extra["schema_version"] = int(getattr(adapter, "schema_version", 1) or 1)
         author_rows_spec: list[tuple[int, str, str, str, int]] = []
         if is_author_discovery_enabled(adapter):
             raw_refs = list(payload.author_refs or [])

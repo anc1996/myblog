@@ -125,7 +125,7 @@ class SiteSettingsTestCase(unittest.TestCase):
 
     def test_site_settings_api_and_graceful_degradation(self):
         """验证全站设置 API 与菜单下架优雅降级 (H-07)"""
-        request = self.factory.get("/api/v1/site/settings/")
+        request = self.factory.get("/api/v1/site/settings/", HTTP_HOST="localhost")
         response = site_settings_api(request)
         self.assertEqual(response.status_code, 200)
         res = json.loads(response.content.decode("utf-8"))
@@ -153,13 +153,13 @@ class SiteSettingsTestCase(unittest.TestCase):
 
     def test_etag_and_http_304_cache_negotiation(self):
         """验证设置弱 ETag 协商与 HTTP 304 快速响应"""
-        request = self.factory.get("/api/v1/site/settings/")
+        request = self.factory.get("/api/v1/site/settings/", HTTP_HOST="localhost")
         response = site_settings_api(request)
         etag = response["ETag"]
         self.assertTrue(etag.startswith('W/"site_settings:'))
 
         # 携带 ETag 发起请求 -> 返回 304 Not Modified
-        cond_req = self.factory.get("/api/v1/site/settings/", HTTP_IF_NONE_MATCH=etag)
+        cond_req = self.factory.get("/api/v1/site/settings/", HTTP_HOST="localhost", HTTP_IF_NONE_MATCH=etag)
         cond_resp = site_settings_api(cond_req)
         self.assertEqual(cond_resp.status_code, 304)
 

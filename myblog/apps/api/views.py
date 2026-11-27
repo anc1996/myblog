@@ -31,6 +31,11 @@ from discovery.query import ContentQuery, _encode_cursor
 from discovery.models import ContentDiscoveryEpoch, PublishedSearchDocument
 from discovery.registry import get_adapter_by_public_type_slug, get_type_adapter, resolve_adapter_model
 from content_lifecycle.access import AccessContext, AccessMode
+from content_lifecycle.public_access import (
+    filter_public_page_queryset,
+    get_public_blocked_path_prefixes,
+    resolve_public_site_for_request,
+)
 from .limiter import ratelimit_api
 
 logger = logging.getLogger(__name__)
@@ -81,6 +86,26 @@ def search_api(request):
 
     # 当前全站 Epoch 代次
     current_epoch = ContentDiscoveryEpoch.get_current_epoch()
+    site = resolve_public_site_for_request(request)
+    if site is None:
+        return _cors_json_response(
+            {
+                "status": "success",
+                "epoch": current_epoch,
+                "query": search_query,
+                "total_count": 0,
+                "page_size": page_size,
+                "next_cursor": None,
+                "cursor_reset": False,
+                "expansion_used": False,
+                "secondary_used": False,
+                "show_expand_button": False,
+                "items": [],
+                "facets": {},
+                "archive_groups": {},
+            },
+            extra_headers={"X-Cache": "MISS", "X-Epoch": str(current_epoch), "Cache-Control": "no-store"},
+        )
 
     # 辅助机制：若前端传了传统页码 page（如 page=2）且未传 cursor，自动折算为 offset 游标
     if not cursor and page_str.isdigit() and int(page_str) > 1:
@@ -89,17 +114,54 @@ def search_api(request):
         cursor = _encode_cursor(current_epoch, calc_offset)
 
     # 1. 尝试读取 Redis Epoch 缓存
+    # 将当前站点的实时公开权限指纹纳入缓存键，确保即便信号异常未能自增 epoch，
+    # 任意页面的限制/回收/下架也会立刻反映到总数、分面、归档与分页结果中。
+    from django.contrib.postgres.aggregates import StringAgg
+    from django.db.models import CharField, Value
+    from django.db.models.functions import Cast, Coalesce, Concat, MD5
+    from wagtail.models import Page as WagtailPage
+
+    blocked_prefixes = get_public_blocked_path_prefixes(site=site)
+    public_qs = filter_public_page_queryset(
+        WagtailPage.objects.all(),
+        site=site,
+        request=request,
+    )
+    members_digest = public_qs.aggregate(
+        sig=MD5(
+            Coalesce(
+                StringAgg(
+                    Concat(
+                        Cast("id", CharField()),
+                        Value(":"),
+                        Coalesce(Cast("live_revision_id", CharField()), Value("")),
+                    ),
+                    delimiter=Value(","),
+                    order_by="id",
+                    output_field=CharField(),
+                ),
+                Value(""),
+            )
+        )
+    )["sig"] or ""
+    security_sig = hashlib.md5(
+        ("|".join(blocked_prefixes) + f":{members_digest}").encode("utf-8")
+    ).hexdigest()[:12]
     params_sorted = sorted(request.GET.items())
     param_hash = hashlib.md5(json.dumps(params_sorted).encode("utf-8")).hexdigest()
-    cache_key = f"api:search:{current_epoch}:{param_hash}"
+    cache_key = f"api:search:v3:s{site.id}:{current_epoch}:{security_sig}:{param_hash}"
     cached_payload = cache.get(cache_key)
 
     if cached_payload is not None:
-        return _cors_json_response(cached_payload, extra_headers={"X-Cache": "HIT", "X-Epoch": str(current_epoch)})
+        return _cors_json_response(
+            cached_payload,
+            extra_headers={"X-Cache": "HIT", "X-Epoch": str(current_epoch), "Cache-Control": "private, no-store"},
+        )
 
     # 2. 执行只读快照检索 (ContentQuery)
     spec = QuerySpec(
         q=search_query or None,
+        site_id=site.id,
         type_keys=type_keys,
         tag_ids=tag_ids,
         year=year,
@@ -111,7 +173,7 @@ def search_api(request):
         facets=["types", "tags", "years"],
     )
 
-    access_context = AccessContext(user=request.user, mode=AccessMode.PUBLIC)
+    access_context = AccessContext(user=None, mode=AccessMode.PUBLIC)
     result = ContentQuery.execute(spec, access_context)
 
     # SEARCH-MODE-02: 模式 A 命中少于 5 条时的手动展开判断
@@ -156,7 +218,10 @@ def search_api(request):
     # 写入 Redis 缓存（缓存 300 秒；若后台发布/回收自增 epoch，直接从命名空间瞬时失效）
     cache.set(cache_key, response_payload, timeout=300)
 
-    return _cors_json_response(response_payload, extra_headers={"X-Cache": "MISS", "X-Epoch": str(current_epoch)})
+    return _cors_json_response(
+        response_payload,
+        extra_headers={"X-Cache": "MISS", "X-Epoch": str(current_epoch), "Cache-Control": "private, no-store"},
+    )
 
 
 def _parse_page_params(request) -> tuple[int, int]:
@@ -183,33 +248,51 @@ def _serve_adapter_detail_api(
     if adapter is None or model_cls is None or not hasattr(adapter, "serialize_api_detail"):
         return _cors_json_response({"status": "error", "code": 404, "message": not_found_message}, status=404)
 
+    site = resolve_public_site_for_request(request)
+    if site is None:
+        if raise_http404:
+            raise Http404(not_found_message)
+        return _cors_json_response(
+            {"status": "error", "code": 404, "message": not_found_message},
+            status=404,
+            extra_headers={"Cache-Control": "no-store"},
+        )
+
     current_epoch = (
         ContentDiscoveryEpoch.get_current_epoch_readonly()
         if readonly_epoch
         else ContentDiscoveryEpoch.get_current_epoch()
     )
-    cache_key = f"{cache_prefix}:{current_epoch}:{slug}"
-    cached_payload = cache.get(cache_key)
-    if cached_payload is not None:
-        return _cors_json_response(cached_payload, extra_headers={"X-Cache": "HIT", "X-Epoch": str(current_epoch)})
-
-    page = model_cls.objects.filter(slug=slug, live=True).first()
-    if not page or getattr(page, "is_recycled", False):
+    candidates = list(
+        filter_public_page_queryset(
+            model_cls.objects.filter(slug=slug),
+            site=site,
+            request=request,
+        ).order_by("path")[:2]
+    )
+    if len(candidates) != 1:
         if raise_http404:
             raise Http404(not_found_message)
-        return _cors_json_response({"status": "error", "code": 404, "message": not_found_message}, status=404)
+        return _cors_json_response(
+            {"status": "error", "code": 404, "message": not_found_message},
+            status=404,
+            extra_headers={"Cache-Control": "no-store"},
+        )
+    page = candidates[0]
 
     if hasattr(page, "hydrate_from_mongo"):
-        access_context = AccessContext(user=request.user, mode=AccessMode.PUBLIC)
+        access_context = AccessContext(user=None, mode=AccessMode.PUBLIC)
         page.hydrate_from_mongo(access_context=access_context)
 
     payload = {
         "status": "success",
         "epoch": current_epoch,
-        "data": adapter.serialize_api_detail(page),
+        "data": adapter.serialize_api_detail(page, request=request),
     }
-    cache.set(cache_key, payload, timeout=600)
-    return _cors_json_response(payload, extra_headers={"X-Cache": "MISS", "X-Epoch": str(current_epoch)})
+    return _cors_json_response(
+        payload,
+        extra_headers={"X-Cache": "BYPASS", "X-Epoch": str(current_epoch), "Cache-Control": "no-store"},
+    )
 
 
 def _serve_adapter_list_api(
@@ -227,20 +310,25 @@ def _serve_adapter_list_api(
     if adapter is None or model_cls is None or not hasattr(adapter, "serialize_api_list_item"):
         return _cors_json_response({"status": "error", "code": 404, "message": "未找到对应内容类型"}, status=404)
 
+    site = resolve_public_site_for_request(request)
+    if site is None:
+        return _cors_json_response(
+            {"status": "error", "code": 404, "message": "未找到对应站点"},
+            status=404,
+            extra_headers={"Cache-Control": "no-store"},
+        )
+
     page_num, page_size = _parse_page_params(request)
     current_epoch = (
         ContentDiscoveryEpoch.get_current_epoch_readonly()
         if readonly_epoch
         else ContentDiscoveryEpoch.get_current_epoch()
     )
-    cached_payload = cache.get(cache_key)
-    if cached_payload is not None:
-        return _cors_json_response(cached_payload, extra_headers={"X-Cache": "HIT", "X-Epoch": str(current_epoch)})
-
     if hasattr(adapter, "get_api_list_queryset"):
         qs = adapter.get_api_list_queryset(model_cls, request)
     else:
         qs = model_cls.objects.filter(live=True, is_recycled=False).order_by("-authored_on", "-id")
+    qs = filter_public_page_queryset(qs, site=site, request=request)
 
     total_count = qs.count()
     offset = (page_num - 1) * page_size
@@ -277,8 +365,10 @@ def _serve_adapter_list_api(
             "items": items,
         }
 
-    cache.set(cache_key, payload, timeout=cache_timeout)
-    return _cors_json_response(payload, extra_headers={"X-Cache": "MISS", "X-Epoch": str(current_epoch)})
+    return _cors_json_response(
+        payload,
+        extra_headers={"X-Cache": "BYPASS", "X-Epoch": str(current_epoch), "Cache-Control": "no-store"},
+    )
 
 
 @ratelimit_api(scope="post_detail", max_requests=120, window_seconds=60)
@@ -551,21 +641,18 @@ def site_settings_api(request):
     菜单项关联页面批量核验公开资格，下架或回收页面自动优雅降级。
     """
     from site_settings.models import NavigationSettings, SocialMediaSettings, FooterSettings
-    from content_lifecycle.public_access import get_public_blocked_page_ids
-    from wagtail.models import Site, Page
+    from wagtail.models import Page
     from django.utils.cache import get_conditional_response
 
-    site = Site.find_for_request(request)
-    site_id = site.id if site else 0
+    site = resolve_public_site_for_request(request)
+    if site is None:
+        return _cors_json_response(
+            {"status": "error", "code": 404, "message": "未找到对应站点"},
+            status=404,
+            extra_headers={"Cache-Control": "no-store"},
+        )
+    site_id = site.id
     current_epoch = ContentDiscoveryEpoch.get_current_epoch_readonly()
-
-    weak_etag = f'W/"site_settings:v1:s{site_id}:e{current_epoch}"'
-    conditional_resp = get_conditional_response(request, etag=weak_etag)
-    if conditional_resp is not None:
-        conditional_resp["ETag"] = weak_etag
-        conditional_resp["X-Epoch"] = str(current_epoch)
-        conditional_resp["Cache-Control"] = "public, max-age=120"
-        return conditional_resp
 
     nav_obj = NavigationSettings.objects.filter(singleton_key=1).first()
     social_obj = SocialMediaSettings.objects.filter(singleton_key=1).first()
@@ -592,12 +679,26 @@ def site_settings_api(request):
     # 批量核验页面可用性 (H-07)
     allowed_page_urls = {}
     if target_page_ids:
-        pages_qs = Page.objects.filter(id__in=target_page_ids, live=True).exclude(live_revision=None)
-        candidate_records = list(pages_qs.values_list("id", "path"))
-        blocked_ids = get_public_blocked_page_ids(candidate_records)
+        pages_qs = filter_public_page_queryset(
+            Page.objects.filter(id__in=target_page_ids),
+            site=site,
+            request=request,
+        )
         for p in pages_qs:
-            if p.id not in blocked_ids and getattr(p, "alias_of_id", None) is None:
-                allowed_page_urls[p.id] = p.url
+            url = (p.get_url(request=request) if hasattr(p, "get_url") else p.url) or ""
+            if url:
+                allowed_page_urls[p.id] = url
+
+    allowed_sig = hashlib.md5(
+        "|".join(f"{pid}:{allowed_page_urls[pid]}" for pid in sorted(allowed_page_urls.keys())).encode("utf-8")
+    ).hexdigest()[:12]
+    weak_etag = f'W/"site_settings:v3:s{site_id}:e{current_epoch}:{allowed_sig}"'
+    conditional_resp = get_conditional_response(request, etag=weak_etag)
+    if conditional_resp is not None:
+        conditional_resp["ETag"] = weak_etag
+        conditional_resp["X-Epoch"] = str(current_epoch)
+        conditional_resp["Cache-Control"] = "private, no-cache"
+        return conditional_resp
 
     # 过滤并降级导航
     nav_items = []
@@ -653,5 +754,5 @@ def site_settings_api(request):
         },
     }
     resp = _cors_json_response(payload, extra_headers={"ETag": weak_etag, "X-Epoch": str(current_epoch)})
-    resp["Cache-Control"] = "public, max-age=120"
+    resp["Cache-Control"] = "private, no-cache"
     return resp

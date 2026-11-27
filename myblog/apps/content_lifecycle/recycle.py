@@ -165,6 +165,12 @@ class RecycleService:
                 payload={"batch_id": str(batch.batch_id), "count": len(all_nodes)},
             )
 
+            try:
+                from discovery.models import ContentDiscoveryEpoch
+                ContentDiscoveryEpoch.increment_epoch()
+            except Exception:
+                pass
+
             return batch
 
     @classmethod
@@ -503,6 +509,12 @@ class RecycleService:
             # 更新批次状态为已恢复
             batch.status = "restored"
             batch.save(update_fields=["status"])
+
+            try:
+                from discovery.models import ContentDiscoveryEpoch
+                ContentDiscoveryEpoch.increment_epoch()
+            except Exception:
+                pass
 
             # 写入事务性 Outbox 事件
             OutboxEvent.objects.create(

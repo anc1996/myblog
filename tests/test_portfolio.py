@@ -191,7 +191,7 @@ class PortfolioSystemTestCase(unittest.TestCase):
     def test_project_restful_apis(self):
         """测试项目 RESTful API：列表分页、属性过滤与详情双形态输出"""
         # 1. 列表接口 GET /api/v1/projects/
-        req_list = self.factory.get("/api/v1/projects/?language=Rust")
+        req_list = self.factory.get("/api/v1/projects/?language=Rust", HTTP_HOST="localhost")
         resp_list = project_list_api(req_list)
         self.assertEqual(resp_list.status_code, 200)
         data_list = json.loads(resp_list.content.decode("utf-8"))
@@ -203,7 +203,7 @@ class PortfolioSystemTestCase(unittest.TestCase):
         self.assertEqual(proj_item["license_name"], "Apache-2.0")
 
         # 2. 详情接口 GET /api/v1/projects/<slug>/
-        req_detail = self.factory.get(f"/api/v1/projects/{self.project_slug}/")
+        req_detail = self.factory.get(f"/api/v1/projects/{self.project_slug}/", HTTP_HOST="localhost")
         resp_detail = project_detail_api(req_detail, slug=self.project_slug)
         self.assertEqual(resp_detail.status_code, 200)
         data_detail = json.loads(resp_detail.content.decode("utf-8"))
@@ -222,7 +222,7 @@ class PortfolioSystemTestCase(unittest.TestCase):
         self.assertTrue(self.project.is_recycled)
 
         # 前台不可见
-        req_detail = self.factory.get(f"/api/v1/projects/{self.project_slug}/")
+        req_detail = self.factory.get(f"/api/v1/projects/{self.project_slug}/", HTTP_HOST="localhost")
         from django.http import Http404
         with self.assertRaises(Http404):
             project_detail_api(req_detail, slug=self.project_slug)

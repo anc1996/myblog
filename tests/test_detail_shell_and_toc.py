@@ -270,7 +270,7 @@ class DetailShellAndTocTests(TestCase):
         project.save_revision().publish()
         self.created_pages.append(project)
 
-        req = self.factory.get(project.url_path)
+        req = self.factory.get(project.url_path, HTTP_HOST="localhost")
         resp = project.serve(req)
         resp.render()
         html_text = resp.content.decode("utf-8")

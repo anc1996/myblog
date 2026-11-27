@@ -322,11 +322,29 @@ class ContentQuery:
 
         # 1. 基础候选集与严格公开资格核验 (A-04 / B-03)
         candidates = PublishedSearchDocument.objects.filter(is_live=True, is_recycled=False)
-        candidates = apply_public_eligibility_filter(candidates)
-
-        # 站点过滤
+        resolved_query_site = None
         if spec.site_id is not None:
-            candidates = candidates.filter(site_id=spec.site_id)
+            from wagtail.models import Site as QuerySite
+            from discovery.detail_navigation import _get_nested_site_root_paths
+
+            resolved_query_site = (
+                QuerySite.objects.select_related("root_page")
+                .filter(id=spec.site_id)
+                .first()
+            )
+            site_root_path = (
+                getattr(getattr(resolved_query_site, "root_page", None), "path", None)
+                if resolved_query_site is not None
+                else None
+            )
+            if not site_root_path:
+                candidates = candidates.none()
+            else:
+                candidates = candidates.filter(site_id=spec.site_id, root_path__startswith=site_root_path)
+                for nested_path in _get_nested_site_root_paths(resolved_query_site):
+                    candidates = candidates.exclude(root_path__startswith=nested_path)
+
+        candidates = apply_public_eligibility_filter(candidates, site=resolved_query_site)
 
         # 页面树层级范围过滤 (descendants / children / include_root)
         navigation_items: list[dict[str, Any]] = []

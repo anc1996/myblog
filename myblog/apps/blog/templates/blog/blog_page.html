@@ -1,5 +1,5 @@
 {% extends "detail/detail_shell.html" %}
-{% load static %}
+{% load static wagtailcore_tags %}
 
 {% block detail_extra_css %}
 <link rel="stylesheet" type="text/css" href="{% static 'blog/css/article.css' %}?v=20261124a">
@@ -23,7 +23,7 @@
     <div class="intro-header">引言 / 简介</div>
     <div class="intro-content">
         {% for block in page.intro %}
-            {{ block }}
+            {% include_block block %}
         {% endfor %}
     </div>
 </section>

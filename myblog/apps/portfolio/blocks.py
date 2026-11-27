@@ -229,20 +229,53 @@ class FeaturedPostsBlock(blocks.StructBlock):
         label = "关联博客文章推荐"
 
     def render_clean(self, value: Any, context: Any = None):
+        from content_lifecycle.public_access import filter_public_pages, resolve_public_site_for_request
+
+        ctx = context if isinstance(context, dict) else {}
+        req = ctx.get("request")
+        host_page = ctx.get("page")
+        is_preview = bool(
+            ctx.get("is_preview")
+            or (req is not None and (getattr(req, "is_preview", False) or getattr(req, "in_preview_panel", False)))
+        )
+        site = resolve_public_site_for_request(req, page=host_page) if (req is not None or host_page is not None) else None
+        if site is None:
+            return BlockRenderResult(html="", is_safe=True)
+
         heading = html.escape(value.get("heading") or "相关技术文章与架构演进")
         desc = html.escape(value.get("description") or "")
+        raw_posts = [p for p in (value.get("posts") or []) if p is not None]
+        public_posts = filter_public_pages(raw_posts, site=site, request=req)
+        filtered_out_count = len(raw_posts) - len(public_posts)
+
+        if not public_posts and not (is_preview and filtered_out_count > 0):
+            return BlockRenderResult(html="", is_safe=True)
+
         posts_html = []
-        for post in value.get("posts") or []:
-            if post and getattr(post, "live", False) and not getattr(post, "is_recycled", False):
-                title = html.escape(post.title)
-                url = html.escape(post.url)
-                date_str = post.authored_on.strftime("%Y-%m-%d") if getattr(post, "authored_on", None) else ""
-                posts_html.append(
-                    f'<li class="featured-post-item">'
-                    f'<a href="{url}" class="featured-post-link">{title}</a>'
-                    f'{f"<span class=\"featured-post-date\">{date_str}</span>" if date_str else ""}'
-                    f'</li>'
-                )
+        for post in public_posts:
+            url = (post.get_url(request=req) if hasattr(post, "get_url") else post.url) or ""
+            if not url:
+                continue
+            title = html.escape(post.title)
+            safe_url = html.escape(url)
+            date_str = post.authored_on.strftime("%Y-%m-%d") if getattr(post, "authored_on", None) else ""
+            posts_html.append(
+                f'<li class="featured-post-item">'
+                f'<a href="{safe_url}" class="featured-post-link">{title}</a>'
+                f'{f"<span class=\"featured-post-date\">{date_str}</span>" if date_str else ""}'
+                f'</li>'
+            )
+
+        if is_preview and filtered_out_count > 0:
+            posts_html.append(
+                '<li class="featured-post-item is-preview-hidden">'
+                '（存在未发布、受限或非当前站点关联文章，公开页面将自动隐藏）'
+                '</li>'
+            )
+
+        if not posts_html:
+            return BlockRenderResult(html="", is_safe=True)
+
         items_html = "".join(posts_html)
         html_out = (
             f'<div class="featured-posts-widget">'
@@ -260,8 +293,8 @@ class FeaturedPostsBlock(blocks.StructBlock):
         from content_blocks.contracts import BlockTextExtraction
         heading = value.get("heading") or ""
         desc = value.get("description") or ""
-        titles = [p.title for p in (value.get("posts") or []) if p]
-        text = f"{heading} {desc} {' '.join(titles)}".strip()
+        # 仅索引块自身的标题与导语，不把目标文章标题写入宿主页索引（防止目标转私密后从宿主页摘要泄漏）
+        text = f"{heading} {desc}".strip()
         return BlockTextExtraction(plain_text=text, logical_segments=[text] if text else [])
 
 

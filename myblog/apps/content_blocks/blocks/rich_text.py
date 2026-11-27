@@ -54,6 +54,7 @@ DEFAULT_RICH_TEXT_FEATURES = [
 
 _EMBED_TAG_RE = re.compile(r"<embed\b([^>]*?)/?>", re.IGNORECASE)
 _A_TAG_RE = re.compile(r"<a\b([^>]*?)>", re.IGNORECASE)
+_A_BLOCK_RE = re.compile(r"<a\b([^>]*?)>(.*?)</a>", re.IGNORECASE | re.DOTALL)
 _ATTR_PAIR_RE = re.compile(r'([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*"([^"]*)"')
 
 
@@ -88,7 +89,67 @@ def _replace_media_embeds_safely(raw_source: str) -> tuple[str, list[tuple[str, 
     return _EMBED_TAG_RE.sub(_sub, raw_source), stashed
 
 
-def render_richtext_field_html(value: Any, *, expand_db: bool = True) -> str:
+def _strip_blocked_page_links(raw_source: str, *, context: Any = None) -> str:
+    """公开渲染携带站点/请求上下文时，将指向受限/草稿/回收/跨站页面的站内链接降级为纯文本。"""
+    if not raw_source or 'linktype="page"' not in raw_source.lower():
+        return raw_source
+    if not isinstance(context, dict):
+        return raw_source
+    req = context.get("request")
+    host_page = context.get("page")
+    is_preview = bool(
+        context.get("is_preview")
+        or (req is not None and (getattr(req, "is_preview", False) or getattr(req, "in_preview_panel", False)))
+    )
+    if is_preview or (req is None and host_page is None):
+        return raw_source
+
+    from wagtail.models import Page
+    from content_lifecycle.public_access import filter_public_pages, resolve_public_site_for_request
+
+    site = resolve_public_site_for_request(req, page=host_page)
+    ref_ids: set[int] = set()
+    for match in _A_BLOCK_RE.finditer(raw_source):
+        attrs = _parse_attrs(match.group(1))
+        if attrs.get("linktype") == "page" and (attrs.get("id") or "").isdigit():
+            ref_ids.add(int(attrs["id"]))
+    if not ref_ids:
+        return raw_source
+
+    allowed_ids: set[int] = set()
+    if site is not None:
+        cand_pages = list(Page.objects.filter(id__in=ref_ids))
+        allowed_ids = {int(p.id) for p in filter_public_pages(cand_pages, site=site, request=req)}
+
+    def _replace(match: re.Match) -> str:
+        attrs = _parse_attrs(match.group(1))
+        if attrs.get("linktype") != "page":
+            return match.group(0)
+        pid_str = attrs.get("id") or ""
+        if pid_str.isdigit() and int(pid_str) in allowed_ids:
+            return match.group(0)
+        return match.group(2)
+
+    return _A_BLOCK_RE.sub(_replace, raw_source)
+
+
+def sanitize_block_value_for_public(val: Any, *, context: Any = None) -> Any:
+    """
+    递归清理序列化给公开 API 的 blocks[].value：
+    将含受限/草稿/回收/跨站 <a linktype="page" id="..."> 的富文本字段剥离链接仅保留文本。
+    """
+    if isinstance(val, str):
+        if 'linktype="page"' in val.lower():
+            return _strip_blocked_page_links(val, context=context)
+        return val
+    if isinstance(val, dict):
+        return {k: sanitize_block_value_for_public(v, context=context) for k, v in val.items()}
+    if isinstance(val, list):
+        return [sanitize_block_value_for_public(item, context=context) for item in val]
+    return val
+
+
+def render_richtext_field_html(value: Any, *, expand_db: bool = True, context: Any = None) -> str:
     """
     通用安全富文本渲染入口（供 RichTextField 与 CustomRichTextBlock 共用）：
     1. 在 expand_db_html 前安全替换 <embed embedtype="media"/>；
@@ -98,10 +159,16 @@ def render_richtext_field_html(value: Any, *, expand_db: bool = True) -> str:
     if not value:
         return ""
     if isinstance(value, RichText):
-        pre_source, media_embeds = _replace_media_embeds_safely(value.source or "")
+        raw_src = value.source or ""
+        if isinstance(context, dict) and 'linktype="page"' in raw_src.lower():
+            raw_src = _strip_blocked_page_links(raw_src, context=context)
+        pre_source, media_embeds = _replace_media_embeds_safely(raw_src)
         raw_html = str(RichText(pre_source))
     else:
-        pre_source, media_embeds = _replace_media_embeds_safely(str(value))
+        raw_src = str(value)
+        if isinstance(context, dict) and 'linktype="page"' in raw_src.lower():
+            raw_src = _strip_blocked_page_links(raw_src, context=context)
+        pre_source, media_embeds = _replace_media_embeds_safely(raw_src)
         raw_html = str(RichText(pre_source)) if expand_db else pre_source
 
     for token, embed_div in media_embeds:
@@ -190,7 +257,12 @@ class CustomRichTextBlock(blocks.RichTextBlock):
 
     def render_clean(self, value: Any, context: Any = None) -> BlockRenderResult:
         """渲染并净化富文本内容"""
-        cleaned_html = render_richtext_field_html(value, expand_db=False)
+        raw_src = (value.source if isinstance(value, RichText) else str(value or "")) if value else ""
+        if raw_src and isinstance(context, dict) and 'linktype="page"' in raw_src.lower():
+            filtered_src = _strip_blocked_page_links(raw_src, context=context)
+            cleaned_html = render_richtext_field_html(RichText(filtered_src) if isinstance(value, RichText) else filtered_src, expand_db=False)
+        else:
+            cleaned_html = render_richtext_field_html(value, expand_db=False)
         if not cleaned_html:
             return BlockRenderResult(html="", is_safe=True)
         return BlockRenderResult(html=f'<div class="rich-text">{cleaned_html}</div>', is_safe=True)

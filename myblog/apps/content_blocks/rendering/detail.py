@@ -513,6 +513,15 @@ def build_detail_presentation(page: Any, request: Any = None, *, body_field: str
     }
     rendered_blocks: list[str] = []
     toc_items: list[dict[str, Any]] = []
+    is_preview = bool(
+        request is not None
+        and (getattr(request, "is_preview", False) or getattr(request, "in_preview_panel", False))
+    )
+    block_context = {
+        "request": request,
+        "page": page,
+        "is_preview": is_preview,
+    }
 
     for idx, bound_block in enumerate(stream_val):
         block_type = str(getattr(bound_block, "block_type", "") or "unknown")
@@ -520,7 +529,7 @@ def build_detail_presentation(page: Any, request: Any = None, *, body_field: str
         safe_block_id = re.sub(r"[^a-zA-Z0-9_-]", "", raw_id) or f"b{idx}"
 
         try:
-            raw_block_html = str(bound_block.render())
+            raw_block_html = str(bound_block.render(context=block_context))
         except Exception:
             raw_block_html = ""
 
@@ -577,10 +586,6 @@ def build_detail_presentation(page: Any, request: Any = None, *, body_field: str
         and (breadcrumb_root_id is None or ancestor.id != breadcrumb_root_id)
     ]
     tag_links = resolve_tag_links(page, request)
-    is_preview = bool(
-        request is not None
-        and (getattr(request, "is_preview", False) or getattr(request, "in_preview_panel", False))
-    )
     authors = _resolve_author_badges(page, request, is_preview=is_preview)
 
     announcement = None

@@ -49,11 +49,11 @@ def _strip_rich_text(value: Any) -> str:
     return re.sub(r"\s+", " ", unescaped).strip()
 
 
-def _render_nested_rich_text(value: Any) -> str:
+def _render_nested_rich_text(value: Any, *, context: Any = None) -> str:
     """委托 CustomRichTextBlock 统一渲染、展开受控 embed 并执行安全净化。"""
     if not value:
         return ""
-    return CustomRichTextBlock().render_clean(value).html
+    return CustomRichTextBlock().render_clean(value, context=context).html
 
 
 def _extract_nested_rich_text_refs(value: Any, path: str) -> list[MediaReference]:
@@ -86,8 +86,8 @@ class CustomLeadBlock(blocks.StructBlock):
             return BlockRenderResult(html="", is_safe=True)
 
         title = html.escape(str(value.get("title") or "学习目标与前置要求"))
-        prereq = _render_nested_rich_text(value.get("prerequisites"))
-        overview = _render_nested_rich_text(value.get("overview"))
+        prereq = _render_nested_rich_text(value.get("prerequisites"), context=context)
+        overview = _render_nested_rich_text(value.get("overview"), context=context)
 
         html_output = f"""
         <div class="tutorial-lead-card block-lead">
@@ -150,7 +150,7 @@ class CustomStepBlock(blocks.StructBlock):
 
         step_num = html.escape(str(value.get("step_number") or "1"))
         title = html.escape(str(value.get("title") or ""))
-        content = _render_nested_rich_text(value.get("content"))
+        content = _render_nested_rich_text(value.get("content"), context=context)
         code = str(value.get("code_snippet") or "").strip()
         lang = str(value.get("code_language") or "bash")
         caption = html.escape(str(value.get("image_caption") or ""))
@@ -256,7 +256,7 @@ class CustomTipBlock(blocks.StructBlock):
 
         tip_type = value.get("tip_type") or "tip"
         title = html.escape(str(value.get("title") or ""))
-        content = _render_nested_rich_text(value.get("content"))
+        content = _render_nested_rich_text(value.get("content"), context=context)
 
         html_output = f"""
         <div class="callout-card callout-{tip_type} block-tip">
@@ -307,7 +307,7 @@ class CustomFaqBlock(blocks.StructBlock):
             return BlockRenderResult(html="", is_safe=True)
 
         q = html.escape(str(value.get("question") or ""))
-        a = _render_nested_rich_text(value.get("answer"))
+        a = _render_nested_rich_text(value.get("answer"), context=context)
 
         html_output = f"""
         <div class="faq-card block-faq">

@@ -25,7 +25,7 @@ class ProjectPageAdapter:
     type_key = "project"
     model_label = "portfolio.ProjectPage"
     schema_version = 1
-    extractor_version = 1
+    extractor_version = 2
     allowed_filters = ["year", "month", "tag_ids", "authored_on", "project_status", "primary_language"]
     weight_profile = {
         "title": 1.0,
@@ -190,8 +190,13 @@ class ProjectPageAdapter:
             "tags": tags,
         }
 
-    def serialize_api_detail(self, page: Any) -> dict[str, Any]:
+    def serialize_api_detail(self, page: Any, request: Any = None) -> dict[str, Any]:
         from django.utils.safestring import mark_safe
+        from content_blocks.blocks.rich_text import sanitize_block_value_for_public
+        from content_lifecycle.public_access import filter_public_pages, resolve_public_site_for_request
+
+        site = resolve_public_site_for_request(request, page=page)
+        block_context = {"request": request, "page": page, "is_preview": False}
 
         authors_data = []
         from people.models import extract_person_bio_text
@@ -222,20 +227,30 @@ class ProjectPageAdapter:
                 block_type = child.block_type
                 block_val = child.value
                 if hasattr(child.block, "render_clean"):
-                    rendered_chunk = child.block.render_clean(block_val).html
+                    rendered_chunk = child.block.render_clean(block_val, context=block_context).html
                 else:
-                    rendered_chunk = child.render()
-                rendered_html_parts.append(rendered_chunk)
+                    rendered_chunk = child.render(context=block_context)
+                if rendered_chunk:
+                    rendered_html_parts.append(rendered_chunk)
+                prep_val = child.block.get_prep_value(block_val) if hasattr(child.block, "get_prep_value") else str(block_val)
+                prep_val = sanitize_block_value_for_public(prep_val, context=block_context)
+                if block_type == "featured_posts" and isinstance(prep_val, dict):
+                    raw_posts = [p for p in (block_val.get("posts") or []) if p is not None]
+                    allowed_posts = filter_public_pages(raw_posts, site=site, request=request) if site is not None else []
+                    prep_val = dict(prep_val)
+                    prep_val["posts"] = [int(p.id) for p in allowed_posts]
                 blocks_data.append({
                     "type": block_type,
-                    "value": child.block.get_prep_value(block_val) if hasattr(child.block, "get_prep_value") else str(block_val),
+                    "value": prep_val,
                 })
+
+        page_url = (page.get_url(request=request) if hasattr(page, "get_url") else page.url) or page.url
 
         return {
             "id": page.id,
             "title": page.title,
             "slug": page.slug,
-            "url": page.url,
+            "url": page_url,
             "project_status": page.project_status,
             "project_status_label": page.get_project_status_display(),
             "summary": page.summary,

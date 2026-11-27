@@ -41,7 +41,7 @@
     <h4>📚 相关/前后篇指南</h4>
     <ul>
         {% for r in active_related_guides %}
-            <li><a href="{{ r.related_page.url }}">{{ r.related_page.title }}</a></li>
+            <li><a href="{{ r.url }}">{{ r.title }}</a></li>
         {% endfor %}
     </ul>
 </section>

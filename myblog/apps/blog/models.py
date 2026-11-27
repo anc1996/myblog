@@ -150,7 +150,13 @@ class BlogIndexPage(HierarchicalListingMixin, CustomBasePage):
 
     def get_header_intro_html(self, request=None) -> str:
         raw_intro = (getattr(self, "intro", "") or "").strip()
-        return mark_safe(render_richtext_field_html(raw_intro)) if raw_intro else ""
+        if not raw_intro:
+            return ""
+        is_preview = bool(
+            request is not None and (getattr(request, "is_preview", False) or getattr(request, "in_preview_panel", False))
+        )
+        ctx = {"request": request, "page": self, "is_preview": is_preview}
+        return mark_safe(render_richtext_field_html(raw_intro, context=ctx))
 
     def get_context(self, request, *args, **kwargs):
         context = super().get_context(request, *args, **kwargs)
