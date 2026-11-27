@@ -1,0 +1,498 @@
+/* ============================================================================
+   全站公共沉浸式画布查看器样式 (CBStageViewer)
+   统一服务 Mermaid 复杂流程图全屏与正文/图集图片灯箱：
+   - 消费 tokens.css 语义令牌，零裸 hex、显式属性过渡；
+   - 支持暗色 / 浅色 / 棋盘格三种底色、顶部紧凑工具栏、底部缩略图导览与 Mermaid 节点命中高亮。
+   ============================================================================ */
+
+@keyframes cbStageFadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+dialog.cb-stage-dialog {
+    position: fixed;
+    inset: 0;
+    margin: 0;
+    padding: 0;
+    width: 100vw;
+    height: 100dvh;
+    max-width: 100vw;
+    max-height: 100dvh;
+    border: none;
+    background: var(--color-surface);
+    color: var(--color-text);
+    overflow: hidden;
+    z-index: 2000;
+}
+
+dialog.cb-stage-dialog:not([open]) {
+    display: none;
+}
+
+dialog.cb-stage-dialog[open] {
+    display: flex;
+    flex-direction: column;
+    animation: cbStageFadeIn var(--dur-fast, 150ms) var(--ease-out-smooth, ease-out);
+}
+
+dialog.cb-stage-dialog::backdrop {
+    background: var(--color-backdrop);
+}
+
+/* 顶部统一工具栏 */
+.cb-stage-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px 12px;
+    padding: 10px 14px;
+    background: var(--color-surface-raised);
+    border-bottom: 1px solid var(--color-border);
+    color: var(--color-text);
+    flex-shrink: 0;
+    z-index: 4;
+}
+
+.cb-stage-toolbar-left,
+.cb-stage-toolbar-center,
+.cb-stage-toolbar-right {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.cb-stage-toolbar-left {
+    flex: 1 1 160px;
+}
+
+.cb-stage-title {
+    margin: 0;
+    font-size: var(--text-body, 0.9375rem);
+    font-weight: 700;
+    color: var(--color-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 340px;
+}
+
+.cb-stage-meta {
+    font-size: var(--text-sm, 0.8125rem);
+    color: var(--color-muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.cb-stage-divider {
+    width: 1px;
+    height: 20px;
+    background: var(--color-border);
+    margin: 0 2px;
+    flex-shrink: 0;
+}
+
+.cb-stage-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    min-width: 34px;
+    min-height: 34px;
+    padding: 4px 10px;
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-sm, 6px);
+    background: var(--color-surface);
+    color: var(--color-text-secondary);
+    font-family: inherit;
+    font-size: var(--text-sm, 0.8125rem);
+    font-weight: 500;
+    line-height: 1.2;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color var(--dur-fast, 150ms) var(--ease-out-smooth, ease-out),
+                border-color var(--dur-fast, 150ms) var(--ease-out-smooth, ease-out),
+                color var(--dur-fast, 150ms) var(--ease-out-smooth, ease-out);
+}
+
+.cb-stage-btn:hover {
+    border-color: var(--color-primary);
+    background: var(--color-primary-soft);
+    color: var(--color-on-primary-soft);
+}
+
+.cb-stage-btn[aria-pressed="true"],
+.cb-stage-btn.is-active {
+    border-color: var(--color-primary);
+    background: var(--color-primary);
+    color: var(--color-on-primary);
+}
+
+.cb-stage-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.cb-stage-scale-label {
+    min-width: 48px;
+    text-align: center;
+    font-size: var(--text-sm, 0.8125rem);
+    font-weight: 600;
+    color: var(--color-text);
+    font-variant-numeric: tabular-nums;
+}
+
+.cb-stage-close-btn {
+    border-color: var(--color-border-strong);
+    color: var(--color-text);
+    font-weight: 700;
+}
+
+.cb-stage-close-btn:hover {
+    border-color: var(--color-danger);
+    background: var(--color-danger-soft);
+    color: var(--color-on-danger-soft);
+}
+
+.cb-stage-icon {
+    width: 15px;
+    height: 15px;
+    flex-shrink: 0;
+    display: block;
+}
+
+/* Mermaid 节点搜索条 */
+.cb-stage-search-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 4px;
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-sm, 6px);
+    background: var(--color-surface);
+}
+
+.cb-stage-search-group:focus-within {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 2px var(--color-focus-ring);
+}
+
+.cb-stage-search-input {
+    width: 148px;
+    min-width: 96px;
+    height: 28px;
+    padding: 0 6px;
+    border: none;
+    background: transparent;
+    color: var(--color-text);
+    font-family: inherit;
+    font-size: var(--text-sm, 0.8125rem);
+    outline: none;
+}
+
+.cb-stage-search-input::placeholder {
+    color: var(--color-muted);
+}
+
+.cb-stage-search-count {
+    font-size: var(--text-sm, 0.8125rem);
+    color: var(--color-muted);
+    font-variant-numeric: tabular-nums;
+    padding: 0 4px;
+    white-space: nowrap;
+}
+
+.cb-stage-search-nav {
+    min-width: 26px;
+    min-height: 26px;
+    padding: 2px 5px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+}
+
+.cb-stage-search-nav:hover:not(:disabled) {
+    background: var(--color-surface-subtle);
+    color: var(--color-primary);
+}
+
+.cb-stage-search-nav:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+/* 主画布视口与 3 种底色（暗色 / 浅色 / 透明棋盘格） */
+.cb-stage-viewport {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+    background: var(--color-bg);
+}
+
+.cb-stage-viewport:active {
+    cursor: grabbing;
+}
+
+dialog.cb-stage-dialog[data-stage-bg="dark"] .cb-stage-viewport {
+    background: var(--palette-mist-950);
+}
+
+dialog.cb-stage-dialog[data-stage-bg="light"] .cb-stage-viewport {
+    background: var(--palette-mist-50);
+}
+
+dialog.cb-stage-dialog[data-stage-bg="checker"] .cb-stage-viewport {
+    background-color: var(--color-surface);
+    background-image: conic-gradient(
+        var(--color-surface-subtle) 90deg,
+        var(--color-surface) 90deg 180deg,
+        var(--color-surface-subtle) 180deg 270deg,
+        var(--color-surface) 270deg
+    );
+    background-size: 20px 20px;
+}
+
+.cb-stage-canvas {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transform-origin: 50% 50%;
+    will-change: transform;
+}
+
+.cb-stage-canvas svg {
+    display: block;
+    max-width: none;
+    height: auto;
+}
+
+.cb-stage-img-wrap {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform var(--dur-base, 220ms) var(--ease-out-smooth, ease-out);
+}
+
+.cb-stage-img {
+    display: block;
+    max-width: none;
+    max-height: none;
+    border-radius: 4px;
+    box-shadow: var(--shadow-md);
+    pointer-events: none;
+}
+
+/* 左右翻页浮钮（多图灯箱模式） */
+.cb-stage-nav-btn {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 3;
+    width: 44px;
+    height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--color-border-strong);
+    border-radius: 9999px;
+    background: var(--color-surface-raised);
+    color: var(--color-text);
+    box-shadow: var(--shadow-md);
+    cursor: pointer;
+    transition: background-color var(--dur-fast, 150ms) var(--ease-out-smooth, ease-out),
+                border-color var(--dur-fast, 150ms) var(--ease-out-smooth, ease-out),
+                color var(--dur-fast, 150ms) var(--ease-out-smooth, ease-out);
+}
+
+.cb-stage-nav-btn:hover {
+    border-color: var(--color-primary);
+    background: var(--color-primary);
+    color: var(--color-on-primary);
+}
+
+.cb-stage-nav-prev {
+    left: 16px;
+}
+
+.cb-stage-nav-next {
+    right: 16px;
+}
+
+.cb-stage-nav-btn[hidden] {
+    display: none;
+}
+
+/* 底部说明与缩略图导览条 */
+.cb-stage-footer {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 16px;
+    background: var(--color-surface-raised);
+    border-top: 1px solid var(--color-border);
+    color: var(--color-text);
+    flex-shrink: 0;
+    z-index: 4;
+}
+
+.cb-stage-footer[hidden] {
+    display: none;
+}
+
+.cb-stage-caption-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px 16px;
+    font-size: var(--text-sm, 0.8125rem);
+}
+
+.cb-stage-caption {
+    color: var(--color-text);
+    font-weight: 500;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.cb-stage-hint {
+    color: var(--color-muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.cb-stage-thumbs {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    overflow-x: auto;
+    padding: 2px 0;
+}
+
+.cb-stage-thumbs[hidden] {
+    display: none;
+}
+
+.cb-stage-thumb-btn {
+    flex: 0 0 auto;
+    width: 58px;
+    height: 40px;
+    padding: 0;
+    border: 2px solid var(--color-border);
+    border-radius: var(--radius-sm, 6px);
+    background: var(--color-surface-subtle);
+    overflow: hidden;
+    cursor: pointer;
+    opacity: 0.72;
+    transition: border-color var(--dur-fast, 150ms) var(--ease-out-smooth, ease-out),
+                opacity var(--dur-fast, 150ms) var(--ease-out-smooth, ease-out),
+                transform var(--dur-fast, 150ms) var(--ease-out-smooth, ease-out);
+}
+
+.cb-stage-thumb-btn:hover {
+    opacity: 1;
+    border-color: var(--color-border-strong);
+}
+
+.cb-stage-thumb-btn.is-active {
+    opacity: 1;
+    border-color: var(--color-primary);
+    transform: translateY(-1px);
+}
+
+.cb-stage-thumb-btn img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+/* Mermaid 节点搜索命中高亮（兼容浅/深 SVG 图形） */
+.cb-mermaid-search-hit rect,
+.cb-mermaid-search-hit polygon,
+.cb-mermaid-search-hit circle,
+.cb-mermaid-search-hit ellipse,
+.cb-mermaid-search-hit path.basic {
+    stroke: var(--color-warning);
+    stroke-width: 3px;
+}
+
+.cb-mermaid-search-current rect,
+.cb-mermaid-search-current polygon,
+.cb-mermaid-search-current circle,
+.cb-mermaid-search-current ellipse,
+.cb-mermaid-search-current path.basic {
+    stroke: var(--color-primary);
+    stroke-width: 4px;
+    filter: drop-shadow(0 0 8px var(--color-focus));
+}
+
+.cb-mermaid-search-hit text,
+.cb-mermaid-search-hit foreignObject,
+.cb-mermaid-search-current text {
+    font-weight: 700;
+}
+
+.cb-mermaid-search-current {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+}
+
+/* 移动端响应式紧凑适配 */
+@media (max-width: 720px) {
+    .cb-stage-toolbar {
+        padding: 8px 10px;
+        gap: 6px;
+    }
+    .cb-stage-title {
+        max-width: 180px;
+    }
+    .cb-stage-btn {
+        padding: 4px 8px;
+        min-height: 36px;
+    }
+    .cb-stage-search-input {
+        width: 108px;
+    }
+    .cb-stage-nav-btn {
+        width: 38px;
+        height: 38px;
+    }
+    .cb-stage-nav-prev {
+        left: 8px;
+    }
+    .cb-stage-nav-next {
+        right: 8px;
+    }
+    .cb-stage-hint {
+        display: none;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    dialog.cb-stage-dialog[open] {
+        animation: none;
+    }
+    .cb-stage-img-wrap,
+    .cb-stage-btn,
+    .cb-stage-nav-btn,
+    .cb-stage-thumb-btn {
+        transition: none;
+    }
+}

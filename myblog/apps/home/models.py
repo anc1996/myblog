@@ -8,6 +8,15 @@ class HomePage(Page):
     author_creatable = False
     author_allow_child_creation = False
 
+    MASTHEAD_LAYOUT_VISUAL_BANNER = "visual_banner"
+    MASTHEAD_LAYOUT_EDITORIAL_SPLIT = "editorial_split"
+    MASTHEAD_LAYOUT_COMPACT_TEXT = "compact_text"
+    MASTHEAD_LAYOUT_CHOICES = [
+        (MASTHEAD_LAYOUT_VISUAL_BANNER, "宽幅背景图横幅（有图时作柔光背景横幅，无图自动退化为文字刊头）"),
+        (MASTHEAD_LAYOUT_EDITORIAL_SPLIT, "左文右图（右侧 16:10 自然比例配图，不切头）"),
+        (MASTHEAD_LAYOUT_COMPACT_TEXT, "极简纯文字（顶部不展示图，图片仅用于分享 OG）"),
+    ]
+
     masthead_title = models.CharField(
         max_length=120,
         blank=True,
@@ -20,10 +29,28 @@ class HomePage(Page):
         verbose_name="首页刊头导语",
         help_text="留空时回退为页脚关于导语或简洁默认介绍",
     )
+    featured_image = models.ForeignKey(
+        "media_library.CustomImage",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        verbose_name="首页刊头背景/配图",
+        help_text="可选首页背景横幅或右侧配图；留空时保持简洁文字刊头，支持 Wagtail 原生图片焦点框。",
+    )
+    masthead_layout = models.CharField(
+        max_length=24,
+        choices=MASTHEAD_LAYOUT_CHOICES,
+        default=MASTHEAD_LAYOUT_VISUAL_BANNER,
+        verbose_name="首页刊头排版样式",
+        help_text="控制首页顶部配图的呈现方式；未上传图片时自动呈现简洁文字刊头。",
+    )
 
     content_panels = Page.content_panels + [
         FieldPanel("masthead_title"),
         FieldPanel("masthead_subtitle"),
+        FieldPanel("featured_image"),
+        FieldPanel("masthead_layout"),
     ]
 
     # 约束首页下可创建的子页面类型
@@ -39,8 +66,66 @@ class HomePage(Page):
         from content_lifecycle.permissions import OwnershipPagePermissionTester
         return OwnershipPagePermissionTester(user, self)
 
+    def collect_media_references(self) -> list:
+        """登记首页刊头配图引用，确保发布时自动转公开并受防误删保护。"""
+        from content_blocks.contracts import MediaReference
+
+        featured_img = getattr(self, "featured_image", None)
+        if featured_img is not None and getattr(featured_img, "public_id", None):
+            return [
+                MediaReference(
+                    asset_id=str(featured_img.public_id),
+                    asset_type="image",
+                    block_path="featured_image",
+                    extra={"field_name": "featured_image"},
+                )
+            ]
+        return []
+
+    def get_masthead_presentation(self) -> dict:
+        """构造首页刊头呈现 DTO（零内联 style，支持 Wagtail 原生焦点框语义类）。"""
+        allowed = {
+            self.MASTHEAD_LAYOUT_VISUAL_BANNER,
+            self.MASTHEAD_LAYOUT_EDITORIAL_SPLIT,
+            self.MASTHEAD_LAYOUT_COMPACT_TEXT,
+        }
+        layout = self.masthead_layout if self.masthead_layout in allowed else self.MASTHEAD_LAYOUT_VISUAL_BANNER
+        cover_url = ""
+        focal_class = "is-focal-upper"
+        img = getattr(self, "featured_image", None)
+        if img is not None and getattr(img, "public_id", None):
+            cover_url = f"/media-gateway/image/{img.public_id}/"
+            try:
+                fp = img.get_focal_point()
+                img_h = getattr(img, "height", 0) or 0
+                if fp is not None and img_h > 0:
+                    y_ratio = float(fp.y) / float(img_h)
+                    if y_ratio < 0.28:
+                        focal_class = "is-focal-top"
+                    elif y_ratio < 0.44:
+                        focal_class = "is-focal-upper"
+                    elif y_ratio < 0.62:
+                        focal_class = "is-focal-center"
+                    elif y_ratio < 0.78:
+                        focal_class = "is-focal-lower"
+                    else:
+                        focal_class = "is-focal-bottom"
+            except Exception:
+                focal_class = "is-focal-upper"
+
+        show_banner = bool(cover_url and layout == self.MASTHEAD_LAYOUT_VISUAL_BANNER)
+        show_split = bool(cover_url and layout == self.MASTHEAD_LAYOUT_EDITORIAL_SPLIT)
+        return {
+            "layout": layout,
+            "cover_url": cover_url,
+            "focal_class": focal_class,
+            "show_banner": show_banner,
+            "show_split": show_split,
+        }
+
     def get_context(self, request, *args, **kwargs):
         context = super().get_context(request, *args, **kwargs)
+        context["masthead_presentation"] = self.get_masthead_presentation()
         from content_lifecycle.models import RecycleEntry
         from content_lifecycle.public_access import get_public_blocked_page_ids
         from discovery.detail_navigation import _get_nested_site_root_paths

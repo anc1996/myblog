@@ -8,33 +8,56 @@
 
 {% block extra_css %}
 <link rel="stylesheet" type="text/css" href="{% static 'blog/css/article.css' %}?v=20261126a">
-<link rel="stylesheet" type="text/css" href="{% static 'css/pages/home.css' %}?v=20261126a">
+<link rel="stylesheet" type="text/css" href="{% static 'css/pages/home.css' %}?v=20261127a">
 {% endblock extra_css %}
 
 {% block content %}
 {% wagtail_site as current_site %}
 <div class="home-portal-shell">
-    {# 1. 克制出版物刊头（后台可配主标题与导语 + 站内快速搜索） #}
-    <header class="home-masthead">
-        <div class="home-masthead-copy">
-            <h1 class="home-masthead-title">{% if page.masthead_title %}{{ page.masthead_title }}{% elif current_site and current_site.site_name %}{{ current_site.site_name }}{% else %}{{ page.title }}{% endif %}</h1>
-            <p class="home-masthead-desc">{% if page.masthead_subtitle %}{{ page.masthead_subtitle }}{% elif settings.site_settings.FooterSettings.about_text %}{{ settings.site_settings.FooterSettings.about_text }}{% else %}记录思考、技术实践与专题归档。{% endif %}</p>
-        </div>
-        <form action="{% url 'search' %}" method="get" class="home-masthead-search" role="search" aria-label="站内快速搜索">
-            <div class="home-masthead-search-box">
-                <span class="home-masthead-search-icon" aria-hidden="true">
-                    {% include "includes/_ui_icon.html" with name="search" %}
-                </span>
-                <input
-                    type="search"
-                    name="query"
-                    class="ui-input home-masthead-search-input"
-                    placeholder="搜索文章、指南、项目或标签…"
-                    aria-label="站内搜索关键词"
-                >
-                <button type="submit" class="ui-btn ui-btn-primary home-masthead-search-btn">搜索</button>
+    {# 1. 出版物刊头（后台可配标题、导语、背景/配图与 3 种排版样式 + 站内快速搜索） #}
+    <header class="home-masthead{% if masthead_presentation.show_banner %} home-masthead--visual_banner{% elif masthead_presentation.show_split %} home-masthead--editorial_split{% endif %}">
+        {% if masthead_presentation.show_banner %}
+        <img
+            src="{{ masthead_presentation.cover_url }}"
+            alt="{% if page.masthead_title %}{{ page.masthead_title }}{% elif current_site and current_site.site_name %}{{ current_site.site_name }}{% else %}{{ page.title }}{% endif %}"
+            class="home-masthead-bg-img {{ masthead_presentation.focal_class }}"
+            loading="eager"
+        >
+        <div class="home-masthead-scrim" aria-hidden="true"></div>
+        {% endif %}
+
+        <div class="home-masthead-inner">
+            <div class="home-masthead-copy">
+                <h1 class="home-masthead-title">{% if page.masthead_title %}{{ page.masthead_title }}{% elif current_site and current_site.site_name %}{{ current_site.site_name }}{% else %}{{ page.title }}{% endif %}</h1>
+                <p class="home-masthead-desc">{% if page.masthead_subtitle %}{{ page.masthead_subtitle }}{% elif settings.site_settings.FooterSettings.about_text %}{{ settings.site_settings.FooterSettings.about_text }}{% else %}记录思考、技术实践与专题归档。{% endif %}</p>
             </div>
-        </form>
+            <form action="{% url 'search' %}" method="get" class="home-masthead-search" role="search" aria-label="站内快速搜索">
+                <div class="home-masthead-search-box">
+                    <span class="home-masthead-search-icon" aria-hidden="true">
+                        {% include "includes/_ui_icon.html" with name="search" %}
+                    </span>
+                    <input
+                        type="search"
+                        name="query"
+                        class="ui-input home-masthead-search-input"
+                        placeholder="搜索文章、指南、项目或标签…"
+                        aria-label="站内搜索关键词"
+                    >
+                    <button type="submit" class="ui-btn ui-btn-primary home-masthead-search-btn">搜索</button>
+                </div>
+            </form>
+        </div>
+
+        {% if masthead_presentation.show_split %}
+        <div class="home-masthead-side-media">
+            <img
+                src="{{ masthead_presentation.cover_url }}"
+                alt="{% if page.masthead_title %}{{ page.masthead_title }}{% elif current_site and current_site.site_name %}{{ current_site.site_name }}{% else %}{{ page.title }}{% endif %}"
+                class="home-masthead-side-img {{ masthead_presentation.focal_class }}"
+                loading="eager"
+            >
+        </div>
+        {% endif %}
     </header>
 
     {# 1.5 精选内容轮播 (Splide 响应式触控轮播) #}

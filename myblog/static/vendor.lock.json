@@ -165,6 +165,21 @@
         {"src": "package/dist/css/splide.min.css", "dest": "splide.min.css"},
         {"src": "package/LICENSE", "dest": "LICENSE"}
       ]
+    },
+    "panzoom": {
+      "npm_package": "@panzoom/panzoom",
+      "version": "4.6.2",
+      "registry_url": "https://registry.npmjs.org/@panzoom/panzoom/-/panzoom-4.6.2.tgz",
+      "integrity_sha512": "Zn3B5/hwa6eYIPRSKX0xf2clv8nviTX8AnAU5kU/EugiTDhG41ya2wlBqYrZJYCWQROr/5XkWObZhIkepi89qw==",
+      "shasum_sha1": "7104b5f1d67aac3aec83c3bd2c42b33ffd0b4125",
+      "license": "MIT",
+      "upstream": "https://github.com/timmywil/panzoom",
+      "security_note": "Zero-dependency SVG & image pan/zoom/pinch runtime for CBStageViewer (Mermaid fullscreen + image lightbox)",
+      "strip_missing_sourcemaps": true,
+      "extract": [
+        {"src": "package/dist/panzoom.min.js", "dest": "panzoom.min.js"},
+        {"src": "package/MIT-License.txt", "dest": "LICENSE"}
+      ]
     }
   }
 }

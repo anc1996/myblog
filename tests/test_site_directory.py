@@ -633,3 +633,40 @@ class SiteDirectoryTreeTests(TestCase):
             text = (project_root / rel_css).read_text(encoding="utf-8")
             self.assertEqual(hex_re.findall(text), [], f"{rel_css} 不得包含裸 #hex 色值")
             self.assertNotIn("transition: all", text, f"{rel_css} 不得包含 transition: all")
+
+    def test_homepage_featured_image_masthead_layouts_and_media_ref(self):
+        from io import BytesIO
+        from PIL import Image as PilImage
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from media_library.models import CustomImage, VisibilityChoices
+
+        buf = BytesIO()
+        PilImage.new("RGB", (640, 400), color=(30, 80, 140)).save(buf, format="PNG")
+        img = CustomImage.objects.create(
+            title="首页背景测试图",
+            file=SimpleUploadedFile("home_bg.png", buf.getvalue(), content_type="image/png"),
+            visibility=VisibilityChoices.PUBLIC,
+        )
+
+        self.home.featured_image = img
+        self.home.masthead_layout = HomePage.MASTHEAD_LAYOUT_VISUAL_BANNER
+        self.home.save_revision(user=self.owner).publish(user=self.owner)
+        refs = self.home.collect_media_references()
+        self.assertEqual(len(refs), 1)
+        self.assertEqual(refs[0].asset_id, str(img.public_id))
+
+        banner_html = self.client.get("/").content.decode("utf-8")
+        self.assertIn("home-masthead--visual_banner", banner_html)
+        self.assertIn(f"/media-gateway/image/{img.public_id}/", banner_html)
+
+        self.home.masthead_layout = HomePage.MASTHEAD_LAYOUT_EDITORIAL_SPLIT
+        self.home.save_revision(user=self.owner).publish(user=self.owner)
+        split_html = self.client.get("/").content.decode("utf-8")
+        self.assertIn("home-masthead--editorial_split", split_html)
+        self.assertIn("home-masthead-side-media", split_html)
+
+        self.home.masthead_layout = HomePage.MASTHEAD_LAYOUT_COMPACT_TEXT
+        self.home.save_revision(user=self.owner).publish(user=self.owner)
+        compact_html = self.client.get("/").content.decode("utf-8")
+        self.assertNotIn("home-masthead--visual_banner", compact_html)
+        self.assertNotIn("home-masthead-side-media", compact_html)

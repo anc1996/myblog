@@ -69,8 +69,12 @@
                 if (statusEl) statusEl.hidden = true;
                 hasRenderedSvg = true;
                 if (activeModalRefs && document.body.contains(activeModalRefs.modal)) {
-                    activeModalRefs.modalContent.setAttribute("data-theme", res.theme);
-                    activeModalRefs.modalCanvas.innerHTML = res.svgHtml;
+                    if (typeof activeModalRefs.syncSvg === "function") {
+                        activeModalRefs.syncSvg(res.svgHtml, res.theme);
+                    } else if (activeModalRefs.modalContent && activeModalRefs.modalCanvas) {
+                        activeModalRefs.modalContent.setAttribute("data-theme", res.theme);
+                        activeModalRefs.modalCanvas.innerHTML = res.svgHtml;
+                    }
                 }
                 try {
                     var rect = canvas.getBoundingClientRect();
@@ -215,6 +219,75 @@
                 URL.revokeObjectURL(url);
             });
         }
+
+        function exportMermaidPng2x(svgText, themeName) {
+            if (!svgText) return;
+            try {
+                var parser = new DOMParser();
+                var doc = parser.parseFromString(svgText, "image/svg+xml");
+                var svgNode = doc.querySelector("svg");
+                if (!svgNode) return;
+                var vb = svgNode.getAttribute("viewBox");
+                var w = 0;
+                var h = 0;
+                if (vb) {
+                    var parts = vb.trim().split(/[\s,]+/);
+                    if (parts.length === 4) {
+                        w = parseFloat(parts[2]) || 0;
+                        h = parseFloat(parts[3]) || 0;
+                    }
+                }
+                if (!w || !h) {
+                    w = parseFloat(svgNode.getAttribute("width")) || 960;
+                    h = parseFloat(svgNode.getAttribute("height")) || 540;
+                }
+                w = Math.max(200, Math.min(4096, Math.ceil(w)));
+                h = Math.max(150, Math.min(4096, Math.ceil(h)));
+                svgNode.setAttribute("width", String(w));
+                svgNode.setAttribute("height", String(h));
+                svgNode.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+                var serialized = new XMLSerializer().serializeToString(svgNode);
+                var svgDataUrl = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(serialized);
+                var img = new Image();
+                img.onload = function () {
+                    var dpr = 2;
+                    var pad = 24;
+                    var offCanvas = document.createElement("canvas");
+                    offCanvas.width = (w + pad * 2) * dpr;
+                    offCanvas.height = (h + pad * 2) * dpr;
+                    var ctx = offCanvas.getContext("2d");
+                    if (!ctx) return;
+                    ctx.scale(dpr, dpr);
+                    var rootStyle = getComputedStyle(document.documentElement);
+                    var bgFill = themeName === "dark"
+                        ? (rootStyle.getPropertyValue("--palette-mist-950").trim() || "rgb(15, 23, 42)")
+                        : (rootStyle.getPropertyValue("--palette-mist-50").trim() || "rgb(248, 250, 252)");
+                    ctx.fillStyle = bgFill;
+                    ctx.fillRect(0, 0, w + pad * 2, h + pad * 2);
+                    ctx.drawImage(img, pad, pad, w, h);
+                    try {
+                        offCanvas.toBlob(function (pngBlob) {
+                            if (!pngBlob) return;
+                            var pngUrl = URL.createObjectURL(pngBlob);
+                            var link = document.createElement("a");
+                            link.href = pngUrl;
+                            link.download = "mermaid-diagram@2x.png";
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                            URL.revokeObjectURL(pngUrl);
+                        }, "image/png");
+                    } catch (_err) {
+                        // 浏览器若因外链资源判定 Canvas 受污染，安全回退为导出 SVG
+                        if (btnExport) btnExport.click();
+                    }
+                };
+                img.src = svgDataUrl;
+            } catch (_e) {
+                if (btnExport) btnExport.click();
+            }
+        }
+
         if (btnCollapse) {
             btnCollapse.addEventListener("click", function () {
                 var isCollapsed = block.classList.toggle("is-collapsed");
@@ -228,6 +301,220 @@
         if (btnFullscreen) {
             btnFullscreen.addEventListener("click", function () {
                 maybeNotifyMermaidView(true);
+                var titleNode = block.querySelector(".cb-mermaid-title");
+                var diagramTitle = (titleNode ? titleNode.textContent.trim() : "") || "流程图全屏查看";
+
+                if (window.CBStageViewer && typeof window.CBStageViewer.open === "function") {
+                    var hitNodes = [];
+                    var hitIndex = -1;
+                    var lastQuery = "";
+
+                    function parseSvgNode(svgHtml) {
+                        var wrap = document.createElement("div");
+                        wrap.innerHTML = svgHtml || "";
+                        var svg = wrap.querySelector("svg");
+                        if (!svg) return { node: wrap, size: { width: 0, height: 0 } };
+                        var vb = svg.viewBox && svg.viewBox.baseVal;
+                        var w = (vb && vb.width > 0) ? vb.width : (parseFloat(svg.getAttribute("width")) || 800);
+                        var h = (vb && vb.height > 0) ? vb.height : (parseFloat(svg.getAttribute("height")) || 480);
+                        svg.setAttribute("width", String(Math.ceil(w)));
+                        svg.setAttribute("height", String(Math.ceil(h)));
+                        svg.style.maxWidth = "none";
+                        return { node: svg, size: { width: w, height: h } };
+                    }
+
+                    var viewer = window.CBStageViewer.open({
+                        title: diagramTitle,
+                        ariaLabel: diagramTitle + "（全屏查看）",
+                        minScale: 0.2,
+                        maxScale: 8.0,
+                        maxFitScale: 1.8,
+                        initialBackdrop: currentTheme === "dark" ? "dark" : "light",
+                        showFooter: true,
+                        hintText: "滚轮定点缩放 · 拖拽平移 · 搜索节点自动居中 · Esc 退出",
+                        triggerEl: btnFullscreen,
+                        onClose: function () {
+                            activeModalRefs = null;
+                        },
+                    });
+
+                    // 构建 Mermaid 全屏专属工具栏：节点搜索 + 上下命中 + 主题切换 + SVG/PNG 导出 + 复制源码
+                    var searchGroup = document.createElement("div");
+                    searchGroup.className = "cb-stage-search-group";
+                    var searchInput = document.createElement("input");
+                    searchInput.type = "search";
+                    searchInput.className = "cb-stage-search-input";
+                    searchInput.placeholder = "搜索节点…";
+                    searchInput.setAttribute("aria-label", "搜索流程图节点");
+                    searchInput.setAttribute("data-mermaid-node-search", "1");
+
+                    var searchCount = document.createElement("span");
+                    searchCount.className = "cb-stage-search-count";
+                    searchCount.textContent = "";
+
+                    var btnPrevHit = document.createElement("button");
+                    btnPrevHit.type = "button";
+                    btnPrevHit.className = "cb-stage-search-nav";
+                    btnPrevHit.textContent = "↑";
+                    btnPrevHit.title = "上一个匹配节点";
+                    btnPrevHit.disabled = true;
+
+                    var btnNextHit = document.createElement("button");
+                    btnNextHit.type = "button";
+                    btnNextHit.className = "cb-stage-search-nav";
+                    btnNextHit.textContent = "↓";
+                    btnNextHit.title = "下一个匹配节点";
+                    btnNextHit.disabled = true;
+
+                    searchGroup.appendChild(searchInput);
+                    searchGroup.appendChild(searchCount);
+                    searchGroup.appendChild(btnPrevHit);
+                    searchGroup.appendChild(btnNextHit);
+                    viewer.extraSlot.appendChild(searchGroup);
+
+                    function clearSearchHighlights() {
+                        viewer.canvas.querySelectorAll(".cb-mermaid-search-hit, .cb-mermaid-search-current").forEach(function (el) {
+                            el.classList.remove("cb-mermaid-search-hit", "cb-mermaid-search-current");
+                        });
+                        hitNodes = [];
+                        hitIndex = -1;
+                        searchCount.textContent = "";
+                        btnPrevHit.disabled = true;
+                        btnNextHit.disabled = true;
+                    }
+
+                    function focusHit(idx) {
+                        if (!hitNodes.length) return;
+                        hitIndex = ((idx % hitNodes.length) + hitNodes.length) % hitNodes.length;
+                        hitNodes.forEach(function (el, i) {
+                            el.classList.toggle("cb-mermaid-search-current", i === hitIndex);
+                        });
+                        searchCount.textContent = (hitIndex + 1) + "/" + hitNodes.length;
+                        viewer.panToElement(hitNodes[hitIndex]);
+                    }
+
+                    function runNodeSearch(query, shouldCenter) {
+                        clearSearchHighlights();
+                        var q = (query || "").trim().toLowerCase();
+                        lastQuery = q;
+                        if (!q) return;
+                        var candidates = viewer.canvas.querySelectorAll("svg text, svg .nodeLabel, svg .edgeLabel, svg .cluster-label");
+                        var seen = [];
+                        candidates.forEach(function (el) {
+                            var txt = (el.textContent || "").trim().toLowerCase();
+                            if (!txt || txt.indexOf(q) === -1) return;
+                            var target = el.closest("g.node, g.cluster, g.edgeLabel, g.label") || el;
+                            if (seen.indexOf(target) === -1) {
+                                seen.push(target);
+                                target.classList.add("cb-mermaid-search-hit");
+                            }
+                        });
+                        hitNodes = seen;
+                        if (hitNodes.length) {
+                            btnPrevHit.disabled = false;
+                            btnNextHit.disabled = false;
+                            if (shouldCenter) {
+                                focusHit(0);
+                            } else {
+                                searchCount.textContent = "0/" + hitNodes.length;
+                            }
+                        } else {
+                            searchCount.textContent = "0/0";
+                        }
+                    }
+
+                    searchInput.addEventListener("input", function () {
+                        runNodeSearch(searchInput.value, true);
+                    });
+                    searchInput.addEventListener("keydown", function (evt) {
+                        if (evt.key === "Enter" && hitNodes.length) {
+                            evt.preventDefault();
+                            focusHit(evt.shiftKey ? hitIndex - 1 : hitIndex + 1);
+                        }
+                    });
+                    btnPrevHit.addEventListener("click", function () { focusHit(hitIndex - 1); });
+                    btnNextHit.addEventListener("click", function () { focusHit(hitIndex + 1); });
+
+                    var btnStageTheme = window.CBStageViewer.createToolbarButton({
+                        label: currentTheme === "dark" ? "浅色图" : "深色图",
+                        title: "切换全屏流程图主题",
+                        onClick: function () {
+                            var nextTheme = currentTheme === "dark"
+                                ? (declaredTheme === "follow-site" || declaredTheme === "dark" ? "default" : declaredTheme)
+                                : "dark";
+                            manualThemeOverride = nextTheme;
+                            renderDiagram(nextTheme);
+                        },
+                    });
+                    var btnStageSvg = window.CBStageViewer.createToolbarButton({
+                        label: "SVG",
+                        title: "导出矢量 SVG 文件",
+                        onClick: function () {
+                            if (btnExport) btnExport.click();
+                        },
+                    });
+                    var btnStagePng = window.CBStageViewer.createToolbarButton({
+                        label: "PNG 2x",
+                        title: "导出 2 倍高清 PNG 图片",
+                        onClick: function () {
+                            exportMermaidPng2x(currentSvgText, currentTheme);
+                        },
+                    });
+                    var btnStageCopy = window.CBStageViewer.createToolbarButton({
+                        label: "复制源码",
+                        title: "复制 Mermaid 源代码",
+                        onClick: function () {
+                            var span = btnStageCopy.querySelector("span");
+                            var onDone = function () {
+                                if (!span) return;
+                                var old = span.textContent;
+                                span.textContent = "已复制";
+                                setTimeout(function () { span.textContent = old; }, 1800);
+                            };
+                            if (navigator.clipboard && window.isSecureContext) {
+                                navigator.clipboard.writeText(code).then(onDone).catch(function () {
+                                    fallbackCopy(code, onDone);
+                                });
+                            } else {
+                                fallbackCopy(code, onDone);
+                            }
+                        },
+                    });
+
+                    viewer.extraSlot.appendChild(btnStageTheme);
+                    viewer.extraSlot.appendChild(btnStageSvg);
+                    viewer.extraSlot.appendChild(btnStagePng);
+                    viewer.extraSlot.appendChild(btnStageCopy);
+
+                    function mountSvgIntoViewer(svgHtml, themeName, preserveScale) {
+                        var parsed = parseSvgNode(svgHtml);
+                        var mode = preserveScale ? "actual" : "fit";
+                        viewer.setContent(parsed.node, parsed.size, mode);
+                        viewer.setBackdrop(themeName === "dark" ? "dark" : "light");
+                        var themeSpan = btnStageTheme.querySelector("span");
+                        if (themeSpan) {
+                            themeSpan.textContent = themeName === "dark" ? "浅色图" : "深色图";
+                        }
+                        if (lastQuery) {
+                            window.requestAnimationFrame(function () {
+                                runNodeSearch(lastQuery, false);
+                            });
+                        }
+                    }
+
+                    mountSvgIntoViewer(currentSvgText, currentTheme, false);
+                    activeModalRefs = {
+                        modal: viewer.dialog,
+                        modalContent: viewer.dialog,
+                        modalCanvas: viewer.canvas,
+                        syncSvg: function (svgHtml, themeName) {
+                            mountSvgIntoViewer(svgHtml, themeName, false);
+                        },
+                    };
+                    return;
+                }
+
+                // 降级回退：当公共 CBStageViewer 未加载时保留轻量原生弹窗
                 var modal = document.createElement("dialog");
                 modal.className = "cb-mermaid-modal";
                 modal.innerHTML = '<div class="cb-mermaid-modal-content">' +

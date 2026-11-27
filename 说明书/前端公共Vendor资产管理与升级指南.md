@@ -14,13 +14,13 @@
 |---|---|---|
 | `myblog/static/vendor.lock.json` | **提交** | 第三方库版本锁文件，记录包名、`npm_package` 映射、版本、官方 npm 下载地址、SHA-512/SHA-1 校验值与精确提取路径 |
 | `scripts/sync_vendor_assets.py` | **提交** | 同步、校验与升级脚本（纯 Python 实现，自带路径穿越防护和压缩包校验） |
-| `myblog/static/vendor/` | **不提交（已忽略）** | 实际运行时的第三方静态产物目录（包含下方锁定的全部 10 个包目录，以及自动生成的 `UPSTREAM.md`、`.vendor-manifest.json`） |
+| `myblog/static/vendor/` | **不提交（已忽略）** | 实际运行时的第三方静态产物目录（包含下方锁定的全部 11 个包目录，以及自动生成的 `UPSTREAM.md`、`.vendor-manifest.json`） |
 | `myblog/templates/includes/_ui_assets_css.html`<br>`myblog/templates/includes/_ui_assets_js.html` | **提交** | 全站基础 UI 资产引入片段（`htmx`、`tomselect`、`flatpickr`、`splide`、`alpinejs` 与 `ui-components.js`），由 `base.html` 统一加载 |
 | `myblog/static/js/ui-components.js` | **提交** | 全站公共 UI 统一桥接器（`MyblogUI`），负责三态昼夜主题联动、Tom Select、Flatpickr、Splide 挂载及 HTMX CSRF/局部刷新重挂 |
-| `myblog/apps/content_blocks/static/content_blocks/` | **提交** | 我们自己编写的公共积木交互层（`mermaid-renderer.js`、`mermaid-block.js`、`math-render.js`、`code-highlighting.js`、`code-copy.js`、`media-player.js`、`admin-vditor-markdown.js`、`admin-media-split.js`、`admin-mermaid-split.js`、`admin-table-split.js`、`content-images.js`、`embed-render.js`、`table-block.js` 及对应 CSS），负责对接调用 `vendor/` |
+| `myblog/apps/content_blocks/static/content_blocks/` | **提交** | 我们自己编写的公共积木交互层（`stage-viewer.js`、`mermaid-renderer.js`、`mermaid-block.js`、`math-render.js`、`code-highlighting.js`、`code-copy.js`、`media-player.js`、`admin-vditor-markdown.js`、`admin-media-split.js`、`admin-mermaid-split.js`、`admin-table-split.js`、`content-images.js`、`embed-render.js`、`table-block.js` 及对应 CSS），负责对接调用 `vendor/` |
 | `myblog/apps/content_blocks/templates/content_blocks/includes/` | **提交** | 正文积木资源引入片段（`_block_assets_css.html`、`_block_assets_js.html`），供 `BlogPage`、`GuidePage`、`ProjectPage` 统一复用 |
 
-### 当前已锁定的 10 个公共 Vendor 包（以 `myblog/static/vendor.lock.json` 为准）
+### 当前已锁定的 11 个公共 Vendor 包（以 `myblog/static/vendor.lock.json` 为准）
 
 | 本地键名 (`vendor/<键名>/`) | 真实 npm 包名 (`npm_package`) | 锁定版本 | 主要用途与对接入口 |
 |---|---|---|---|
@@ -34,6 +34,7 @@
 | `tomselect` | `tom-select` | `2.7.0` | 可搜索下拉框与作者/标签多选胶囊（`_ui_assets_*`、`ui-components.js`） |
 | `flatpickr` | `flatpickr` | `4.6.13` | 统一日期/范围选择器及中文语言包（`_ui_assets_*`、`ui-components.js`） |
 | `splide` | `@splidejs/splide` | `4.1.4` | 首页与专题页响应式轮播组件（`_ui_assets_*`、`ui-components.js`） |
+| `panzoom` | `@panzoom/panzoom` | `4.6.2` | 公共沉浸式画布缩放与拖拽内核，统一供 `stage-viewer.js`（Mermaid 复杂流程图全屏与图片灯箱）按需懒加载调用 |
 
 ---
 
