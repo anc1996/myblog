@@ -17,8 +17,10 @@
 from __future__ import annotations
 
 import hashlib
+import html
 import json
 import logging
+import re
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -46,6 +48,103 @@ from .transformer import (
 )
 
 logger = logging.getLogger(__name__)
+
+_RECONCILE_A_TAG_RE = re.compile(r"<a\b([^>]*?)>", re.IGNORECASE)
+_RECONCILE_EMBED_TAG_RE = re.compile(r"<embed\b([^>]*?)/?>", re.IGNORECASE)
+_RECONCILE_ATTR_DQ_RE = re.compile(r'([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*"([^"]*)"')
+_RECONCILE_ATTR_SQ_RE = re.compile(r"([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*'([^']*)'")
+_RECONCILE_ASSET_URI_RE = re.compile(
+    r"asset://(image|document|audio|video)/([^\s\"')>\]]+)",
+    re.IGNORECASE,
+)
+_RECONCILE_GATEWAY_URI_RE = re.compile(
+    r"/media-gateway/(image|document|audio|video)/([^\s/?#\"')>\]]+)",
+    re.IGNORECASE,
+)
+_RECONCILE_MD_LINK_RE = re.compile(
+    r"(?<!!)\[([^\]]*)\]\((<[^>]+>|[^)\s]+)(?:\s+[\"'][^\"']*[\"'])?\)"
+)
+_RECONCILE_FENCE_RE = re.compile(r"(```[\s\S]*?```|~~~[\s\S]*?~~~)")
+_RECONCILE_INLINE_CODE_RE = re.compile(r"(`[^`\n]+`)")
+_RECONCILE_MD_IMG_RE = re.compile(
+    r"!\[([^\]]*)\]\((<[^>]+>|[^)\s]+)(?:\s+[\"'][^\"']*[\"'])?\)"
+)
+
+_MAX_RESIDUAL_RELATIVE_LINKS = 100
+
+
+def _parse_html_tag_attrs(attr_str: str) -> dict[str, str]:
+    """解析 HTML 标签属性，保证与属性书写顺序无关地读取 linktype/id/embedtype 等键。"""
+    out: dict[str, str] = {}
+    for k, v in _RECONCILE_ATTR_DQ_RE.findall(attr_str or ""):
+        out[k.lower()] = html.unescape(v)
+    for k, v in _RECONCILE_ATTR_SQ_RE.findall(attr_str or ""):
+        lk = k.lower()
+        if lk not in out:
+            out[lk] = html.unescape(v)
+    return out
+
+
+def _strip_markdown_code_spans(md_text: str) -> str:
+    """剥离围栏代码块与行内代码，避免把代码示例中的路径或标签误报为残留链接。"""
+    if not md_text:
+        return ""
+    cleaned = _RECONCILE_FENCE_RE.sub(" ", md_text)
+    return _RECONCILE_INLINE_CODE_RE.sub(" ", cleaned)
+
+
+def _collect_text_segments_from_payload(
+    field_name: str,
+    payload: Any,
+) -> list[tuple[str, str, bool]]:
+    """从已水合的 MongoDB StreamField payload 中提取待扫描文本片段 (field_label, text, is_markdown)。"""
+    segments: list[tuple[str, str, bool]] = []
+    if not isinstance(payload, list):
+        return segments
+    for idx, blk in enumerate(payload):
+        if not isinstance(blk, dict):
+            continue
+        btype = str(blk.get("type") or "").strip()
+        val = blk.get("value")
+        if btype == "rich_text":
+            if isinstance(val, str) and val:
+                segments.append((f"{field_name}[{idx}]", val, False))
+        elif btype in ("markdown", "markdown_block"):
+            md_text = val.get("markdown", "") if isinstance(val, dict) else (val if isinstance(val, str) else "")
+            if md_text:
+                segments.append((f"{field_name}[{idx}]", str(md_text), True))
+        elif btype == "media_text" and isinstance(val, dict):
+            body_rt = val.get("body")
+            if body_rt:
+                segments.append((f"{field_name}[{idx}].body", str(body_rt), False))
+        elif btype == "table" and isinstance(val, dict):
+            raw_tdata = val.get("table_data")
+            parsed_tdata = None
+            if isinstance(raw_tdata, dict):
+                parsed_tdata = raw_tdata
+            elif isinstance(raw_tdata, str) and raw_tdata.strip():
+                try:
+                    parsed_tdata = json.loads(raw_tdata)
+                except Exception:
+                    parsed_tdata = None
+            rows = (
+                parsed_tdata.get("rows", [])
+                if isinstance(parsed_tdata, dict)
+                else (parsed_tdata if isinstance(parsed_tdata, list) else [])
+            )
+            for r_idx, row in enumerate(rows):
+                if not isinstance(row, list):
+                    continue
+                for c_idx, cell in enumerate(row):
+                    c_val = cell.get("value", "") if isinstance(cell, dict) else cell
+                    if c_val:
+                        segments.append((f"{field_name}[{idx}].r{r_idx}c{c_idx}", str(c_val), False))
+        elif btype in ("lead", "step", "tip", "faq") and isinstance(val, dict):
+            for sub_k in ("prerequisites", "overview", "content", "answer"):
+                sub_v = val.get(sub_k)
+                if sub_v:
+                    segments.append((f"{field_name}[{idx}].{sub_k}", str(sub_v), False))
+    return segments
 
 
 class TargetIsolationError(RuntimeError):
@@ -1657,15 +1756,20 @@ def reconcile_target(snapshot_dir: Path, *, batch_id: str = "wb3_v2", include_te
     """
     全量核验目标数据库、MongoDB 与 RustFS 实体完整性，输出差异对账报告。
     """
+    from django.conf import settings as django_settings
     from django.db.models import Sum
+    from pymongo import MongoClient
     from taggit.models import Tag
     from wagtail.contrib.redirects.models import Redirect
+    from wagtail.models import Page, PageViewRestriction
 
     from analytics.models import PageAnalyticsDaily, PageAnalyticsTotal
     from blog.models import BlogIndexPage, BlogPage
     from comments.models import Comment, CommentReaction
+    from content_lifecycle.public_access import get_public_blocked_path_prefixes
     from discovery.models import PublishedSearchDocument
     from external_content.models import OperationResult
+    from external_content.store import calculate_payload_hash
     from media_library.models import (
         Audio,
         CustomDocument,
@@ -1715,9 +1819,23 @@ def reconcile_target(snapshot_dir: Path, *, batch_id: str = "wb3_v2", include_te
         OperationResult.objects.filter(
             operation_id__startswith=f"{batch_id}:pub_blog:",
             page_id__isnull=False,
-        ).values("page_id", "result_json")
+        ).values("operation_id", "page_id", "result_json")
     )
     migrated_blog_ids = [int(r["page_id"]) for r in migrated_blog_rows]
+    new_pid_to_old_pid: dict[int, int] = {}
+    for r in migrated_blog_rows:
+        tail = str(r["operation_id"]).rsplit(":", 1)[-1]
+        if tail.isdigit():
+            new_pid_to_old_pid[int(r["page_id"])] = int(tail)
+    expected_fields_by_old_pid: dict[int, set[str]] = {}
+    for bp_snap in included_blogs:
+        efields: set[str] = set()
+        if plain_text_to_richtext_html(bp_snap.get("intro") or ""):
+            efields.add("intro")
+        if bp_snap.get("body_blocks"):
+            efields.add("body")
+        expected_fields_by_old_pid[int(bp_snap["id"])] = efields
+
     held_draft_blog_ids = {
         int(r["page_id"])
         for r in migrated_blog_rows
@@ -1726,12 +1844,28 @@ def reconcile_target(snapshot_dir: Path, *, batch_id: str = "wb3_v2", include_te
     expected_live_blogs = max(0, expected_source_live_blogs - len(held_draft_blog_ids))
     expected_draft_blogs = expected_source_draft_blogs + len(held_draft_blog_ids)
 
-    migrated_index_objs = list(BlogIndexPage.objects.filter(pk__in=migrated_index_ids))
-    migrated_blog_objs = list(BlogPage.objects.filter(pk__in=migrated_blog_ids))
+    migrated_index_objs = list(
+        BlogIndexPage.objects.filter(pk__in=migrated_index_ids).select_related("featured_image")
+    )
+    migrated_blog_objs = list(
+        BlogPage.objects.filter(pk__in=migrated_blog_ids).select_related(
+            "live_revision",
+            "latest_revision",
+            "featured_image",
+        )
+    )
 
     actual_live_blogs = sum(1 for bp in migrated_blog_objs if bp.live)
     actual_draft_blogs = sum(1 for bp in migrated_blog_objs if not bp.live)
-    actual_restricted_blogs = sum(1 for bp in migrated_blog_objs if bp.get_view_restrictions().exists())
+
+    # 批量计算受限路径前缀与全站公开阻断前缀，消除按页循环查询 N+1
+    restricted_prefixes = [
+        p for p in PageViewRestriction.objects.values_list("page__path", flat=True) if p
+    ]
+    blocked_prefixes = get_public_blocked_path_prefixes()
+    actual_restricted_blogs = sum(
+        1 for bp in migrated_blog_objs if any(bp.path.startswith(rp) for rp in restricted_prefixes)
+    )
 
     live_migrated_blog_ids = [bp.id for bp in migrated_blog_objs if bp.live]
     projected_count = PublishedSearchDocument.objects.filter(
@@ -1744,22 +1878,34 @@ def reconcile_target(snapshot_dir: Path, *, batch_id: str = "wb3_v2", include_te
     public_live_pages = []
     restricted_or_draft_pages = []
     for p_obj in [*migrated_index_objs, *migrated_blog_objs]:
-        has_unlive_ancestor = p_obj.get_ancestors().filter(depth__gte=2, live=False).exists()
-        if p_obj.live and (not has_unlive_ancestor) and (not p_obj.get_view_restrictions().exists()):
+        if p_obj.live and not any(p_obj.path.startswith(bp_prefix) for bp_prefix in blocked_prefixes):
             public_live_pages.append(p_obj)
         else:
             restricted_or_draft_pages.append(p_obj)
+
+    all_migrated_ids = [po.id for po in [*migrated_index_objs, *migrated_blog_objs]]
+    refs_by_page_rev: dict[tuple[int, int], list[tuple[str, UUID]]] = {}
+    refs_by_page_all: dict[int, list[tuple[str, UUID]]] = {}
+    if all_migrated_ids:
+        for pid_val, rev_id_val, atype, aid in MediaReferenceRecord.objects.filter(
+            page_id__in=all_migrated_ids
+        ).values_list("page_id", "revision_id", "asset_type", "asset_id"):
+            if not aid:
+                continue
+            refs_by_page_all.setdefault(int(pid_val), []).append((atype, aid))
+            if rev_id_val is not None:
+                refs_by_page_rev.setdefault((int(pid_val), int(rev_id_val)), []).append((atype, aid))
 
     def _collect_page_asset_pairs(page_objs) -> set[tuple[str, UUID]]:
         pairs: set[tuple[str, UUID]] = set()
         for po in page_objs:
             rev_id = getattr(po, "live_revision_id", None) if po.live else getattr(po, "latest_revision_id", None)
-            qs = MediaReferenceRecord.objects.filter(page_id=po.id)
             if rev_id:
-                qs = qs.filter(revision_id=rev_id)
-            for atype, aid in qs.values_list("asset_type", "asset_id"):
-                if aid:
-                    pairs.add((atype, aid))
+                for item in refs_by_page_rev.get((int(po.id), int(rev_id)), []):
+                    pairs.add(item)
+            else:
+                for item in refs_by_page_all.get(int(po.id), []):
+                    pairs.add(item)
             fimg = getattr(po, "featured_image", None)
             if fimg is not None and getattr(fimg, "public_id", None):
                 pairs.add(("image", fimg.public_id))
@@ -1825,6 +1971,297 @@ def reconcile_target(snapshot_dir: Path, *, batch_id: str = "wb3_v2", include_te
 
     actual_pv_sum = int(PageAnalyticsTotal.objects.aggregate(s=Sum("total_pv")).get("s") or 0)
 
+    # 核验 MongoDB 正文版本与 SHA-256 哈希，并复用已取回 payload 收集全量站内链接与残留旧路径
+    missing_mongo_versions: list[dict[str, Any]] = []
+    content_hash_mismatches: list[dict[str, Any]] = []
+    broken_internal_links: list[dict[str, Any]] = []
+    unconverted_legacy_embeds: list[dict[str, Any]] = []
+    residual_relative_media_links: list[dict[str, Any]] = []
+    residual_relative_media_links_count = 0
+    checked_mongo_pointers = 0
+
+    page_link_refs: list[tuple[int, str, int]] = []
+    doc_link_refs: list[tuple[int, str, int]] = []
+    embed_image_refs: list[tuple[int, str, int]] = []
+    asset_refs_by_type: dict[str, list[tuple[int, str, UUID]]] = {
+        "image": [],
+        "document": [],
+        "audio": [],
+        "video": [],
+    }
+
+    def _scan_text_segment(page_id: int, field_label: str, raw_text: str, *, is_markdown: bool) -> None:
+        nonlocal residual_relative_media_links_count
+        if not raw_text:
+            return
+        scan_text = _strip_markdown_code_spans(raw_text) if is_markdown else raw_text
+
+        for m in _RECONCILE_A_TAG_RE.finditer(scan_text):
+            attrs = _parse_html_tag_attrs(m.group(1))
+            linktype = str(attrs.get("linktype") or "").strip().lower()
+            raw_id = str(attrs.get("id") or "").strip()
+            if linktype == "page" and raw_id.isdigit():
+                page_link_refs.append((page_id, field_label, int(raw_id)))
+            elif linktype == "document" and raw_id.isdigit():
+                doc_link_refs.append((page_id, field_label, int(raw_id)))
+
+        for m in _RECONCILE_ASSET_URI_RE.finditer(scan_text):
+            atype = m.group(1).lower()
+            raw_uid = m.group(2)
+            try:
+                parsed_uid = UUID(raw_uid)
+            except ValueError:
+                broken_internal_links.append({
+                    "page_id": page_id,
+                    "field": field_label,
+                    "link_type": f"asset:{atype}",
+                    "target_id": raw_uid,
+                })
+                continue
+            asset_refs_by_type[atype].append((page_id, field_label, parsed_uid))
+
+        for m in _RECONCILE_GATEWAY_URI_RE.finditer(scan_text):
+            atype = m.group(1).lower()
+            raw_uid = m.group(2)
+            try:
+                parsed_uid = UUID(raw_uid)
+            except ValueError:
+                broken_internal_links.append({
+                    "page_id": page_id,
+                    "field": field_label,
+                    "link_type": f"gateway:{atype}",
+                    "target_id": raw_uid,
+                })
+                continue
+            asset_refs_by_type[atype].append((page_id, field_label, parsed_uid))
+
+        for m in _RECONCILE_EMBED_TAG_RE.finditer(scan_text):
+            attrs = _parse_html_tag_attrs(m.group(1))
+            embedtype = str(attrs.get("embedtype") or "").strip().lower()
+            if not embedtype:
+                continue
+            if is_markdown:
+                unconverted_legacy_embeds.append({
+                    "page_id": page_id,
+                    "field": field_label,
+                    "tag": m.group(0)[:200],
+                })
+            else:
+                # 富文本允许 Wagtail 原生 <embed embedtype="image|media">；仅未转换格式或旧 embedtype 视为残留
+                if embedtype not in ("image", "media") or str(attrs.get("format") or "").strip().lower() == "fullwidth_web":
+                    unconverted_legacy_embeds.append({
+                        "page_id": page_id,
+                        "field": field_label,
+                        "tag": m.group(0)[:200],
+                    })
+                elif embedtype == "image":
+                    raw_eid = str(attrs.get("id") or "").strip()
+                    if raw_eid.isdigit():
+                        embed_image_refs.append((page_id, field_label, int(raw_eid)))
+
+        if is_markdown:
+            for m in _RECONCILE_MD_IMG_RE.finditer(scan_text):
+                raw_url = (m.group(2) or "").strip()
+                url = raw_url[1:-1].strip() if raw_url.startswith("<") and raw_url.endswith(">") else raw_url
+                if not url:
+                    continue
+                if url.lower().startswith(("http://", "https://", "/", "asset://", "data:")):
+                    continue
+                residual_relative_media_links_count += 1
+                if len(residual_relative_media_links) < _MAX_RESIDUAL_RELATIVE_LINKS:
+                    residual_relative_media_links.append({
+                        "page_id": page_id,
+                        "path": url,
+                    })
+            for m in _RECONCILE_MD_LINK_RE.finditer(scan_text):
+                raw_url = (m.group(2) or "").strip()
+                url = raw_url[1:-1].strip() if raw_url.startswith("<") and raw_url.endswith(">") else raw_url
+                if url.lower().startswith(("/media/images/", "/media/documents/")):
+                    broken_internal_links.append({
+                        "page_id": page_id,
+                        "field": field_label,
+                        "link_type": "legacy_media_url",
+                        "target_id": url,
+                    })
+
+    for idx_obj in migrated_index_objs:
+        raw_intro = getattr(idx_obj, "intro", "") or ""
+        if raw_intro:
+            _scan_text_segment(idx_obj.id, "intro", raw_intro, is_markdown=False)
+
+    # 纯只读连接 MongoDB 查询 content_field_versions（严禁触发 create_index 等任何写操作）
+    mongo_cfg = getattr(django_settings, "MONGO_SETTINGS", {}) or {}
+    mongo_client = MongoClient(
+        mongo_cfg.get("HOST", "127.0.0.1"),
+        int(mongo_cfg.get("PORT", 27017)),
+        username=mongo_cfg.get("USER", "root"),
+        password=mongo_cfg.get("PASSWORD", ""),
+        authSource=mongo_cfg.get("AUTH_SOURCE", "admin"),
+        serverSelectionTimeoutMS=3000,
+    )
+    try:
+        mongo_db_name = mongo_cfg.get("DATABASE", "myblog_dev")
+        mongo_col = mongo_client[mongo_db_name]["content_field_versions"]
+        for bp in migrated_blog_objs:
+            old_pid = new_pid_to_old_pid.get(int(bp.id))
+            expected_fields = expected_fields_by_old_pid.get(old_pid, set()) if old_pid is not None else set()
+            rev = bp.live_revision if bp.live else bp.latest_revision
+            if rev is None:
+                missing_mongo_versions.append({
+                    "page_id": bp.id,
+                    "revision_id": None,
+                    "document_uuid": str(bp.document_uuid),
+                    "field_name": ",".join(sorted(expected_fields)) or "revision",
+                    "version_id": "",
+                    "error": "missing_revision",
+                })
+                continue
+            if isinstance(rev.content, dict):
+                rev_content = rev.content
+            elif isinstance(rev.content, str) and rev.content.strip():
+                rev_content = json.loads(rev.content)
+            else:
+                rev_content = {}
+            pointers = rev_content.get("_external_field_pointers") or []
+            if not isinstance(pointers, list):
+                missing_mongo_versions.append({
+                    "page_id": bp.id,
+                    "revision_id": rev.id,
+                    "document_uuid": str(bp.document_uuid),
+                    "field_name": ",".join(sorted(expected_fields)) or "pointers",
+                    "version_id": "",
+                    "error": "invalid_pointers_container",
+                })
+                continue
+
+            found_fields: set[str] = set()
+            for ptr in pointers:
+                if not isinstance(ptr, dict):
+                    missing_mongo_versions.append({
+                        "page_id": bp.id,
+                        "revision_id": rev.id,
+                        "document_uuid": str(bp.document_uuid),
+                        "field_name": "",
+                        "version_id": "",
+                        "error": "invalid_pointer_entry",
+                    })
+                    continue
+                checked_mongo_pointers += 1
+                doc_uuid = ptr.get("document_uuid") or str(bp.document_uuid)
+                field_name = str(ptr.get("field_name") or "")
+                version_id = str(ptr.get("version_id") or "")
+                expected_hash = ptr.get("content_hash")
+                if not field_name or not version_id:
+                    missing_mongo_versions.append({
+                        "page_id": bp.id,
+                        "revision_id": rev.id,
+                        "document_uuid": str(doc_uuid),
+                        "field_name": field_name,
+                        "version_id": version_id,
+                        "error": "malformed_pointer_fields",
+                    })
+                    continue
+                found_fields.add(field_name)
+
+                doc = mongo_col.find_one({
+                    "document_uuid": str(doc_uuid),
+                    "field_name": field_name,
+                    "version_id": version_id,
+                })
+                if doc is None:
+                    missing_mongo_versions.append({
+                        "page_id": bp.id,
+                        "revision_id": rev.id,
+                        "document_uuid": str(doc_uuid),
+                        "field_name": field_name,
+                        "version_id": version_id,
+                        "error": "version_not_found",
+                    })
+                    continue
+
+                payload_val = doc.get("payload")
+                record_hash = doc.get("content_hash")
+                actual_payload_hash = calculate_payload_hash(payload_val)
+                if actual_payload_hash != record_hash or (expected_hash and actual_payload_hash != expected_hash):
+                    content_hash_mismatches.append({
+                        "page_id": bp.id,
+                        "revision_id": rev.id,
+                        "document_uuid": str(doc_uuid),
+                        "field_name": field_name,
+                        "version_id": version_id,
+                        "expected_hash": expected_hash,
+                        "record_hash": record_hash,
+                        "actual_payload_hash": actual_payload_hash,
+                        "error": "Payload SHA-256 hash mismatch with content_hash or Revision pointer",
+                    })
+
+                for seg_field, seg_text, seg_is_md in _collect_text_segments_from_payload(field_name, payload_val):
+                    _scan_text_segment(bp.id, seg_field, seg_text, is_markdown=seg_is_md)
+
+            for missing_field in sorted(expected_fields - found_fields):
+                missing_mongo_versions.append({
+                    "page_id": bp.id,
+                    "revision_id": rev.id,
+                    "document_uuid": str(bp.document_uuid),
+                    "field_name": missing_field,
+                    "version_id": "",
+                    "error": "missing_expected_field_pointer",
+                })
+    finally:
+        mongo_client.close()
+
+    # 批量查表核验全部收集到的页面、文档与资产引用，杜绝循环单条 SQL N+1
+    if page_link_refs:
+        target_page_ids = {pid for _, _, pid in page_link_refs}
+        existing_page_ids = set(Page.objects.filter(id__in=target_page_ids).values_list("id", flat=True))
+        for page_id, field_label, target_pid in page_link_refs:
+            if target_pid not in existing_page_ids:
+                broken_internal_links.append({
+                    "page_id": page_id,
+                    "field": field_label,
+                    "link_type": "page",
+                    "target_id": target_pid,
+                })
+
+    if doc_link_refs:
+        target_doc_ids = {did for _, _, did in doc_link_refs}
+        existing_doc_ids = set(CustomDocument.objects.filter(id__in=target_doc_ids).values_list("id", flat=True))
+        for page_id, field_label, target_did in doc_link_refs:
+            if target_did not in existing_doc_ids:
+                broken_internal_links.append({
+                    "page_id": page_id,
+                    "field": field_label,
+                    "link_type": "document",
+                    "target_id": target_did,
+                })
+
+    if embed_image_refs:
+        target_img_ids = {iid for _, _, iid in embed_image_refs}
+        existing_img_ids = set(CustomImage.objects.filter(id__in=target_img_ids).values_list("id", flat=True))
+        for page_id, field_label, target_iid in embed_image_refs:
+            if target_iid not in existing_img_ids:
+                broken_internal_links.append({
+                    "page_id": page_id,
+                    "field": field_label,
+                    "link_type": "embed_image",
+                    "target_id": target_iid,
+                })
+
+    for atype, refs in asset_refs_by_type.items():
+        if not refs:
+            continue
+        model_cls = model_by_type[atype]
+        target_uids = {uid for _, _, uid in refs}
+        existing_uids = set(model_cls.objects.filter(public_id__in=target_uids).values_list("public_id", flat=True))
+        for page_id, field_label, uid in refs:
+            if uid not in existing_uids:
+                broken_internal_links.append({
+                    "page_id": page_id,
+                    "field": field_label,
+                    "link_type": f"asset:{atype}",
+                    "target_id": str(uid),
+                })
+
     return {
         "mode": "reconcile",
         "batch_id": batch_id,
@@ -1858,5 +2295,12 @@ def reconcile_target(snapshot_dir: Path, *, batch_id: str = "wb3_v2", include_te
             "unpromoted_public_assets_by_type": unpromoted_by_type,
             "leaked_restricted_only_assets": leaked_restricted_only_assets,
             "leaked_restricted_only_assets_by_type": leaked_by_type,
+            "missing_mongo_versions": missing_mongo_versions,
+            "content_hash_mismatches": content_hash_mismatches,
+            "broken_internal_links": broken_internal_links,
+            "unconverted_legacy_embeds": unconverted_legacy_embeds,
+            "residual_relative_media_links": residual_relative_media_links,
+            "residual_relative_media_links_count": residual_relative_media_links_count,
+            "checked_mongo_pointers": checked_mongo_pointers,
         },
     }

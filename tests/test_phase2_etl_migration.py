@@ -324,6 +324,13 @@ class Phase2EtlEndToEndIdempotencyTests(TestCase):
                 self.assertEqual(rec["integrity"]["unpromoted_referenced_images"], 0)
                 self.assertEqual(rec["integrity"]["unpromoted_public_assets"], 0)
                 self.assertEqual(rec["integrity"]["leaked_restricted_only_assets"], 0)
+                self.assertEqual(rec["integrity"]["missing_mongo_versions"], [])
+                self.assertEqual(rec["integrity"]["content_hash_mismatches"], [])
+                self.assertEqual(rec["integrity"]["broken_internal_links"], [])
+                self.assertEqual(rec["integrity"]["unconverted_legacy_embeds"], [])
+                self.assertEqual(rec["integrity"]["residual_relative_media_links"], [])
+                self.assertEqual(rec["integrity"]["residual_relative_media_links_count"], 0)
+                self.assertGreater(rec["integrity"]["checked_mongo_pointers"], 0)
                 self.assertEqual(rec["expected_vs_actual"]["expected_live_blogs"], {"expected": 2, "actual": 2})
                 self.assertEqual(rec["expected_vs_actual"]["expected_draft_blogs"], {"expected": 0, "actual": 0})
                 self.assertEqual(rec["expected_vs_actual"]["expected_restricted_blogs"], {"expected": 0, "actual": 0})
@@ -379,6 +386,170 @@ class Phase2EtlEndToEndIdempotencyTests(TestCase):
                     self.assertEqual(ptr1.version_id, ptr2.version_id)
                 finally:
                     store.close()
+
+    def test_reconcile_detects_mongo_tampering_broken_links_and_relative_paths(self):
+        """对账完整性故障注入：校验 Mongo 哈希/载荷篡改、缺失版本、站内断链、残留嵌入与本地相对图片路径。"""
+        from blog.blocks import BlogBodyBlocks
+        from external_content.store import MongoContentStore
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            snap_dir = tmp_path / "snap"
+            media_dir = tmp_path / "media"
+            snap_dir.mkdir()
+            media_dir.mkdir()
+            self._build_synthetic_snapshot(snap_dir)
+
+            with override_settings(
+                MEDIA_ROOT=str(media_dir),
+                STORAGES={
+                    **settings.STORAGES,
+                    "default": {"BACKEND": "media_library.storage.ControlledFileSystemStorage"},
+                },
+            ):
+                bid = f"test_rec_fault_{uuid4().hex[:6]}"
+                apply_snapshot(snap_dir, batch_id=bid, _allow_test_isolation=True, skip_search_rebuild=True)
+
+                baseline = reconcile_target(snap_dir, batch_id=bid)
+                self.assertGreater(baseline["integrity"]["checked_mongo_pointers"], 0)
+                self.assertEqual(baseline["integrity"]["missing_mongo_versions"], [])
+                self.assertEqual(baseline["integrity"]["content_hash_mismatches"], [])
+                self.assertEqual(baseline["integrity"]["broken_internal_links"], [])
+                self.assertEqual(baseline["integrity"]["unconverted_legacy_embeds"], [])
+                self.assertEqual(baseline["integrity"]["residual_relative_media_links"], [])
+
+                parent_post = BlogPage.objects.get(slug="parent-post")
+                child_post = BlogPage.objects.get(slug="child-post")
+                parent_rev = parent_post.live_revision
+                parent_ptrs = (
+                    parent_rev.content.get("_external_field_pointers", [])
+                    if isinstance(parent_rev.content, dict)
+                    else json.loads(parent_rev.content).get("_external_field_pointers", [])
+                )
+                body_ptr = next(p for p in parent_ptrs if p["field_name"] == "body")
+
+                store = MongoContentStore()
+                try:
+                    col = store._get_db()["content_field_versions"]
+                    filt = {
+                        "document_uuid": str(parent_post.document_uuid),
+                        "field_name": "body",
+                        "version_id": body_ptr["version_id"],
+                    }
+                    orig_doc = col.find_one(filt)
+                    self.assertIsNotNone(orig_doc)
+
+                    # 1a. 篡改 MongoDB 文档的 content_hash，必须检出 content_hash_mismatches
+                    col.update_one(filt, {"$set": {"content_hash": "0" * 64}})
+                    rec_hash = reconcile_target(snap_dir, batch_id=bid)
+                    self.assertEqual(len(rec_hash["integrity"]["content_hash_mismatches"]), 1)
+                    self.assertEqual(rec_hash["integrity"]["content_hash_mismatches"][0]["page_id"], parent_post.id)
+                    self.assertEqual(rec_hash["integrity"]["content_hash_mismatches"][0]["field_name"], "body")
+                    col.update_one(filt, {"$set": {"content_hash": orig_doc["content_hash"]}})
+
+                    # 1b. 仅篡改 MongoDB 文档的 payload（保留原 content_hash），仍必须检出 content_hash_mismatches
+                    col.update_one(filt, {"$set": {"payload": [{"type": "markdown", "value": "被篡改负载"}]}})
+                    rec_payload = reconcile_target(snap_dir, batch_id=bid)
+                    self.assertEqual(len(rec_payload["integrity"]["content_hash_mismatches"]), 1)
+                    self.assertEqual(rec_payload["integrity"]["content_hash_mismatches"][0]["page_id"], parent_post.id)
+                    col.update_one(filt, {"$set": {"payload": orig_doc["payload"]}})
+
+                    # 1c. 删除 MongoDB 版本文档，必须检出 missing_mongo_versions
+                    col.delete_one(filt)
+                    rec_missing = reconcile_target(snap_dir, batch_id=bid)
+                    self.assertEqual(len(rec_missing["integrity"]["missing_mongo_versions"]), 1)
+                    self.assertEqual(rec_missing["integrity"]["missing_mongo_versions"][0]["page_id"], parent_post.id)
+                    col.insert_one(orig_doc)
+                finally:
+                    store.close()
+
+                # 2 & 3. 在已迁移页面正文注入断链（含属性反序 page link、缺失 asset://）、残留 embed 与本地相对路径图
+                # 直接写入一致的 MongoDB 新版本并更新 live_revision 指针，绕过编辑器保存门禁模拟已存库坏链接/遗留标签
+                from external_content.store import calculate_payload_hash
+                from wagtail.models import Revision
+
+                missing_asset_uid = str(uuid4())
+                tampered_body_payload = [
+                    {
+                        "type": "rich_text",
+                        "value": (
+                            '<p><a id="999999" linktype="page">不存在页面</a> '
+                            '<a linktype="document" id="888888">不存在文档</a></p>'
+                        ),
+                    },
+                    {
+                        "type": "markdown",
+                        "value": (
+                            "![图](20大报告.assets/pic.png)\n\n"
+                            f"![缺失资产](asset://image/{missing_asset_uid})\n\n"
+                            "![无效格式](asset://image/not-a-uuid)\n\n"
+                            "[旧站文档](/media/documents/old.pdf)\n\n"
+                            '<embed embedtype="image" id="12" format="fullwidth_web" />\n\n'
+                            "行内代码 `![示例](ignored.assets/ok.png)` 与 `<embed embedtype=\"image\" id=\"1\" />` 不应误报。"
+                        ),
+                    },
+                ]
+                # 验证 reconcile_target 严格只读：不调用 MongoContentStore._ensure_indexes / create_index
+                from pymongo.collection import Collection as MongoCollection
+
+                store = MongoContentStore()
+                try:
+                    ptr = store.save_field_version(
+                        document_uuid=child_post.document_uuid,
+                        field_name="body",
+                        payload=tampered_body_payload,
+                        model_label="blog.BlogPage",
+                        operation_id=f"{bid}:inject_broken_links:{uuid4().hex[:6]}",
+                    )
+                    live_rev = child_post.live_revision
+                    rev_content = dict(live_rev.content)
+                    kept_ptrs = [
+                        p for p in (rev_content.get("_external_field_pointers") or [])
+                        if isinstance(p, dict) and p.get("field_name") != "body"
+                    ]
+                    rev_content["_external_field_pointers"] = kept_ptrs + [
+                        {
+                            "document_uuid": str(child_post.document_uuid),
+                            "field_name": "body",
+                            "version_id": ptr.version_id,
+                            "content_hash": calculate_payload_hash(tampered_body_payload),
+                        }
+                    ]
+                    Revision.objects.filter(pk=live_rev.pk).update(content=rev_content)
+                finally:
+                    store.close()
+
+                with patch.object(MongoCollection, "create_index", side_effect=AssertionError("reconcile_target must be read-only")):
+                    rec_links = reconcile_target(snap_dir, batch_id=bid)
+                self.assertEqual(rec_links["integrity"]["missing_mongo_versions"], [])
+                self.assertEqual(rec_links["integrity"]["content_hash_mismatches"], [])
+
+                broken = rec_links["integrity"]["broken_internal_links"]
+                self.assertEqual(len(broken), 5)
+                self.assertTrue(any(b["link_type"] == "page" and b["target_id"] == 999999 and b["page_id"] == child_post.id for b in broken))
+                self.assertTrue(any(b["link_type"] == "document" and b["target_id"] == 888888 and b["page_id"] == child_post.id for b in broken))
+                self.assertTrue(any(b["link_type"] == "asset:image" and b["target_id"] == missing_asset_uid and b["page_id"] == child_post.id for b in broken))
+                self.assertTrue(any(b["link_type"] == "asset:image" and b["target_id"] == "not-a-uuid" and b["page_id"] == child_post.id for b in broken))
+                self.assertTrue(any(b["link_type"] == "legacy_media_url" and b["target_id"] == "/media/documents/old.pdf" and b["page_id"] == child_post.id for b in broken))
+
+                embeds = rec_links["integrity"]["unconverted_legacy_embeds"]
+                self.assertEqual(len(embeds), 1)
+                self.assertEqual(embeds[0]["page_id"], child_post.id)
+
+                rel_links = rec_links["integrity"]["residual_relative_media_links"]
+                self.assertEqual(len(rel_links), 1)
+                self.assertEqual(rel_links[0], {"page_id": child_post.id, "path": "20大报告.assets/pic.png"})
+                self.assertEqual(rec_links["integrity"]["residual_relative_media_links_count"], 1)
+
+                # 4. 整组指针丢失（如 Revision _external_field_pointers 为空）必须明确报出 missing_expected_field_pointer
+                Revision.objects.filter(pk=live_rev.pk).update(content={**rev_content, "_external_field_pointers": []})
+                rec_empty_ptrs = reconcile_target(snap_dir, batch_id=bid)
+                self.assertTrue(
+                    any(
+                        m["page_id"] == child_post.id and m["error"] == "missing_expected_field_pointer"
+                        for m in rec_empty_ptrs["integrity"]["missing_mongo_versions"]
+                    )
+                )
 
 
 class Phase2EtlP0SecurityAndProtectionTests(TestCase):

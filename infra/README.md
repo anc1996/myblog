@@ -128,4 +128,7 @@ PostgreSQL 原生完美支持条件唯一索引（Partial Index），完全消�
 业务备份计划采用 `pg_dump` 自定义格式与 `pg_restore` 恢复到另一个隔离库；
 同时保存 Mongo 字段版本、RustFS 对象和 SQL 引用清单，协调备份时间，恢复后逐条对账。
 SQL 恢复不会回滚 Mongo/RustFS，额外对象保留待核对，不能立即物理删除。
-尚未执行备份恢复或跨存储回退演练；本地回退目录存在不等于演练通过。
+
+已于 2026-11-27 通过 `scripts/backup_restore_drill.py` 完成 `.env.staging`（`myblog_staging` + `myblog-staging`）到独立隔离演练环境（`myblog_drill_tmp` + `myblog-drill-tmp`）的三端联合备份与恢复演练：
+- 只读备份 `postgres.dump`（`12,078,608` 字节）、`mongo.archive.gz`（`4,772,460` 字节）及 RustFS 全部 `228` 个对象（`179,223,695` 字节），SHA-256 全量通过；
+- 还原至 `myblog_drill_tmp` 后交叉核验：`total_pages=1271`、`blog_total=1217`、`blog_live=1217`、`images=152`、`documents=4`、`comments=23`、`pv_sum=630`（`pg_mismatches={}`），Mongo `content_field_versions` 全部 `2,434` 条版本载荷 SHA-256 与指针零误差，RustFS `228` 个对象及 `159` 条存储键全量 SHA-256 核验通过；演练完成后已自动清理临时隔离库与隔离桶。
