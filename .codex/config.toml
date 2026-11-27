@@ -5,22 +5,30 @@ max_threads = 3
 default_subagent_model = "gemini-4-hydrogen"
 default_subagent_reasoning_effort = "high"
 
+[agents.pm]
+description = "需求收集、需求分析与定级、框架对比和可验证验收标准（gpt-6.2-sol）"
+config_file = "agents/pm.toml"
+
 [agents.sol]
-description = "总体架构、跨存储契约、任务拆解与交付证据复核（gpt-6.2-sol）"
+description = "重大方案设计（架构重组、数据库、性能、迁移、跨存储契约）与交付复核（gpt-6.2-sol）"
 config_file = "agents/sol.toml"
 
+[agents.carbon]
+description = "重大方案高阶逻辑审核与红队破壁（gemini-4-carbon，默认只读）"
+config_file = "agents/carbon.toml"
+
+[agents.neon]
+description = "复杂工程实现（架构重组、后端与生命周期排错）及前端/常规方案设计（gemini-4-neon）"
+config_file = "agents/neon.toml"
+
 [agents.gemini]
-description = "按批准合同实现边界清晰的常规功能、定向测试与文档（gemini-4-hydrogen）"
+description = "日常需求改动、接口对接、常规页面功能、定向测试与文档同步（gemini-4-hydrogen）"
 config_file = "agents/gemini.toml"
-
-[agents.terra]
-description = "只读独立审查发布、权限、回收、并发与补偿的反例（gpt-6.1-terra）"
-config_file = "agents/terra.toml"
-
-[agents.argon]
-description = "架构方案反例审查、Wagtail生命周期状态机与深度排错（gemini-4-neon / argon）"
-config_file = "agents/argon.toml"
 
 [agents.runner]
 description = "批量自动化测试套件执行、日志探针与高频数据验证（gemini-4-hydrogen）"
 config_file = "agents/runner.toml"
+
+[agents.reviewer]
+description = "高风险实现后的代码与补丁独立审查（gpt-6.1-sol，默认只读）"
+config_file = "agents/reviewer.toml"

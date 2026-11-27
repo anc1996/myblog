@@ -51,6 +51,7 @@ Thumbs.db
 # Local browser verification artifacts can include authenticated UI snapshots.
 .playwright-cli/
 output/playwright/
+/process_artifacts/
 *.markdown-import-session.json
 /*.png
 /B\[*
