@@ -54,7 +54,7 @@
   ```bash
   /root/anaconda3/envs/wagtailblog-test/bin/python scripts/sync_vendor_assets.py sync --cache-dir /tmp/vendor-cache --force
   ```
-- **Docker 容器构建**：[Dockerfile](../Dockerfile) 已在 `collectstatic` 之前自动串行执行 `sync` 与 `check`，无需手工拷贝静态包。
+- **部署收集静态资源前**：直接运行一次 `python scripts/sync_vendor_assets.py sync && python scripts/sync_vendor_assets.py check`，再执行 `python manage.py collectstatic --noinput`，无需手工拷贝静态包。
 
 ---
 
