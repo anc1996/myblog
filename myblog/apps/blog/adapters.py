@@ -173,13 +173,15 @@ class BlogPageAdapter:
             blocks_data.append({"type": b.block_type, "value": val})
 
         authors_data = []
+        from people.models import extract_person_bio_text
+
         for a in page.authors.select_related("person").all():
             if a.person:
                 authors_data.append({
                     "id": a.person.id,
                     "name": a.person.name,
                     "role": a.role or "作者",
-                    "bio": a.person.bio or "",
+                    "bio": extract_person_bio_text(a.person.bio),
                     "avatar_url": a.person.avatar.file.url if getattr(a.person, "avatar", None) else None,
                 })
 

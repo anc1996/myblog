@@ -327,6 +327,82 @@
     margin: 0 0 12px;
     line-height: 1.65;
     color: var(--color-text-secondary);
+    overflow-wrap: anywhere;
+}
+
+.author-profile-bio.rich-text p {
+    margin: 0 0 0.5rem;
+}
+
+.author-profile-bio.rich-text p:last-child {
+    margin-bottom: 0;
+}
+
+.author-profile-bio.rich-text a {
+    color: var(--color-primary);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.author-profile-bio.rich-text a:hover {
+    color: var(--color-primary-hover, var(--color-primary));
+}
+
+.author-profile-bio.rich-text strong,
+.author-profile-bio.rich-text b {
+    font-weight: 700;
+    color: var(--color-text);
+}
+
+.author-profile-bio.rich-text u {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.author-profile-bio.rich-text s,
+.author-profile-bio.rich-text del {
+    text-decoration: line-through;
+    color: var(--color-muted);
+}
+
+.author-profile-bio.rich-text code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.88em;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: var(--color-surface-subtle);
+}
+
+.author-profile-bio.rich-text sup,
+.author-profile-bio.rich-text sub {
+    font-size: 0.75em;
+    line-height: 0;
+}
+
+.author-profile-bio.rich-text ul,
+.author-profile-bio.rich-text ol {
+    margin: 0.4rem 0;
+    padding-left: 1.4rem;
+}
+
+.author-profile-bio.rich-text blockquote {
+    margin: 0.5rem 0;
+    padding: 0.35rem 0.75rem;
+    border-left: 3px solid var(--color-primary);
+    background: var(--color-surface-subtle);
+    color: var(--color-text-secondary);
+}
+
+.author-profile-bio.rich-text .cb-align-left {
+    text-align: left;
+}
+
+.author-profile-bio.rich-text .cb-align-center {
+    text-align: center;
+}
+
+.author-profile-bio.rich-text .cb-align-right {
+    text-align: right;
 }
 
 .author-profile-meta {

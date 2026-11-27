@@ -33,6 +33,7 @@ from people.attribution import (
     extract_raw_author_refs_from_revision_content,
     resolve_author_attributions,
 )
+from people.models import extract_person_bio_text, render_person_bio_html
 from people.author_identity import normalize_author_role
 from people.models import Person
 
@@ -368,7 +369,8 @@ def build_author_sidebar_card(page: Any, request: Any = None) -> dict[str, Any] 
             "role_label": "站点归档 · 未单独署名" if is_anonymous else lead_item["role_label"],
             "is_anonymous": is_anonymous,
             "articles_tab_label": "归档文章" if is_anonymous else "作者好文",
-            "bio": (lead_person.bio or "").strip(),
+            "bio": extract_person_bio_text(lead_person.bio),
+            "bio_html": render_person_bio_html(lead_person.bio),
             "is_verified": linked_active,
             "verified_label": "站点核验署名" if linked_active else "",
             "heatmap": heatmap,

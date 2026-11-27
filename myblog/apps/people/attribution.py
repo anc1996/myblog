@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import Any, Iterable
 
 from people.author_identity import normalize_author_role
-from people.models import LegacyAuthorAttribution, Person
+from people.models import LegacyAuthorAttribution, Person, extract_person_bio_text
 
 
 AUTHOR_PROJECTION_VERSION = 1
@@ -159,7 +159,7 @@ def resolve_author_attributions(
                 role_label=role_label,
                 sort_order=len(resolved),
                 avatar_id=person.avatar_id,
-                bio=person.bio or "",
+                bio=extract_person_bio_text(person.bio),
                 email=person.email or "",
                 is_anonymous=False,
             )
@@ -187,7 +187,7 @@ def resolve_author_attributions(
                     role_label="主要作者",
                     sort_order=0,
                     avatar_id=p.avatar_id,
-                    bio=p.bio or "",
+                    bio=extract_person_bio_text(p.bio),
                     email=p.email or "",
                     is_anonymous=False,
                 )
@@ -211,7 +211,7 @@ def resolve_author_attributions(
             role_label="佚名",
             sort_order=0,
             avatar_id=anon.avatar_id,
-            bio=anon.bio or "",
+            bio=extract_person_bio_text(anon.bio),
             email="",
             is_anonymous=True,
         )

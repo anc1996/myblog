@@ -29,7 +29,9 @@
         </div>
     </div>
 
-    {% if ac.bio %}
+    {% if ac.bio_html %}
+    <div class="author-card-bio rich-text">{{ ac.bio_html }}</div>
+    {% elif ac.bio %}
     <p class="author-card-bio">{{ ac.bio }}</p>
     {% endif %}
 

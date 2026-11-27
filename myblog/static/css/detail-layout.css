@@ -1569,6 +1569,41 @@ a.author-card-name:hover {
   overflow-wrap: anywhere;
 }
 
+.detail-author-card .author-card-bio.rich-text p {
+  margin: 0 0 0.4rem;
+}
+
+.detail-author-card .author-card-bio.rich-text p:last-child {
+  margin-bottom: 0;
+}
+
+.detail-author-card .author-card-bio.rich-text a {
+  color: var(--color-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.detail-author-card .author-card-bio.rich-text a:hover {
+  color: var(--color-primary-hover, var(--color-primary));
+}
+
+.detail-author-card .author-card-bio.rich-text strong,
+.detail-author-card .author-card-bio.rich-text b {
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.detail-author-card .author-card-bio.rich-text ul,
+.detail-author-card .author-card-bio.rich-text ol {
+  margin: 0.3rem 0;
+  padding-left: 1.2rem;
+}
+
+.detail-author-card .author-card-bio.rich-text blockquote {
+  margin: 0.35rem 0;
+  padding: 0.25rem 0.6rem;
+}
+
 .author-heatmap-box {
   padding: 10px;
   border-radius: var(--radius-sm);

@@ -687,3 +687,139 @@ class AuthorDiscoveryComprehensiveTests(TestCase):
             self.assertNotIn(f"/authors/{long_bio_author.slug}/", sm_off)
             pres_off = build_detail_presentation(p_bio, RequestFactory().get(p_bio.url))
             self.assertEqual(pres_off["authors"][0]["url"], "")
+
+    def test_person_snippet_admin_edit_and_add_views_work_with_anonymous_guard(self):
+        """回归：PersonSnippetViewSet 通过 ObjectList(base_form_class=PersonAdminForm) 正常打开新建/编辑页并保护系统佚名"""
+        admin_client = Client()
+        admin_client.force_login(self.superuser)
+
+        def _draftail_payload(
+            text: str,
+            *,
+            bold_end: int = 0,
+            underline_slice: tuple[int, int] | None = None,
+            link_slice: tuple[int, int, str] | None = None,
+        ) -> str:
+            styles = []
+            if bold_end > 0:
+                styles.append({"offset": 0, "length": bold_end, "style": "BOLD"})
+            if underline_slice:
+                styles.append({"offset": underline_slice[0], "length": underline_slice[1], "style": "UNDERLINE"})
+            entity_ranges = []
+            entity_map = {}
+            if link_slice:
+                entity_ranges.append({"key": 0, "offset": link_slice[0], "length": link_slice[1]})
+                entity_map["0"] = {"mutability": "MUTABLE", "type": "LINK", "data": {"url": link_slice[2]}}
+            return json.dumps({
+                "blocks": [{
+                    "key": "bio1",
+                    "text": text,
+                    "type": "unstyled",
+                    "depth": 0,
+                    "inlineStyleRanges": styles,
+                    "entityRanges": entity_ranges,
+                    "data": {},
+                }],
+                "entityMap": entity_map,
+            })
+
+        # 1. 列表页、新建页、普通人物编辑页与系统佚名编辑页全部返回 200
+        self.assertEqual(admin_client.get("/admin/snippets/people/person/").status_code, 200)
+        self.assertEqual(admin_client.get("/admin/snippets/people/person/add/").status_code, 200)
+
+        normal_person = Person.objects.create(name="后台编辑测试作者", bio="旧简介")
+        edit_url = f"/admin/snippets/people/person/edit/{normal_person.id}/"
+        resp_edit = admin_client.get(edit_url)
+        self.assertEqual(resp_edit.status_code, 200)
+        edit_html = resp_edit.content.decode("utf-8")
+        self.assertIn("后台编辑测试作者", edit_html)
+        self.assertIn("data-draftail-input", edit_html)
+        self.assertIn("UNDERLINE", edit_html)
+
+        # 2. 未绑定后台账号时勾选 show_public_comments 会触发模型校验拦截（200 返回表单错误）
+        invalid_post = admin_client.post(
+            edit_url,
+            {
+                "name": "后台编辑测试作者",
+                "bio": _draftail_payload("尝试非法开启评论聚合"),
+                "email": "editor@example.com",
+                "show_public_comments": "on",
+            },
+        )
+        self.assertEqual(invalid_post.status_code, 200)
+        self.assertIn("show_public_comments", invalid_post.context["form"].errors)
+
+        # 3. 保存含加粗、下划线、链接的富文本公开简介生效，并在作者专栏与目录摘要安全渲染
+        rich_bio_json = _draftail_payload(
+            "核心作者，专注架构与主页",
+            bold_end=4,
+            underline_slice=(5, 4),
+            link_slice=(10, 2, "https://example.com/author"),
+        )
+        post_resp = admin_client.post(
+            edit_url,
+            {
+                "name": "后台编辑测试作者",
+                "bio": rich_bio_json,
+                "email": "editor@example.com",
+            },
+        )
+        self.assertEqual(post_resp.status_code, 302)
+        normal_person.refresh_from_db()
+        self.assertIn("<b>核心作者</b>", normal_person.bio)
+        self.assertIn("<u>专注架构</u>", normal_person.bio)
+        self.assertIn('href="https://example.com/author"', normal_person.bio)
+        self.assertEqual(normal_person.email, "editor@example.com")
+
+        # 发布一篇文章使该作者成为活跃作者，验证前台专栏富文本渲染、XSS 过滤与目录纯文本摘要
+        self._publish_blog("富文本简介测试文章", authors=[(normal_person, "primary_author")])
+        pub_client = Client()
+        detail_resp = pub_client.get(f"/authors/{normal_person.slug}/")
+        self.assertEqual(detail_resp.status_code, 200)
+        detail_html = detail_resp.content.decode("utf-8")
+        self.assertIn('<div class="author-profile-bio rich-text">', detail_html)
+        self.assertIn("<b>核心作者</b>", detail_html)
+        self.assertIn("<u>专注架构</u>", detail_html)
+        self.assertIn('href="https://example.com/author"', detail_html)
+        self.assertIn('rel="noopener noreferrer"', detail_html)
+
+        dir_resp = pub_client.get("/authors/", {"q": "专注架构"})
+        self.assertEqual(dir_resp.status_code, 200)
+        dir_html = dir_resp.content.decode("utf-8")
+        self.assertIn("核心作者，专注架构与主页", dir_html)
+        self.assertNotIn("<b>核心作者</b>", dir_html)
+
+        # XSS 防护：直接写入恶意脚本与伪协议链接，渲染前被 nh3 彻底剥离
+        normal_person.bio = '<p>安全文本<script>alert(1)</script><a href="javascript:alert(2)">坏链接</a></p>'
+        normal_person.save()
+        xss_resp = pub_client.get(f"/authors/{normal_person.slug}/")
+        xss_html = xss_resp.content.decode("utf-8")
+        self.assertIn("安全文本", xss_html)
+        self.assertNotIn("alert(1)", xss_html)
+        self.assertNotIn("javascript:alert", xss_html)
+
+        # 4. 系统内置「佚名」名片编辑页可正常打开且 linked_user / email / show_public_comments 被禁用且无法写入
+        anon_edit_url = f"/admin/snippets/people/person/edit/{self.anon_person.id}/"
+        anon_resp = admin_client.get(anon_edit_url)
+        self.assertEqual(anon_resp.status_code, 200)
+        anon_post = admin_client.post(
+            anon_edit_url,
+            {
+                "name": self.anon_person.name,
+                "bio": _draftail_payload("系统默认署名"),
+                "email": "hack@example.com",
+                "linked_user": str(self.superuser.id),
+                "show_public_comments": "on",
+            },
+        )
+        self.assertEqual(anon_post.status_code, 302)
+        self.anon_person.refresh_from_db()
+        self.assertIsNone(self.anon_person.linked_user)
+        self.assertEqual(self.anon_person.email, "")
+        self.assertFalse(self.anon_person.show_public_comments)
+
+        # 5. 后台硬删入口保持阻断（浏览器 302 回退、AJAX 403，且记录不被删除）
+        del_url = f"/admin/snippets/people/person/delete/{normal_person.id}/"
+        self.assertEqual(admin_client.post(del_url).status_code, 302)
+        self.assertEqual(admin_client.post(del_url, HTTP_X_REQUESTED_WITH="XMLHttpRequest").status_code, 403)
+        self.assertTrue(Person.objects.filter(pk=normal_person.id).exists())

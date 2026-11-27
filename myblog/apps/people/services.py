@@ -40,7 +40,7 @@ from discovery.registry import (
 )
 from media_library.models import VisibilityChoices
 from people.author_identity import normalize_author_role, roles_for_filter_key
-from people.models import Person
+from people.models import Person, extract_person_bio_text, render_person_bio_html
 
 logger = logging.getLogger(__name__)
 
@@ -202,6 +202,7 @@ def _build_active_author_cards(site: Site | None, site_today: date) -> list[Auth
             for tk, pub_slug, label in ordered_types
             if p_types.get(tk, 0) > 0
         ]
+        bio_plain = extract_person_bio_text(p.bio)
         cards.append(
             AuthorCardVM(
                 id=p.pk,
@@ -211,8 +212,8 @@ def _build_active_author_cards(site: Site | None, site_today: date) -> list[Auth
                 initial_group_rank=p.initial_group_rank,
                 sort_key=p.sort_key or p.name.lower(),
                 avatar_url=_safe_person_avatar_url(p),
-                bio=p.bio or "",
-                bio_excerpt=_plain_excerpt(p.bio, 110),
+                bio=bio_plain,
+                bio_excerpt=_plain_excerpt(bio_plain, 110),
                 total_count=total_cnt,
                 type_badges=badges,
                 url=reverse("people:author_detail", kwargs={"slug": p.slug}),
@@ -883,6 +884,8 @@ def get_author_detail_data(request, person: Person) -> tuple[dict[str, Any], int
     return (
         {
             "person": person,
+            "bio_html": render_person_bio_html(person.bio),
+            "bio_text": extract_person_bio_text(person.bio),
             "avatar_url": _safe_person_avatar_url(person),
             "public_email": (person.email or "") if not person.is_system_anonymous else "",
             "card_total_count": card_total_count,

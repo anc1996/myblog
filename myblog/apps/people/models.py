@@ -8,11 +8,16 @@
 """
 
 import uuid
+import html
+import re
+from typing import Any
 from django.conf import settings
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, models, transaction
 from django.db.models import Q
+from django.utils.safestring import mark_safe
 from wagtail.admin.panels import FieldPanel
+from wagtail.fields import RichTextField
 
 from media_library.models import CustomImage
 from people.author_identity import (
@@ -21,6 +26,53 @@ from people.author_identity import (
     generate_base_slug,
     is_disallowed_ordinary_slug,
 )
+
+# 公开简介（非页面 Snippet）仅开放文本排版与站内/外链接，不开放图片/文档/嵌入以防绕过资产发布鉴权
+PERSON_BIO_RICH_TEXT_FEATURES = [
+    "bold",
+    "italic",
+    "underline",
+    "strikethrough",
+    "code",
+    "superscript",
+    "subscript",
+    "ol",
+    "ul",
+    "blockquote",
+    "align-left",
+    "align-center",
+    "align-right",
+    "link",
+]
+
+
+_BIO_BLOCK_TAG_RE = re.compile(r"</?(?:p|div|br|li|ul|ol|blockquote|h[1-6])(?:\s[^>]*)?>", re.IGNORECASE)
+_BIO_ANY_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def extract_person_bio_text(raw_bio: Any) -> str:
+    """提取公开简介纯文本（供目录卡片摘要、搜索匹配与快照元数据共用）。"""
+    if not raw_bio:
+        return ""
+    from wagtail.rich_text import RichText
+
+    raw_html = raw_bio.source if isinstance(raw_bio, RichText) else str(raw_bio)
+    # 块级标签保留空格分隔，行内标签（b/u/a/code 等）直接剥离，避免中文标点前出现多余空格
+    spaced = _BIO_BLOCK_TAG_RE.sub(" ", raw_html)
+    stripped = html.unescape(_BIO_ANY_TAG_RE.sub("", spaced))
+    return re.sub(r"\s+", " ", stripped).strip()
+
+
+def render_person_bio_html(raw_bio: Any) -> str:
+    """展开 Wagtail 站内链接并经 nh3 白名单清洗，空段落（如 <p></p>）返回空串。"""
+    if not raw_bio:
+        return ""
+    if not extract_person_bio_text(raw_bio):
+        return ""
+    from content_blocks.blocks.rich_text import render_richtext_field_html
+
+    cleaned = render_richtext_field_html(raw_bio)
+    return mark_safe(cleaned) if cleaned else ""
 
 
 class Person(models.Model):
@@ -71,7 +123,11 @@ class Person(models.Model):
         related_name="+",
         verbose_name="公开头像",
     )
-    bio = models.TextField(blank=True, verbose_name="公开简介")
+    bio = RichTextField(
+        blank=True,
+        features=list(PERSON_BIO_RICH_TEXT_FEATURES),
+        verbose_name="公开简介",
+    )
     email = models.EmailField(blank=True, verbose_name="公开联系邮箱")
     linked_user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
@@ -211,7 +267,7 @@ def get_or_create_anonymous_person(*, using: str = "default") -> Person:
         slug="anonymous",
         defaults={
             "name": "佚名",
-            "bio": "未单独署名的站点推送与资料归档",
+            "bio": "<p>未单独署名的站点推送与资料归档</p>",
             "email": "",
             "linked_user": None,
             "is_system_anonymous": True,

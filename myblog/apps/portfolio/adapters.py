@@ -194,13 +194,15 @@ class ProjectPageAdapter:
         from django.utils.safestring import mark_safe
 
         authors_data = []
+        from people.models import extract_person_bio_text
+
         for a in page.authors.select_related("person").all():
             if a.person:
                 authors_data.append({
                     "id": a.person.id,
                     "name": a.person.name,
                     "role": a.role,
-                    "bio": a.person.bio,
+                    "bio": extract_person_bio_text(a.person.bio),
                 })
 
         tags_data = [{"id": t.id, "name": t.name, "slug": t.slug} for t in page.tags.all()]

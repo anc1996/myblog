@@ -55,6 +55,9 @@
   - `BlogIndexPage` 新增可选 `featured_image` 并升级 `intro` 为 `RichTextField`（含 `blog.0006` 历史纯文本转义迁移、`collect_media_references` 媒体引用登记与自动公开、适配器纯文本提取与净化渲染）；
   - `CustomImage` 新增可选 `caption`、`CustomDocument` 新增可选 `description`（`media_library.0004`），正文块继续以块级字段为主不回退读取库字段；
   - 列表/搜索/标签/作者/首页卡片通过通用 `PublishedPayload.extra_data["cover_public_id"]` 渲染「左图右文」封面（无封面不留占位），`detail_shell.html` 在有 `featured_image` 时展示标题背景横幅图（带昼夜自适应渐变遮罩）。
+- **公开作者名片后台修复与富文本简介（2026-11-27）**：
+  - 修复 `PersonSnippetViewSet` 使用 `ObjectList(Person.panels, base_form_class=PersonAdminForm)` 绑定模型表单，恢复 `/admin/snippets/people/person/edit/<id>/` 正常编辑并保持系统内置「佚名」名片只读防篡改与防硬删；
+  - 将 `Person.bio` 升级为 `RichTextField`（`people.0007_alter_person_bio_richtext` 无损包装存量纯文本，开放文本格式/下划线/列表/引用/对齐/站内外链接，不开放图片嵌入以守住资产发布权限边界），作者专栏与详情页右侧名片经 `nh3` 白名单净化渲染富文本，作者大厅卡片摘要提取纯文本。
 - **生产数据幂等 ETL 迁移工具（2026-11-26 Phase 2）**：
   - 新增 `scripts/migrate_from_wagtailblog3.py` 与 `scripts/etl_wagtailblog3/`（`remote_export.py`、`transformer.py`、`loader.py`），支持 `--export`（只读抽取与 SHA-256 核验）、`--dry-run`（零写入预检）、`--apply`（目标库隔离守卫 + `OperationResult` 与 MongoDB `operation_id` 双重幂等 + 拓扑建树与发布）及 `--reconcile`（全量数量与 RustFS 物理文件对账），并已在独立暂存库 `myblog_staging` 完成首次迁移、二次幂等重放与全量对账。
 - **测试与质量**：`tests/` 目录现含 **65 份自动化测试文件**；各新增功能均需通过 `MYBLOG_ENV_FILE=.env.test python -B manage.py check`、`makemigrations --check --dry-run` 及定向回归测试。

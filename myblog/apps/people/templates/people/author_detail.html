@@ -10,7 +10,7 @@
 <link rel="alternate" type="application/rss+xml" title="{{ person.name }} RSS 订阅" href="{{ rss_url }}">
 <link rel="alternate" type="application/atom+xml" title="{{ person.name }} Atom 订阅" href="{{ atom_url }}">
 <link rel="stylesheet" type="text/css" href="{% static 'css/pages/search.css' %}?v=20261126a">
-<link rel="stylesheet" type="text/css" href="{% static 'people/css/author_directory.css' %}?v=20261124a">
+<link rel="stylesheet" type="text/css" href="{% static 'people/css/author_directory.css' %}?v=20261127a">
 {% endblock %}
 
 {% block content %}
@@ -38,8 +38,8 @@
                 <span class="author-anon-pill">未单独署名内容统一归档</span>
                 {% endif %}
             </div>
-            {% if person.bio %}
-            <p class="author-profile-bio">{{ person.bio }}</p>
+            {% if bio_html %}
+            <div class="author-profile-bio rich-text">{{ bio_html }}</div>
             {% endif %}
             <div class="author-profile-meta">
                 <span class="author-meta-item">共 <strong>{{ card_total_count|default:0 }}</strong> 篇公开内容</span>

@@ -10,6 +10,7 @@ from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 from wagtail import hooks
 from wagtail.admin.forms import WagtailAdminModelForm
+from wagtail.admin.panels import ObjectList
 from wagtail.permission_policies import ModelPermissionPolicy
 from wagtail.permissions import register_permission_policy
 from wagtail.snippets.models import register_snippet
@@ -20,7 +21,6 @@ from wagtail.snippets.views.chooser import (
 )
 from wagtail.snippets.views.snippets import (
     DeleteView as SnippetDeleteView,
-    EditView as SnippetEditView,
     SnippetViewSet,
 )
 
@@ -44,12 +44,12 @@ class PersonPermissionPolicy(ModelPermissionPolicy):
 
 
 class PersonAdminForm(WagtailAdminModelForm):
-    """编辑系统「佚名」名片时隐藏并拒绝 linked_user 与 email。"""
+    """编辑系统「佚名」名片时禁用并拒绝 linked_user、email 与 show_public_comments。"""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if getattr(self.instance, "is_system_anonymous", False):
-            for fname in ("linked_user", "email"):
+            for fname in ("linked_user", "email", "show_public_comments"):
                 if fname in self.fields:
                     self.fields[fname].disabled = True
                     self.fields[fname].required = False
@@ -59,12 +59,8 @@ class PersonAdminForm(WagtailAdminModelForm):
         if getattr(self.instance, "is_system_anonymous", False):
             cleaned["linked_user"] = None
             cleaned["email"] = ""
+            cleaned["show_public_comments"] = False
         return cleaned
-
-
-class PersonSnippetEditView(SnippetEditView):
-    def get_form_class(self):
-        return PersonAdminForm
 
 
 class PersonSnippetDeleteView(SnippetDeleteView):
@@ -96,12 +92,9 @@ class PersonSnippetViewSet(SnippetViewSet):
     list_display = ["name", "slug", "initial", "linked_user", "is_system_anonymous"]
     list_filter = ["initial", "is_system_anonymous"]
     search_fields = ["name", "slug", "bio"]
-    edit_view_class = PersonSnippetEditView
+    edit_handler = ObjectList(Person.panels, base_form_class=PersonAdminForm)
     delete_view_class = PersonSnippetDeleteView
     chooser_viewset_class = PersonChooserViewSet
-
-    def get_form_class(self, for_update=False):
-        return PersonAdminForm
 
 
 register_permission_policy(Person, PersonPermissionPolicy(Person))

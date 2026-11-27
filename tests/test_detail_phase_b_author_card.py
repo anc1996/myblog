@@ -268,6 +268,20 @@ class DetailPhaseBAuthorCardTests(TestCase):
         self.assertTrue(active_cells)
         self.assertIn(f"date_from={today.isoformat()}", active_cells[0]["url"])
 
+        # 富文本公开简介（加粗、下划线、链接、XSS 剥离）在详情页右侧作者名片中正确渲染
+        lead.bio = '<p><b>数据库架构师</b> · <u>长期主义</u> · <a href="https://example.com/shenkuo">专栏主页</a><script>alert(1)</script></p>'
+        lead.save()
+        d_rich = build_detail_presentation(cur_post, self.factory.get(cur_post.url_path))
+        bio_html = str(d_rich["author_card"]["bio_html"])
+        self.assertIn("<b>数据库架构师</b>", bio_html)
+        self.assertIn("<u>长期主义</u>", bio_html)
+        self.assertIn('href="https://example.com/shenkuo"', bio_html)
+        self.assertIn('rel="noopener noreferrer"', bio_html)
+        self.assertNotIn("<script>", bio_html)
+        rich_html = cur_post.serve(self.factory.get(cur_post.url_path)).render().content.decode("utf-8")
+        self.assertIn('<div class="author-card-bio rich-text">', rich_html)
+        self.assertIn("<u>长期主义</u>", rich_html)
+
     def test_author_comments_security_anti_leakage(self):
         """作者发言防漏：拦截隐藏根评论下的回复、待审V2不覆盖V1、祖先回收/受限拦截、未授权拦截"""
         User = get_user_model()
