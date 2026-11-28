@@ -7,12 +7,14 @@ Step 1 & Step 2 集成与权限验收测试：
 from datetime import date
 import json
 from uuid import uuid4
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
-from wagtail.models import Page
+from wagtail.coreutils import get_supported_content_language_variant
+from wagtail.models import Collection, Locale, Page, Site
 from wagtail.rich_text import RichText
 from wagtail.test.utils.form_data import nested_form_data, rich_text
 
@@ -21,6 +23,7 @@ from content_blocks.blocks.rich_text import CustomRichTextBlock
 from content_blocks.embeds.finder import RegistryEmbedFinder
 from content_blocks.embeds.rich_text import ControlledContentstateMediaConversionRule
 from content_lifecycle.permissions import ensure_author_role_infrastructure
+from home.models import HomePage
 from media_library.models import Audio, Video, VisibilityChoices
 from people.models import Person
 
@@ -28,6 +31,24 @@ User = get_user_model()
 
 
 class UnifiedEmbedAndAVUploadTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        Locale.objects.get_or_create(
+            language_code=get_supported_content_language_variant(settings.LANGUAGE_CODE)
+        )
+        if Collection.get_first_root_node() is None:
+            Collection.add_root(name="Root")
+        root = Page.get_first_root_node() or Page.add_root(title="Root")
+        home = HomePage.objects.first()
+        if home is None:
+            slug = "home" if not root.get_children().filter(slug="home").exists() else f"home-{uuid4().hex[:6]}"
+            home = HomePage(title="Home", slug=slug)
+            root.add_child(instance=home)
+            home.save_revision().publish()
+        if not Site.objects.filter(hostname="localhost").exists():
+            is_default = not Site.objects.filter(is_default_site=True).exists()
+            Site.objects.create(hostname="localhost", port=80, root_page=home, is_default_site=is_default)
+        Site.clear_site_root_paths_cache()
 
     def setUp(self):
         self.infra = ensure_author_role_infrastructure()
@@ -192,7 +213,7 @@ class UnifiedEmbedAndAVUploadTests(TestCase):
             ("video", {"video": vid_a, "title_override": "实战录像"}),
         ]
         self.blog_index.add_child(instance=blog)
-        BlogPagePerson.objects.create(page=blog, person=self.person_a, role="作者")
+        BlogPagePerson.objects.create(page=blog, person=self.person_a, role="primary_author")
         rev = blog.save_revision(user=self.author_a)
         rev.publish(user=self.author_a)
 

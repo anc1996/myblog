@@ -12,19 +12,13 @@ Phase 2 公共图片验证码模块 (captcha) 单元、并发与端到端集成�
 
 from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
-import os
 import re
-import unittest
 from unittest.mock import patch
 from uuid import uuid4
 
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "myblog.settings.dev")
-import django
-django.setup()
-
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
-from django.test import Client, override_settings
+from django.test import Client, TransactionTestCase, override_settings
 from django.urls import reverse
 from PIL import Image
 
@@ -38,19 +32,18 @@ from identity.models import MemberProfile
 User = get_user_model()
 
 
-class CaptchaModuleTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        cls.admin = User.objects.filter(is_superuser=True, is_active=True).first()
-        if not cls.admin:
-            cls.admin = User.objects.create_superuser(
+class CaptchaModuleTests(TransactionTestCase):
+    serialized_rollback = True
+
+    def setUp(self):
+        super().setUp()
+        self.admin = User.objects.filter(is_superuser=True, is_active=True).first()
+        if not self.admin:
+            self.admin = User.objects.create_superuser(
                 username=f"cap_admin_{uuid4().hex[:6]}",
                 email="cap_admin@test.com",
                 password="StrongAdminPassword!123",
             )
-
-    def setUp(self):
         self.created_user_ids: list[int] = []
         self.tracked_ips: list[str] = []
         self.tracked_usernames: list[str] = []

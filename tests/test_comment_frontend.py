@@ -10,17 +10,13 @@ tests.test_comment_frontend
 5. 开启 enforce_csrf_checks=True 验证带 CSRF Token 的端到端发表、二级回复、点赞、软删全流程。
 """
 
-import os
-import unittest
 from datetime import date
 from uuid import uuid4
 
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "myblog.settings.dev")
-import django
-django.setup()
-
-from django.test import Client, RequestFactory
-from wagtail.models import Site
+from django.conf import settings
+from django.test import Client, RequestFactory, TestCase
+from wagtail.coreutils import get_supported_content_language_variant
+from wagtail.models import Collection, Locale, Page, Site
 from home.models import HomePage
 from blog.models import BlogIndexPage, BlogPage
 from guides.models import GuideIndexPage, GuidePage, GuideTopic
@@ -33,12 +29,40 @@ from comments.services import CommentService
 from content_lifecycle.recycle import RecycleService
 
 
-class CommentFrontendIntegrationTests(unittest.TestCase):
+class CommentFrontendIntegrationTests(TestCase):
 
     @classmethod
-    def setUpClass(cls):
+    def setUpTestData(cls):
+        Locale.objects.get_or_create(
+            language_code=get_supported_content_language_variant(settings.LANGUAGE_CODE)
+        )
+        if Collection.get_first_root_node() is None:
+            Collection.add_root(name="Root")
+        root = Page.get_first_root_node() or Page.add_root(title="Root")
         cls.home = HomePage.objects.first()
+        if cls.home is None:
+            slug = "home" if not root.get_children().filter(slug="home").exists() else f"home-{uuid4().hex[:6]}"
+            cls.home = HomePage(title="Home", slug=slug)
+            root.add_child(instance=cls.home)
+            cls.home.save_revision().publish()
         cls.site = Site.objects.filter(is_default_site=True).first()
+        if cls.site is None:
+            cls.site = Site.objects.filter(hostname="localhost", port=80).first()
+            if cls.site is None:
+                cls.site = Site.objects.create(
+                    hostname="localhost",
+                    port=80,
+                    root_page=cls.home,
+                    is_default_site=True,
+                )
+            else:
+                cls.site.root_page = cls.home
+                cls.site.is_default_site = True
+                cls.site.save(update_fields=["root_page", "is_default_site"])
+        elif not Site.objects.filter(hostname="localhost", port=80).exists():
+            Site.objects.create(hostname="localhost", port=80, root_page=cls.home, is_default_site=False)
+        Site.clear_site_root_paths_cache()
+
         cls.admin_user = User.objects.filter(is_superuser=True, is_active=True).first()
         if not cls.admin_user:
             cls.admin_user = User.objects.create_superuser(
@@ -66,27 +90,11 @@ class CommentFrontendIntegrationTests(unittest.TestCase):
         cls.home.add_child(instance=cls.portfolio_index)
         cls.portfolio_index.save_revision().publish()
 
-    @classmethod
-    def tearDownClass(cls):
-        for idx in (cls.guide_index, cls.portfolio_index):
-            try:
-                if idx and idx.id:
-                    RecycleService.recycle_page_or_subtree(idx, actor=cls.admin_user)
-                    RecycleService.purge_page_or_subtree(idx.id, actor=cls.admin_user)
-            except Exception:
-                pass
-        try:
-            cls.topic.delete()
-        except Exception:
-            pass
-        try:
-            from external_content.outbox import OutboxProcessor
-            while OutboxProcessor.process_pending_events(batch_size=100) > 0:
-                pass
-        except Exception:
-            pass
-
     def setUp(self):
+        self.home.refresh_from_db()
+        self.blog_index.refresh_from_db()
+        self.guide_index.refresh_from_db()
+        self.portfolio_index.refresh_from_db()
         self.client = Client()
         self.created_pages = []
         self._cleanup_quota_and_rate_limits()

@@ -11,23 +11,32 @@ S8 受控回收站与一键精准还原 (Recycle & Restore) 单元测试。
 5. Wagtail 后台 Explorer 列表过滤与前台 404 隔离钩子实测。
 """
 
-import os
-from pathlib import Path
-import unittest
 from uuid import uuid4
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.http import Http404
+from django.test import TestCase
+from wagtail.coreutils import get_supported_content_language_variant
+from wagtail.models import Collection, Locale, Page
 
-PROJECT_DIR = Path(__file__).resolve().parents[1]
 
-
-class S8RecycleRestoreTests(unittest.TestCase):
+class S8RecycleRestoreTests(TestCase):
 
     @classmethod
-    def setUpClass(cls):
-        os.environ["DJANGO_SETTINGS_MODULE"] = "myblog.settings.dev"
-        import django
-        django.setup()
+    def setUpTestData(cls):
+        from home.models import HomePage
+
+        Locale.objects.get_or_create(
+            language_code=get_supported_content_language_variant(settings.LANGUAGE_CODE)
+        )
+        if Collection.get_first_root_node() is None:
+            Collection.add_root(name="Root")
+        root = Page.get_first_root_node() or Page.add_root(title="Root")
+        if HomePage.objects.first() is None:
+            slug = "home" if not root.get_children().filter(slug="home").exists() else f"home-{uuid4().hex[:6]}"
+            home = HomePage(title="Home", slug=slug)
+            root.add_child(instance=home)
+            home.save_revision().publish()
 
     def test_single_page_recycle_and_in_place_restore(self):
         """测试单页面原树占位回收与原位一键还原为草稿"""

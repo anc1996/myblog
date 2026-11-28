@@ -11,31 +11,50 @@ tests.test_guides
 6. 前后端分离 API：GET /api/v1/guides/ 与 GET /api/v1/guides/<slug>/（双形态输出与 steps_toc 目录）。
 """
 
-import os
-import unittest
 from datetime import timedelta
 from uuid import uuid4
 
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "myblog.settings.dev")
-import django
-django.setup()
-
+from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.test import Client
+from django.test import Client, TestCase
 from django.utils import timezone
-from wagtail.models import Page
+from wagtail.coreutils import get_supported_content_language_variant
+from wagtail.models import Collection, Locale, Page, Site
 from home.models import HomePage
 from guides.models import GuideTopic, GuideIndexPage, GuidePage
 from content_lifecycle.recycle import RecycleService
 from discovery.models import ContentDiscoveryEpoch
 
 
-class GuidesSystemTests(unittest.TestCase):
+class GuidesSystemTests(TestCase):
 
     @classmethod
-    def setUpClass(cls):
-        cls.client = Client(HTTP_HOST="localhost")
+    def setUpTestData(cls):
+        Locale.objects.get_or_create(
+            language_code=get_supported_content_language_variant(settings.LANGUAGE_CODE)
+        )
+        if Collection.get_first_root_node() is None:
+            Collection.add_root(name="Root")
+        root = Page.get_first_root_node() or Page.add_root(title="Root")
         cls.home = HomePage.objects.first()
+        if cls.home is None:
+            slug = "home" if not root.get_children().filter(slug="home").exists() else f"home-{uuid4().hex[:6]}"
+            cls.home = HomePage(title="Home", slug=slug)
+            root.add_child(instance=cls.home)
+            cls.home.save_revision().publish()
+        site = Site.objects.filter(is_default_site=True).first()
+        if site is None:
+            site = Site.objects.filter(hostname="localhost", port=80).first()
+            if site is None:
+                Site.objects.create(hostname="localhost", port=80, root_page=cls.home, is_default_site=True)
+            else:
+                site.root_page = cls.home
+                site.is_default_site = True
+                site.save(update_fields=["root_page", "is_default_site"])
+        elif not Site.objects.filter(hostname="localhost", port=80).exists():
+            Site.objects.create(hostname="localhost", port=80, root_page=cls.home, is_default_site=False)
+        Site.clear_site_root_paths_cache()
+
         # 创建公共专栏技术主题
         cls.topic = GuideTopic.objects.create(
             name=f"PostgreSQL 深度调优-{uuid4().hex[:6]}",
@@ -52,14 +71,9 @@ class GuidesSystemTests(unittest.TestCase):
         )
         cls.home.add_child(instance=cls.index_page)
 
-    @classmethod
-    def tearDownClass(cls):
-        # 清理测试聚合页与主题
-        try:
-            cls.index_page.delete(allow_physical_purge=True)
-            cls.topic.delete()
-        except Exception:
-            pass
+    def setUp(self):
+        self.client = Client(HTTP_HOST="localhost")
+        self.index_page.refresh_from_db()
 
     def test_01_draft_permissive_and_publish_gate_rules(self):
         """测试决策二门禁：草稿宽容，发布强校验 Topic 与 step 步骤块"""
@@ -251,7 +265,3 @@ class GuidesSystemTests(unittest.TestCase):
 
         # 清理
         guide.delete(allow_physical_purge=True)
-
-
-if __name__ == "__main__":
-    unittest.main()

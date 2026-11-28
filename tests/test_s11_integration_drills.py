@@ -13,20 +13,18 @@ S11 综合验收、跨存储故障演练与数据对账全面集成测试。
 """
 
 import io
-import os
 from datetime import date
-from pathlib import Path
-import unittest
 from unittest.mock import patch
 from uuid import uuid4
 
 from PIL import Image as PILImage
+from django.conf import settings
 from django.core.files.base import ContentFile
-from django.test import RequestFactory
+from django.test import RequestFactory, TestCase
 from django.http import Http404
+from wagtail.coreutils import get_supported_content_language_variant
+from wagtail.models import Collection, Locale, Page, Site
 from wagtail.rich_text import RichText
-
-PROJECT_DIR = Path(__file__).resolve().parents[1]
 
 
 def create_dummy_png(name="test.png", width=10, height=10):
@@ -36,20 +34,31 @@ def create_dummy_png(name="test.png", width=10, height=10):
     return ContentFile(buf.getvalue(), name=name)
 
 
-class S11IntegrationDrillsTests(unittest.TestCase):
-
+class S11IntegrationDrillsTests(TestCase):
     @classmethod
-    def setUpClass(cls):
-        os.environ["DJANGO_SETTINGS_MODULE"] = "myblog.settings.dev"
-        import django
-        django.setup()
+    def setUpTestData(cls):
+        from home.models import HomePage
+
+        Locale.objects.get_or_create(
+            language_code=get_supported_content_language_variant(settings.LANGUAGE_CODE)
+        )
+        if Collection.get_first_root_node() is None:
+            Collection.add_root(name="Root")
+        root = Page.get_first_root_node() or Page.add_root(title="Root")
+        cls.home = HomePage.objects.first()
+        if cls.home is None:
+            slug = "home" if not root.get_children().filter(slug="home").exists() else f"home-{uuid4().hex[:6]}"
+            cls.home = HomePage(title="Home", slug=slug)
+            root.add_child(instance=cls.home)
+            cls.home.save_revision().publish()
+        if not Site.objects.filter(hostname="localhost").exists():
+            is_default = not Site.objects.filter(is_default_site=True).exists()
+            Site.objects.create(hostname="localhost", port=80, root_page=cls.home, is_default_site=is_default)
+        Site.clear_site_root_paths_cache()
 
     def setUp(self):
-        from home.models import HomePage
-        from blog.models import BlogIndexPage, BlogPage
-
+        self.home.refresh_from_db()
         self.factory = RequestFactory()
-        self.home = HomePage.objects.first()
         self.created_pages = []
         self.created_snippets = []
 
@@ -91,7 +100,7 @@ class S11IntegrationDrillsTests(unittest.TestCase):
         p.refresh_from_db()
 
         # 3. 验证前台页面 serve(): 读者请求看到的依然是 V1 标题与正文
-        req = self.factory.get(p.url_path)
+        req = self.factory.get(p.url_path, HTTP_HOST="localhost")
         resp = p.serve(req)
         resp.render()
         html = resp.content.decode("utf-8")
@@ -341,7 +350,10 @@ class S11IntegrationDrillsTests(unittest.TestCase):
 
         # 3. 验证 RevisionsCompareView 对比正式版 ("live") 与草稿 V2
         admin_user, _ = User.objects.get_or_create(username="admin_drill", defaults={"is_superuser": True, "is_staff": True})
-        req = self.factory.get(f"/admin/pages/{page.id}/revisions/compare/live...{rev2.id}/")
+        req = self.factory.get(
+            f"/admin/pages/{page.id}/revisions/compare/live...{rev2.id}/",
+            HTTP_HOST="localhost",
+        )
         req.user = admin_user
 
         view = RevisionsCompareView()
@@ -425,7 +437,3 @@ class S11IntegrationDrillsTests(unittest.TestCase):
         # 执行对账 GC（传入宽限期 0 秒以即时清理孤儿）
         gc_res = CrossStorageReconciler.run_garbage_collection(grace_period_seconds=0, dry_run=False)
         self.assertTrue(gc_res["healthy"])
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -14,23 +14,18 @@
 """
 
 import io
-import os
 import tempfile
-import unittest
 from uuid import uuid4
-
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "myblog.settings.dev")
-import django
-
-django.setup()
 
 from PIL import Image as PILImage
 from django.conf import settings
 from django.core.cache import cache
 from django.core.files.storage import storages
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import Client, override_settings
+from django.test import Client, TestCase, override_settings
 from django.urls import reverse
+from wagtail.coreutils import get_supported_content_language_variant
+from wagtail.models import Collection, Locale, Page, Site
 
 from blog.models import BlogPage
 from comments.models import Comment
@@ -73,20 +68,37 @@ def _reset_storage_cache() -> None:
     storages.__dict__.pop("backends", None)
 
 
-class IdentityFrontendTests(unittest.TestCase):
+class IdentityFrontendTests(TestCase):
     @classmethod
-    def setUpClass(cls):
+    def setUpTestData(cls):
+        Locale.objects.get_or_create(
+            language_code=get_supported_content_language_variant(settings.LANGUAGE_CODE)
+        )
+        if Collection.get_first_root_node() is None:
+            Collection.add_root(name="Root")
+        root = Page.get_first_root_node() or Page.add_root(title="Root")
         cls.home = HomePage.objects.first()
         if cls.home is None:
-            from wagtail.models import Page
-
-            root = Page.get_first_root_node() or Page.add_root(title="Root")
-            cls.home = HomePage(title="Home", slug=f"home-{uuid4().hex[:6]}")
+            slug = "home" if not root.get_children().filter(slug="home").exists() else f"home-{uuid4().hex[:6]}"
+            cls.home = HomePage(title="Home", slug=slug)
             root.add_child(instance=cls.home)
             cls.home.save_revision().publish()
             cls.home.refresh_from_db()
+        site = Site.objects.filter(is_default_site=True).first()
+        if site is None:
+            site = Site.objects.filter(hostname="localhost", port=80).first()
+            if site is None:
+                Site.objects.create(hostname="localhost", port=80, root_page=cls.home, is_default_site=True)
+            else:
+                site.root_page = cls.home
+                site.is_default_site = True
+                site.save(update_fields=["root_page", "is_default_site"])
+        elif not Site.objects.filter(hostname="localhost", port=80).exists():
+            Site.objects.create(hostname="localhost", port=80, root_page=cls.home, is_default_site=False)
+        Site.clear_site_root_paths_cache()
 
     def setUp(self):
+        self.home.refresh_from_db()
         self.client = Client()
         self.created_user_ids: list[int] = []
         self.created_pages: list[BlogPage] = []
@@ -620,7 +632,7 @@ class IdentityFrontendTests(unittest.TestCase):
 
         page = BlogPage(title="公开期原标题", slug=f"p1leak-{uuid4().hex[:6]}", owner=user)
         self.home.add_child(instance=page)
-        page.save_revision(user=user).publish()
+        page.save_revision().publish()
         self.created_pages.append(page)
 
         c = CommentService.post_comment(page=page, author=user, raw_content="历史评论", auto_approve=True)
@@ -648,7 +660,3 @@ class IdentityFrontendTests(unittest.TestCase):
             )
         self.assertEqual(login_resp.status_code, 503)
         self.assertIn("安全校验服务暂未就绪", login_resp.content.decode("utf-8"))
-
-
-if __name__ == "__main__":
-    unittest.main()

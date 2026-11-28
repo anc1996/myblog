@@ -12,19 +12,15 @@ tests.test_comments
 7. 评论 RESTful JSON API 全流程实测。
 """
 
-import os
-import unittest
 from unittest.mock import patch
 from uuid import uuid4
 
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "myblog.settings.dev")
-import django
-django.setup()
-
+from django.conf import settings
 from django.core.exceptions import ValidationError, PermissionDenied
-from django.test import Client, RequestFactory
+from django.test import Client, RequestFactory, TestCase
 from django.urls import reverse
-from wagtail.models import Page
+from wagtail.coreutils import get_supported_content_language_variant
+from wagtail.models import Collection, Locale, Page, Site
 from home.models import HomePage
 from blog.models import BlogPage, BlogIndexPage
 from guides.models import GuidePage, GuideTopic, GuideIndexPage
@@ -43,16 +39,44 @@ from comments.access import get_accessible_comment_page
 from comments.sanitizer import sanitize_comment_html
 
 
-class CommentsSystemTests(unittest.TestCase):
+class CommentsSystemTests(TestCase):
 
     @classmethod
-    def setUpClass(cls):
-        cls.client = Client()
+    def setUpTestData(cls):
+        Locale.objects.get_or_create(
+            language_code=get_supported_content_language_variant(settings.LANGUAGE_CODE)
+        )
+        if Collection.get_first_root_node() is None:
+            Collection.add_root(name="Root")
+        root = Page.get_first_root_node() or Page.add_root(title="Root")
         cls.factory = RequestFactory()
         cls.home = HomePage.objects.first()
+        if cls.home is None:
+            slug = "home" if not root.get_children().filter(slug="home").exists() else f"home-{uuid4().hex[:6]}"
+            cls.home = HomePage(title="Home", slug=slug)
+            root.add_child(instance=cls.home)
+            cls.home.save_revision().publish()
+        site = Site.objects.filter(is_default_site=True).first()
+        if site is None:
+            site = Site.objects.filter(hostname="localhost", port=80).first()
+            if site is None:
+                Site.objects.create(hostname="localhost", port=80, root_page=cls.home, is_default_site=True)
+            else:
+                site.root_page = cls.home
+                site.is_default_site = True
+                site.save(update_fields=["root_page", "is_default_site"])
+        elif not Site.objects.filter(hostname="localhost", port=80).exists():
+            Site.objects.create(hostname="localhost", port=80, root_page=cls.home, is_default_site=False)
+        Site.clear_site_root_paths_cache()
 
         # 创建测试用户
-        cls.admin_user = User.objects.filter(is_superuser=True).first()
+        cls.admin_user = User.objects.filter(is_superuser=True, is_active=True).first()
+        if not cls.admin_user:
+            cls.admin_user = User.objects.create_superuser(
+                username=f"comm_admin_{uuid4().hex[:6]}",
+                email="comm_admin@test.com",
+                password="StrongPassword!123",
+            )
         cls.user_a, _ = User.objects.get_or_create(username="commenter_alice", defaults={"email": "alice@test.com"})
         cls.user_b, _ = User.objects.get_or_create(username="commenter_bob", defaults={"email": "bob@test.com"})
         cls.user_c, _ = User.objects.get_or_create(username="commenter_charlie", defaults={"email": "charlie@test.com"})
@@ -77,17 +101,11 @@ class CommentsSystemTests(unittest.TestCase):
         cls.guide_page.save_revision().publish()
         cls.guide_page.refresh_from_db()
 
-    @classmethod
-    def tearDownClass(cls):
-        try:
-            cls.blog_page.delete(allow_physical_purge=True)
-            cls.guide_page.delete(allow_physical_purge=True)
-            cls.guide_index.delete(allow_physical_purge=True)
-            cls.topic.delete()
-        except Exception:
-            pass
-
     def setUp(self):
+        self.client = Client()
+        self.home.refresh_from_db()
+        self.blog_page.refresh_from_db()
+        self.guide_page.refresh_from_db()
         self._cleanup_comment_state()
 
     def tearDown(self):
@@ -434,7 +452,3 @@ class CommentsSystemTests(unittest.TestCase):
         self.assertNotIn("<table", guest_html)
         self.assertNotIn("<td", guest_html)
         self.assertIn("&lt;table&gt;", guest_html)
-
-
-if __name__ == "__main__":
-    unittest.main()

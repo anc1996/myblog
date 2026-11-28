@@ -13,32 +13,48 @@
 9. 列表路径零 MongoDB 访问脱水契约 (0 Mongo 调用验证)。
 """
 
-import os
 import json
-import unittest
 from datetime import date
 from unittest.mock import patch
 from uuid import uuid4
 
-from django.test import RequestFactory
+from django.conf import settings
+from django.test import RequestFactory, TestCase
+from wagtail.coreutils import get_supported_content_language_variant
+from wagtail.models import Collection, Locale, Page, Site
 from wagtail.rich_text import RichText
 
 
-class ListingFrameworkTests(unittest.TestCase):
+class ListingFrameworkTests(TestCase):
 
     @classmethod
-    def setUpClass(cls):
-        os.environ["DJANGO_SETTINGS_MODULE"] = "myblog.settings.dev"
-        import django
-        django.setup()
+    def setUpTestData(cls):
+        from home.models import HomePage
+        from people.models import Person
+
+        Locale.objects.get_or_create(
+            language_code=get_supported_content_language_variant(settings.LANGUAGE_CODE)
+        )
+        if Collection.get_first_root_node() is None:
+            Collection.add_root(name="Root")
+        root = Page.get_first_root_node() or Page.add_root(title="Root")
+        cls.home = HomePage.objects.first()
+        if cls.home is None:
+            slug = "home" if not root.get_children().filter(slug="home").exists() else f"home-{uuid4().hex[:6]}"
+            cls.home = HomePage(title="Home", slug=slug)
+            root.add_child(instance=cls.home)
+            cls.home.save_revision().publish()
+        if not Site.objects.filter(hostname="localhost").exists():
+            is_default = not Site.objects.filter(is_default_site=True).exists()
+            Site.objects.create(hostname="localhost", port=80, root_page=cls.home, is_default_site=is_default)
+        Site.clear_site_root_paths_cache()
+        Person.objects.get_or_create(
+            slug="anonymous",
+            defaults={"name": "佚名", "is_system_anonymous": True},
+        )
 
     def setUp(self):
-        from home.models import HomePage
-        from blog.models import BlogIndexPage, BlogPage
-        from guides.models import GuideIndexPage, GuidePage, GuideTopic
-
-        self.factory = RequestFactory()
-        self.home = HomePage.objects.first()
+        self.factory = RequestFactory(HTTP_HOST="localhost")
         self.created_pages = []
         self.created_topics = []
 

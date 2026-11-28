@@ -11,18 +11,14 @@ tests.test_feed_and_archive
 6. 未来任意 xxPage（如 ProjectPage）零核心修改即插即用扩展性测试。
 """
 
-import os
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "myblog.settings.dev")
-import django
-django.setup()
-
 import json
-import unittest
 import uuid
 from datetime import date, timedelta
-from django.test import RequestFactory
+from django.conf import settings
+from django.test import RequestFactory, TestCase
 from django.utils import timezone
-from wagtail.models import Page, Site, PageViewRestriction
+from wagtail.coreutils import get_supported_content_language_variant
+from wagtail.models import Collection, Locale, Page, Site, PageViewRestriction
 
 from home.models import HomePage
 from blog.models import BlogPage, BlogIndexPage
@@ -31,27 +27,36 @@ from people.models import Person
 from discovery.models import ContentDiscoveryEpoch, PublishedSearchDocument
 from discovery.projection import project_page_to_discovery
 from discovery.contracts import PublicListingCapabilities, PublishedPayload, TextSegment
-from discovery.registry import register_type_adapter, clear_adapters
+from discovery.registry import register_type_adapter
 from discovery.feeds import public_feed_view, compute_public_timeline_archives
 from api.views import timeline_archives_api
 from content_lifecycle.models import RecycleBatch, RecycleEntry
 
 
-class FeedAndArchiveTestCase(unittest.TestCase):
-    def setUp(self):
-        self.factory = RequestFactory()
-        self.home = HomePage.objects.first()
-        if not self.home:
-            root = Page.get_first_root_node()
-            if not root:
-                root = Page.add_root(title="Root")
-            self.home = HomePage(title="Home", slug="home")
-            root.add_child(instance=self.home)
-            self.home.save_revision().publish()
+class FeedAndArchiveTestCase(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        Locale.objects.get_or_create(
+            language_code=get_supported_content_language_variant(settings.LANGUAGE_CODE)
+        )
+        if Collection.get_first_root_node() is None:
+            Collection.add_root(name="Root")
+        root = Page.get_first_root_node() or Page.add_root(title="Root")
+        cls.home = HomePage.objects.first()
+        if cls.home is None:
+            slug = "home" if not root.get_children().filter(slug="home").exists() else f"home-{uuid.uuid4().hex[:6]}"
+            cls.home = HomePage(title="Home", slug=slug)
+            root.add_child(instance=cls.home)
+            cls.home.save_revision().publish()
+        cls.site = Site.objects.filter(hostname="localhost").first()
+        if cls.site is None:
+            is_default = not Site.objects.filter(is_default_site=True).exists()
+            cls.site = Site.objects.create(hostname="localhost", port=80, root_page=cls.home, is_default_site=is_default)
+        Site.clear_site_root_paths_cache()
 
-        self.site = Site.objects.filter(is_default_site=True).first()
-        if not self.site:
-            self.site = Site.objects.create(hostname="localhost", port=80, root_page=self.home, is_default_site=True)
+    def setUp(self):
+        self.home.refresh_from_db()
+        self.factory = RequestFactory()
 
         # 创建作者
         self.author = Person.objects.create(
@@ -148,7 +153,7 @@ class FeedAndArchiveTestCase(unittest.TestCase):
 
     def test_rss2_feed_all_generation(self):
         """测试全站 RSS 2.0 生成：包含博客和指南，不含聚合页，符合 RSS 规范"""
-        request = self.factory.get("/feed/")
+        request = self.factory.get("/feed/", HTTP_HOST="localhost")
         response = public_feed_view(request, dimension="all")
 
         self.assertEqual(response.status_code, 200)
@@ -162,7 +167,7 @@ class FeedAndArchiveTestCase(unittest.TestCase):
 
     def test_atom_feed_generation_and_safe_summary(self):
         """测试 Atom 1.0 生成：RFC 4287 合规、summary type='text'"""
-        request = self.factory.get("/feed/atom/")
+        request = self.factory.get("/feed/atom/", HTTP_HOST="localhost")
         response = public_feed_view(request, dimension="all")
 
         self.assertEqual(response.status_code, 200)
@@ -175,14 +180,14 @@ class FeedAndArchiveTestCase(unittest.TestCase):
     def test_feed_dimensions(self):
         """测试多维度过滤：type, tag, author, topic"""
         # 1. 按类型过滤 (type=blog)
-        req_blog = self.factory.get("/feed/type/blog/")
+        req_blog = self.factory.get("/feed/type/blog/", HTTP_HOST="localhost")
         resp_blog = public_feed_view(req_blog, dimension="type", slug="blog")
         content_blog = resp_blog.content.decode("utf-8")
         self.assertIn(self.blog_post_1.title, content_blog)
         self.assertNotIn(self.guide_post.title, content_blog)
 
         # 2. 按类型过滤 (type=guide)
-        req_guide = self.factory.get("/feed/type/guide/")
+        req_guide = self.factory.get("/feed/type/guide/", HTTP_HOST="localhost")
         resp_guide = public_feed_view(req_guide, dimension="type", slug="guide")
         content_guide = resp_guide.content.decode("utf-8")
         self.assertIn(self.guide_post.title, content_guide)
@@ -191,17 +196,17 @@ class FeedAndArchiveTestCase(unittest.TestCase):
         # 3. 非法/非订阅类型 (type=blog_index) 必须返回 404
         from django.http import Http404
         with self.assertRaises(Http404):
-            public_feed_view(self.factory.get("/feed/type/blog_index/"), dimension="type", slug="blog_index")
+            public_feed_view(self.factory.get("/feed/type/blog_index/", HTTP_HOST="localhost"), dimension="type", slug="blog_index")
 
         # 4. 按独立标签过滤 (tag=self.custom_tag)
-        req_tag = self.factory.get(f"/feed/tag/{self.custom_tag}/")
+        req_tag = self.factory.get(f"/feed/tag/{self.custom_tag}/", HTTP_HOST="localhost")
         resp_tag = public_feed_view(req_tag, dimension="tag", slug=self.custom_tag)
         content_tag = resp_tag.content.decode("utf-8")
         self.assertIn(self.blog_post_1.title, content_tag)
         self.assertNotIn(self.blog_post_2.title, content_tag)
 
         # 5. 按专题过滤 (topic=backend-arch)
-        req_topic = self.factory.get(f"/feed/topic/{self.topic.slug}/")
+        req_topic = self.factory.get(f"/feed/topic/{self.topic.slug}/", HTTP_HOST="localhost")
         resp_topic = public_feed_view(req_topic, dimension="topic", slug=self.topic.slug)
         content_topic = resp_topic.content.decode("utf-8")
         self.assertIn(self.guide_post.title, content_topic)
@@ -209,13 +214,13 @@ class FeedAndArchiveTestCase(unittest.TestCase):
 
     def test_feed_weak_etag_and_http_304(self):
         """测试弱 ETag 协商与 HTTP 304 快速响应"""
-        request = self.factory.get("/feed/")
+        request = self.factory.get("/feed/", HTTP_HOST="localhost")
         response = public_feed_view(request, dimension="all")
         etag = response["ETag"]
         self.assertTrue(etag.startswith('W/"feed:'))
 
         # 携带相同 ETag 请求 -> 极速返回 304 Not Modified
-        cond_request = self.factory.get("/feed/", HTTP_IF_NONE_MATCH=etag)
+        cond_request = self.factory.get("/feed/", HTTP_IF_NONE_MATCH=etag, HTTP_HOST="localhost")
         cond_response = public_feed_view(cond_request, dimension="all")
         self.assertEqual(cond_response.status_code, 304)
 
@@ -227,7 +232,7 @@ class FeedAndArchiveTestCase(unittest.TestCase):
 
     def test_timeline_archives_api_aggregation(self):
         """测试时间线归档 API：PostgreSQL TruncMonth 年月聚合统计与过滤"""
-        request = self.factory.get("/api/v1/archives/")
+        request = self.factory.get("/api/v1/archives/", HTTP_HOST="localhost")
         response = timeline_archives_api(request)
         self.assertEqual(response.status_code, 200)
         res = json.loads(response.content.decode("utf-8"))
@@ -245,21 +250,21 @@ class FeedAndArchiveTestCase(unittest.TestCase):
         self.assertGreaterEqual(month_map[10], 1)
 
         # 测试按专题过滤 (topic=self.topic.slug)
-        req_guide = self.factory.get(f"/api/v1/archives/?topic={self.topic.slug}")
+        req_guide = self.factory.get(f"/api/v1/archives/?topic={self.topic.slug}", HTTP_HOST="localhost")
         resp_guide = timeline_archives_api(req_guide)
         res_guide = json.loads(resp_guide.content.decode("utf-8"))
         self.assertEqual(res_guide["data"]["total_count"], 1)
 
         # 测试时间线 ETag 304
         etag = response["ETag"]
-        cond_req = self.factory.get("/api/v1/archives/", HTTP_IF_NONE_MATCH=etag)
+        cond_req = self.factory.get("/api/v1/archives/", HTTP_IF_NONE_MATCH=etag, HTTP_HOST="localhost")
         cond_resp = timeline_archives_api(cond_req)
         self.assertEqual(cond_resp.status_code, 304)
 
     def test_lifecycle_security_guards(self):
         """测试刚性生命周期安全守卫：回收站、未来排期、PageViewRestriction 隔离"""
         # 1. 未来排期文章 (authored_on = 明天) 绝不进入 Feed 和归档
-        tomorrow = date.today() + timedelta(days=1)
+        tomorrow = timezone.localdate() + timedelta(days=1)
         future_post = BlogPage(
             title="未来技术前瞻",
             slug="future-tech",
@@ -270,7 +275,7 @@ class FeedAndArchiveTestCase(unittest.TestCase):
         future_post.refresh_from_db()
         project_page_to_discovery(future_post)
 
-        feed_resp = public_feed_view(self.factory.get("/feed/"), dimension="all")
+        feed_resp = public_feed_view(self.factory.get("/feed/", HTTP_HOST="localhost"), dimension="all")
         feed_content = feed_resp.content.decode("utf-8")
         self.assertNotIn("未来技术前瞻", feed_content)
 
@@ -282,7 +287,7 @@ class FeedAndArchiveTestCase(unittest.TestCase):
         )
         # 触发 epoch 递增与重新检测
         ContentDiscoveryEpoch.increment_epoch()
-        feed_resp_2 = public_feed_view(self.factory.get("/feed/"), dimension="all")
+        feed_resp_2 = public_feed_view(self.factory.get("/feed/", HTTP_HOST="localhost"), dimension="all")
         feed_content_2 = feed_resp_2.content.decode("utf-8")
         self.assertNotIn(self.blog_post_1.title, feed_content_2)
 
@@ -303,7 +308,7 @@ class FeedAndArchiveTestCase(unittest.TestCase):
             status="recycled",
         )
         ContentDiscoveryEpoch.increment_epoch()
-        feed_resp_3 = public_feed_view(self.factory.get("/feed/"), dimension="all")
+        feed_resp_3 = public_feed_view(self.factory.get("/feed/", HTTP_HOST="localhost"), dimension="all")
         feed_content_3 = feed_resp_3.content.decode("utf-8")
         self.assertNotIn(self.blog_post_2.title, feed_content_3)
 
@@ -339,7 +344,9 @@ class FeedAndArchiveTestCase(unittest.TestCase):
 
         test_page = Page(title="开源高性能搜索引擎项目", slug=f"sc-{uuid.uuid4().hex[:6]}")
         self.home.add_child(instance=test_page)
-        test_page.save()
+        rev = test_page.save_revision()
+        rev.publish()
+        test_page.refresh_from_db()
 
         # 注册该未来页面适配器
         register_type_adapter(MockShowcasePageAdapter())
@@ -350,7 +357,7 @@ class FeedAndArchiveTestCase(unittest.TestCase):
         doc = PublishedSearchDocument.objects.create(
             page_id=test_page.id,
             document_uuid=payload.document_uuid,
-            effective_revision_id=1,
+            effective_revision_id=rev.id,
             type_key=payload.type_key,
             title=payload.title,
             url_path=payload.url_path,
@@ -366,7 +373,7 @@ class FeedAndArchiveTestCase(unittest.TestCase):
 
         try:
             # 1. 验证订阅流 /feed/type/showcase/ 自动生效并输出 200 OK
-            req_proj = self.factory.get("/feed/type/showcase/")
+            req_proj = self.factory.get("/feed/type/showcase/", HTTP_HOST="localhost")
             resp_proj = public_feed_view(req_proj, dimension="type", slug="showcase")
             self.assertEqual(resp_proj.status_code, 200)
             content_proj = resp_proj.content.decode("utf-8")
@@ -377,5 +384,7 @@ class FeedAndArchiveTestCase(unittest.TestCase):
             self.assertEqual(archive_data["total_count"], 1)
             self.assertEqual(archive_data["timeline"][0]["year"], 2026)
         finally:
+            from discovery.registry import _ADAPTER_REGISTRY
+            _ADAPTER_REGISTRY.pop("showcase", None)
             doc.delete()
             test_page.delete()

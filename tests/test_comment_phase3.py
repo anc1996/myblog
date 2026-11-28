@@ -5,24 +5,19 @@ Phase 3 双轨防刷评论、日配额、P0-6 字段级权限隔离与 Redis/PG 
 
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
-import os
 import threading
-import unittest
 from unittest.mock import patch
 from uuid import uuid4
 
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "myblog.settings.dev")
-import django
-
-django.setup()
-
+from django.conf import settings
 from django.contrib.auth.models import Group, Permission
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import connections
-from django.test import Client, RequestFactory
+from django.test import Client, RequestFactory, TransactionTestCase
 from django.urls import reverse
 from django.utils import timezone
-from wagtail.models import GroupPagePermission
+from wagtail.coreutils import get_supported_content_language_variant
+from wagtail.models import Collection, GroupPagePermission, Locale, Page, PageViewRestriction, Site
 
 from blog.models import BlogIndexPage, BlogPage
 from captcha.service import _get_redis_client
@@ -45,29 +40,58 @@ from content_lifecycle.recycle import RecycleService
 from home.models import HomePage
 from identity.account_lifecycle import AccountLifecycleService
 from identity.models import User
-from wagtail.models import PageViewRestriction
 
 
-class CommentPhase3Tests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        cls.home = HomePage.objects.first()
-        cls.admin = User.objects.filter(is_superuser=True, is_active=True).first()
-        if not cls.admin:
-            cls.admin = User.objects.create_superuser(
+class CommentPhase3Tests(TransactionTestCase):
+    serialized_rollback = True
+
+    def setUp(self):
+        super().setUp()
+        from people.models import Person
+
+        Locale.objects.get_or_create(
+            language_code=get_supported_content_language_variant(settings.LANGUAGE_CODE)
+        )
+        if Collection.get_first_root_node() is None:
+            Collection.add_root(name="Root")
+        root = Page.get_first_root_node() or Page.add_root(title="Root")
+        Person.objects.get_or_create(
+            slug="anonymous",
+            defaults={"name": "佚名", "is_system_anonymous": True},
+        )
+        self.home = HomePage.objects.first()
+        if self.home is None:
+            slug = "home" if not root.get_children().filter(slug="home").exists() else f"home-{uuid4().hex[:6]}"
+            self.home = HomePage(title="Home", slug=slug)
+            root.add_child(instance=self.home)
+            self.home.save_revision().publish()
+        site = Site.objects.filter(is_default_site=True).first()
+        if site is None:
+            site = Site.objects.filter(hostname="localhost", port=80).first()
+            if site is None:
+                Site.objects.create(hostname="localhost", port=80, root_page=self.home, is_default_site=True)
+            else:
+                site.root_page = self.home
+                site.is_default_site = True
+                site.save(update_fields=["root_page", "is_default_site"])
+        elif not Site.objects.filter(hostname="localhost", port=80).exists():
+            Site.objects.create(hostname="localhost", port=80, root_page=self.home, is_default_site=False)
+        Site.clear_site_root_paths_cache()
+
+        self.admin = User.objects.filter(is_superuser=True, is_active=True).first()
+        if not self.admin:
+            self.admin = User.objects.create_superuser(
                 username=f"p3_admin_{uuid4().hex[:6]}",
                 email="p3_admin@test.com",
                 password="StrongPassword!123",
             )
-        cls.blog_index = BlogIndexPage.objects.first()
-        if not cls.blog_index:
-            cls.blog_index = BlogIndexPage(title="P3 Blog Index", slug=f"p3-idx-{uuid4().hex[:6]}")
-            cls.home.add_child(instance=cls.blog_index)
-            cls.blog_index.save_revision().publish()
-            cls.blog_index.refresh_from_db()
+        self.blog_index = BlogIndexPage.objects.first()
+        if not self.blog_index:
+            self.blog_index = BlogIndexPage(title="P3 Blog Index", slug=f"p3-idx-{uuid4().hex[:6]}")
+            self.home.add_child(instance=self.blog_index)
+            self.blog_index.save_revision().publish()
+            self.blog_index.refresh_from_db()
 
-    def setUp(self):
         self.created_pages: list[BlogPage] = []
         self.created_user_ids: list[int] = []
         self.created_group_ids: list[int] = []
@@ -129,6 +153,7 @@ class CommentPhase3Tests(unittest.TestCase):
             ).delete()
 
         self._cleanup_redis()
+        super().tearDown()
 
     def _cleanup_redis(self):
         try:
@@ -1102,7 +1127,3 @@ class CommentPhase3Tests(unittest.TestCase):
             f1.result(timeout=15)
             f2.result(timeout=15)
         self.assertEqual(errors, [])
-
-
-if __name__ == "__main__":
-    unittest.main()

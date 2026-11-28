@@ -3,6 +3,7 @@
 import json
 from django import template
 from django.conf import settings
+from django.db import DatabaseError
 from django.urls import NoReverseMatch, reverse
 from wagtail.models import Page, Site
 
@@ -13,7 +14,12 @@ from discovery.navigation import (
     resolve_site_for_navigation,
     resolve_tag_index_page,
 )
-from site_settings.models import SiteThemeSettings, SocialMediaSettings
+from site_settings.models import (
+    FooterSettings,
+    NavigationSettings,
+    SiteThemeSettings,
+    SocialMediaSettings,
+)
 
 register = template.Library()
 
@@ -28,6 +34,18 @@ def get_theme_settings() -> dict:
 def get_public_social_links() -> list[dict]:
     """只读返回带平台标识、安全 URL 与打开方式的页脚社交链接（空表不写库）。"""
     return SocialMediaSettings.get_public_links_readonly(fallback_to_defaults=True)
+
+
+@register.simple_tag
+def get_public_footer_settings() -> FooterSettings:
+    """只读返回全站页脚设置；空表或数据库异常时返回未保存的内存默认实例，绝不隐式写库。"""
+    try:
+        obj = FooterSettings.objects.filter(singleton_key=1).first()
+        if obj is not None:
+            return obj
+    except DatabaseError:
+        pass
+    return FooterSettings(singleton_key=1)
 
 
 @register.simple_tag(takes_context=True)
@@ -118,13 +136,20 @@ def _is_nav_item_active(req_path: str, item_url: str, *, is_external: bool, home
 
 
 @register.simple_tag(takes_context=True)
-def get_site_navigation_data(context, nav_setting) -> dict:
+def get_site_navigation_data(context, nav_setting=None) -> dict:
     """
     全站顶部扁平导航、左侧栏目目录树与页脚大厅统一数据提供器（N-01 / N-02）：
     1. 顶栏仅保留全局固定入口（首页/作者/标签/时间线）与 NavigationSettings 扁平项，不再堆放多级栏目；
     2. 全站所有公开层级列表栏目树（不依赖 show_in_menus）统一交付左侧抽屉 directory_tree；
     3. 页脚「核心大厅」复用 directory_tree 一级栏目，或回退到 NavigationSettings 有效项。
+    未显式传入 nav_setting 时仅做只读查询，绝不调用 .load() 或 _get_or_create()，避免公开 GET 写库。
     """
+    if nav_setting is None:
+        try:
+            nav_setting = NavigationSettings.objects.filter(singleton_key=1).first()
+        except DatabaseError:
+            nav_setting = None
+
     request = context.get("request")
     current_page = context.get("page")
     site = resolve_site_for_navigation(request, page=current_page)

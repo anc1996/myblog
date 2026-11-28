@@ -5,22 +5,16 @@ AvatarPurgeProcessor 与 CrossStorageReconciler 孤儿对账测试。
 
 from datetime import datetime, timedelta, timezone as dt_timezone
 from io import BytesIO
-import os
 import tempfile
-import unittest
 from unittest.mock import patch
 from uuid import uuid4
-
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "myblog.settings.dev")
-import django
-django.setup()
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import transaction
-from django.test import Client, override_settings
+from django.test import Client, TestCase, override_settings
 from PIL import Image
 
 from content_lifecycle.reconciliation import CrossStorageReconciler
@@ -52,10 +46,9 @@ def _make_animated_gif() -> bytes:
     return buf.getvalue()
 
 
-class IdentityAvatarTests(unittest.TestCase):
+class IdentityAvatarTests(TestCase):
     @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
+    def setUpTestData(cls):
         cls.admin = User.objects.filter(is_superuser=True, is_active=True).first()
         if not cls.admin:
             cls.admin = User.objects.create_superuser(
@@ -115,7 +108,8 @@ class IdentityAvatarTests(unittest.TestCase):
             self.assertEqual(resp.status_code, 200)
             self.assertEqual(resp["Content-Type"], "image/webp")
             self.assertEqual(resp["X-Content-Type-Options"], "nosniff")
-            resp.close()
+            if getattr(resp, "file_to_stream", None):
+                resp.file_to_stream.close()
 
             head_resp = client.head(f"/avatar-gateway/{tok1}/")
             self.assertEqual(head_resp.status_code, 200)
@@ -131,7 +125,8 @@ class IdentityAvatarTests(unittest.TestCase):
             self.assertEqual(client.get(f"/avatar-gateway/{tok1}/").status_code, 404)
             g2 = client.get(f"/avatar-gateway/{p2.avatar_token}/")
             self.assertEqual(g2.status_code, 200)
-            g2.close()
+            if getattr(g2, "file_to_stream", None):
+                g2.file_to_stream.close()
 
             stats = AvatarPurgeProcessor.process_pending_tasks(batch_size=20)
             self.assertGreaterEqual(stats["done"], 1)

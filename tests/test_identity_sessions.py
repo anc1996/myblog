@@ -2,17 +2,11 @@
 Phase 1 会话代次守卫、组权限撤权实时失效、强制改密白名单与超管治理后台测试。
 """
 
-import os
-import unittest
 from uuid import uuid4
-
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "myblog.settings.dev")
-import django
-django.setup()
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group, Permission
-from django.test import Client
+from django.test import Client, TestCase
 from django.urls import reverse
 
 from identity.account_lifecycle import AccountLifecycleService
@@ -21,10 +15,9 @@ from identity.models import MemberProfile
 User = get_user_model()
 
 
-class IdentitySessionGuardTests(unittest.TestCase):
+class IdentitySessionGuardTests(TestCase):
     @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
+    def setUpTestData(cls):
         cls.admin = User.objects.filter(is_superuser=True, is_active=True).first()
         if not cls.admin:
             cls.admin = User.objects.create_superuser(

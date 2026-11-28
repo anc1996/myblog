@@ -7,14 +7,9 @@ Wagtail 8.1 生命周期审核与剩余未测核心流程回归测试。
 
 from datetime import date, timedelta
 from io import BytesIO
-import os
 from uuid import uuid4
 
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "myblog.settings.dev")
-import django
-
-django.setup()
-
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
@@ -24,7 +19,8 @@ from django.test import Client, TestCase
 from django.urls import reverse
 from django.utils import timezone
 from PIL import Image as PILImage
-from wagtail.models import Page
+from wagtail.coreutils import get_supported_content_language_variant
+from wagtail.models import Collection, Locale, Page, Site
 from wagtail.rich_text import RichText
 
 from blog.models import BlogIndexPage, BlogPage, BlogPageGalleryImage, BlogPagePerson
@@ -53,9 +49,25 @@ def _make_png(name: str = "img.png") -> SimpleUploadedFile:
 class LifecycleAndArgonFixesTests(TestCase):
     @classmethod
     def setUpTestData(cls):
+        Locale.objects.get_or_create(
+            language_code=get_supported_content_language_variant(settings.LANGUAGE_CODE)
+        )
+        if Collection.get_first_root_node() is None:
+            Collection.add_root(name="Root")
+        root = Page.get_first_root_node() or Page.add_root(title="Root")
+        cls.home = HomePage.objects.first()
+        if cls.home is None:
+            slug = "home" if not root.get_children().filter(slug="home").exists() else f"home-{uuid4().hex[:6]}"
+            cls.home = HomePage(title="Home", slug=slug)
+            root.add_child(instance=cls.home)
+            cls.home.save_revision().publish()
+        if not Site.objects.filter(hostname="localhost").exists():
+            is_default = not Site.objects.filter(is_default_site=True).exists()
+            Site.objects.create(hostname="localhost", port=80, root_page=cls.home, is_default_site=is_default)
+        Site.clear_site_root_paths_cache()
+
         cls.infra = ensure_author_role_infrastructure()
         cls.authors_group = cls.infra["authors_group"]
-        cls.home = HomePage.objects.first()
         cls.superuser = User.objects.create_superuser(
             username=f"laf_su_{uuid4().hex[:6]}",
             email="laf_su@test.com",
@@ -95,7 +107,7 @@ class LifecycleAndArgonFixesTests(TestCase):
         blog.intro = [("rich_text", RichText("<p>COPY_INTRO_KEEP</p>"))]
         blog.body = [("markdown", "COPY_BODY_KEEP_BLOG")]
         self.blog_index.add_child(instance=blog)
-        BlogPagePerson.objects.create(page=blog, person=self.person_a, role="作者")
+        BlogPagePerson.objects.create(page=blog, person=self.person_a, role="primary_author")
         blog.save_revision(user=self.author_a).publish(user=self.author_a)
 
         # 1. Python copy() API
@@ -158,7 +170,7 @@ class LifecycleAndArgonFixesTests(TestCase):
         blog = BlogPage(title="LIVE_TITLE_V1", slug=f"cmp-{uuid4().hex[:6]}", owner=self.author_a, authored_on=date(2026, 7, 1))
         blog.body = [("markdown", "LIVE_BODY_V1")]
         self.blog_index.add_child(instance=blog)
-        BlogPagePerson.objects.create(page=blog, person=self.person_a, role="作者")
+        BlogPagePerson.objects.create(page=blog, person=self.person_a, role="primary_author")
         blog.save_revision(user=self.author_a).publish(user=self.author_a)
 
         blog.title = "DRAFT_TITLE_V2"
@@ -184,12 +196,12 @@ class LifecycleAndArgonFixesTests(TestCase):
         tag_idx.save_revision(user=self.superuser).publish(user=self.superuser)
         RecycleService.recycle_page_or_subtree(tag_idx, actor=self.superuser)
 
-        client_su = Client()
+        client_su = Client(HTTP_HOST="localhost")
         client_su.force_login(self.superuser)
         res_sub = client_su.get(f"{tag_idx.get_url()}python/")
         self.assertEqual(res_sub.status_code, 404)
         self.assertIn("受控回收站", res_sub.content.decode("utf-8"))
-        self.assertNotIn("受控回收站", Client().get(f"{tag_idx.get_url()}python/").content.decode("utf-8"))
+        self.assertNotIn("受控回收站", Client(HTTP_HOST="localhost").get(f"{tag_idx.get_url()}python/").content.decode("utf-8"))
 
         # 父栏目回收时，子页面访问原前台 URL 也应显示精确回收时间
         sub_idx = BlogIndexPage(title="Parent Index", slug=f"pidx-{uuid4().hex[:6]}")
@@ -198,7 +210,7 @@ class LifecycleAndArgonFixesTests(TestCase):
         child = BlogPage(title="Child Under Recycled", slug=f"cur-{uuid4().hex[:6]}", owner=self.author_a, authored_on=date(2026, 7, 1))
         child.body = [("markdown", "child body")]
         sub_idx.add_child(instance=child)
-        BlogPagePerson.objects.create(page=child, person=self.person_a, role="作者")
+        BlogPagePerson.objects.create(page=child, person=self.person_a, role="primary_author")
         child.save_revision(user=self.author_a).publish(user=self.author_a)
         child_url = child.get_url()
 
@@ -291,7 +303,7 @@ class LifecycleAndArgonFixesTests(TestCase):
         blog = BlogPage(title="Blog Gallery", slug=f"bg-{uuid4().hex[:6]}", owner=self.author_a, authored_on=date(2026, 7, 1))
         blog.body = [("markdown", "b")]
         self.blog_index.add_child(instance=blog)
-        BlogPagePerson.objects.create(page=blog, person=self.person_a, role="作者")
+        BlogPagePerson.objects.create(page=blog, person=self.person_a, role="primary_author")
         BlogPageGalleryImage.objects.create(page=blog, image=img, caption="cap1")
         blog.save_revision(user=self.author_a).publish(user=self.author_a)
         b_batch = RecycleService.recycle_page_or_subtree(blog, actor=self.author_a)
@@ -318,7 +330,7 @@ class LifecycleAndArgonFixesTests(TestCase):
         sub_post = BlogPage(title="Sub Post", slug=f"sp-{uuid4().hex[:6]}", owner=self.author_a, authored_on=date(2026, 7, 1))
         sub_post.body = [("markdown", "sub")]
         parent_col.add_child(instance=sub_post)
-        BlogPagePerson.objects.create(page=sub_post, person=self.person_a, role="作者")
+        BlogPagePerson.objects.create(page=sub_post, person=self.person_a, role="primary_author")
         sub_post.save_revision(user=self.author_a).publish(user=self.author_a)
 
         child_batch = RecycleService.recycle_page_or_subtree(sub_post, actor=self.author_a)
@@ -332,7 +344,7 @@ class LifecycleAndArgonFixesTests(TestCase):
         blog = BlogPage(title="Comment Edit Page", slug=f"ce-{uuid4().hex[:6]}", owner=self.author_a, authored_on=date(2026, 7, 1))
         blog.body = [("markdown", "comment edit body")]
         self.blog_index.add_child(instance=blog)
-        BlogPagePerson.objects.create(page=blog, person=self.person_a, role="作者")
+        BlogPagePerson.objects.create(page=blog, person=self.person_a, role="primary_author")
         blog.save_revision(user=self.author_a).publish(user=self.author_a)
 
         c = CommentService.post_comment(page=blog, author=self.member, raw_content="初始版本 V1", ip_address="127.0.0.1")
@@ -340,7 +352,7 @@ class LifecycleAndArgonFixesTests(TestCase):
         CommentService.edit_comment(c.id, self.member, "待审新版 V2")
 
         # 作者本人查询列表时返回 editable_raw_content 与 has_pending_edit=True；游客看不到
-        client_m = Client()
+        client_m = Client(HTTP_HOST="localhost")
         client_m.force_login(self.member)
         res_m = client_m.get(reverse("api_v1:list_comments", args=[blog.id]))
         self.assertEqual(res_m.status_code, 200)
@@ -349,7 +361,7 @@ class LifecycleAndArgonFixesTests(TestCase):
         self.assertTrue(item_m["has_pending_edit"])
         self.assertEqual(item_m["editable_raw_content"], "待审新版 V2")
 
-        res_g = Client().get(reverse("api_v1:list_comments", args=[blog.id]))
+        res_g = Client(HTTP_HOST="localhost").get(reverse("api_v1:list_comments", args=[blog.id]))
         item_g = res_g.json()["items"][0]
         self.assertFalse(item_g["is_editable"])
         self.assertFalse(item_g.get("has_pending_edit", False))
@@ -380,7 +392,7 @@ class LifecycleAndArgonFixesTests(TestCase):
             ("video", {"video": vid, "title_override": "v"}),
         ]
         self.blog_index.add_child(instance=blog)
-        BlogPagePerson.objects.create(page=blog, person=self.person_a, role="作者")
+        BlogPagePerson.objects.create(page=blog, person=self.person_a, role="primary_author")
         rev = blog.save_revision(user=self.author_a)
         with self.assertRaises(ValidationError):
             rev.publish(user=self.author_a)
@@ -415,7 +427,7 @@ class LifecycleAndArgonFixesTests(TestCase):
         ]
         nav.save()
 
-        html_text = Client().get(self.blog_index.get_url()).content.decode("utf-8")
+        html_text = Client(HTTP_HOST="localhost").get(self.blog_index.get_url()).content.decode("utf-8")
         self.assertIn("有效文章", html_text)
         self.assertNotIn("死链占位", html_text)
         self.assertNotIn("已回收入口", html_text)
@@ -444,7 +456,7 @@ class LifecycleAndArgonFixesTests(TestCase):
         old_page = BlogPage(title="Expired 35d", slug=f"exp-{uuid4().hex[:6]}", owner=self.author_a, authored_on=date(2026, 7, 1))
         old_page.body = [("markdown", "old")]
         self.blog_index.add_child(instance=old_page)
-        BlogPagePerson.objects.create(page=old_page, person=self.person_a, role="作者")
+        BlogPagePerson.objects.create(page=old_page, person=self.person_a, role="primary_author")
         old_page.save_revision(user=self.author_a).publish(user=self.author_a)
         old_batch = RecycleService.recycle_page_or_subtree(old_page, actor=self.author_a)
         RecycleBatch.objects.filter(pk=old_batch.pk).update(recycled_at=timezone.now() - timedelta(days=35))
@@ -452,7 +464,7 @@ class LifecycleAndArgonFixesTests(TestCase):
         fresh_page = BlogPage(title="Fresh 1d", slug=f"fr-{uuid4().hex[:6]}", owner=self.author_a, authored_on=date(2026, 7, 1))
         fresh_page.body = [("markdown", "fresh")]
         self.blog_index.add_child(instance=fresh_page)
-        BlogPagePerson.objects.create(page=fresh_page, person=self.person_a, role="作者")
+        BlogPagePerson.objects.create(page=fresh_page, person=self.person_a, role="primary_author")
         fresh_page.save_revision(user=self.author_a).publish(user=self.author_a)
         fresh_batch = RecycleService.recycle_page_or_subtree(fresh_page, actor=self.author_a)
 

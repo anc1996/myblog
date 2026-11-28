@@ -16,20 +16,18 @@ S10 居中单栏文章详情页与全套排版呈现单元与端到端测试。
 8. 正式版发布与草稿隔离：未发布文章访问返回 404，已发布文章正常展现。
 """
 
-import os
 import io
 from datetime import date
-from pathlib import Path
-import unittest
 from uuid import uuid4
 
 from PIL import Image as PILImage
+from django.conf import settings
 from django.core.files.base import ContentFile
-from django.test import RequestFactory
+from django.test import RequestFactory, TestCase
 from django.http import Http404
+from wagtail.coreutils import get_supported_content_language_variant
+from wagtail.models import Collection, Locale, Page, Site
 from wagtail.rich_text import RichText
-
-PROJECT_DIR = Path(__file__).resolve().parents[1]
 
 
 def create_dummy_png(name="test.png", width=10, height=10):
@@ -40,22 +38,31 @@ def create_dummy_png(name="test.png", width=10, height=10):
     return ContentFile(buf.getvalue(), name=name)
 
 
-class S10PresentationTests(unittest.TestCase):
-
+class S10PresentationTests(TestCase):
     @classmethod
-    def setUpClass(cls):
-        os.environ["DJANGO_SETTINGS_MODULE"] = "myblog.settings.dev"
-        import django
-        django.setup()
+    def setUpTestData(cls):
+        from home.models import HomePage
+
+        Locale.objects.get_or_create(
+            language_code=get_supported_content_language_variant(settings.LANGUAGE_CODE)
+        )
+        if Collection.get_first_root_node() is None:
+            Collection.add_root(name="Root")
+        root = Page.get_first_root_node() or Page.add_root(title="Root")
+        cls.home = HomePage.objects.first()
+        if cls.home is None:
+            slug = "home" if not root.get_children().filter(slug="home").exists() else f"home-{uuid4().hex[:6]}"
+            cls.home = HomePage(title="Home", slug=slug)
+            root.add_child(instance=cls.home)
+            cls.home.save_revision().publish()
+        if not Site.objects.filter(hostname="localhost").exists():
+            is_default = not Site.objects.filter(is_default_site=True).exists()
+            Site.objects.create(hostname="localhost", port=80, root_page=cls.home, is_default_site=is_default)
+        Site.clear_site_root_paths_cache()
 
     def setUp(self):
-        from home.models import HomePage
-        from blog.models import BlogIndexPage, BlogPage
-        from people.models import Person
-        from media_library.models import CustomImage
-
+        self.home.refresh_from_db()
         self.factory = RequestFactory()
-        self.home = HomePage.objects.first()
         self.created_pages = []
         self.created_snippets = []
 
@@ -134,7 +141,7 @@ class S10PresentationTests(unittest.TestCase):
         page.refresh_from_db()
 
         # 模拟读者请求 serve()
-        req = self.factory.get(page.url_path)
+        req = self.factory.get(page.url_path, HTTP_HOST="localhost")
         resp = page.serve(req)
         resp.render()
         html_content = resp.content.decode("utf-8")
@@ -148,18 +155,20 @@ class S10PresentationTests(unittest.TestCase):
         self.assertIn("技术专栏", html_content)
         self.assertIn(index_page.url, html_content)
 
-        # 3. 贡献者及其角色展示
+        # 3. 贡献者及其角色展示（detail 统一通过 normalize_author_role 归一化角色标签）
         self.assertIn("张三", html_content)
         self.assertIn("主要作者", html_content)
         self.assertIn("李四", html_content)
-        self.assertIn("审校人员", html_content)
+        self.assertIn("技术审校", html_content)
 
         # 4. 标签与搜索跳转链接
         self.assertIn("#PostgreSQL", html_content)
         self.assertIn("#数据库", html_content)
 
-        # 5. 无封面时不渲染 blog-featured-image 容器（不留白框）
-        self.assertNotIn('class="blog-featured-image"', html_content)
+        # 5. 无封面时不渲染横幅容器 detail-hero-banner / detail-hero-bg（仅渲染 detail-header-plain，不留白框）
+        self.assertIn('class="detail-header-plain"', html_content)
+        self.assertNotIn("detail-hero-banner", html_content)
+        self.assertNotIn("detail-hero-bg", html_content)
 
         # 6. 正文与积木安全渲染
         self.assertIn("核心特性一览", html_content)
@@ -172,11 +181,19 @@ class S10PresentationTests(unittest.TestCase):
     def test_02_featured_image_and_gallery_lightbox(self):
         """测试封面存在时的置顶呈现与文末独立画廊灯箱属性"""
         from blog.models import BlogPage, BlogPageGalleryImage
-        from media_library.models import CustomImage
+        from media_library.models import CustomImage, VisibilityChoices
 
         # 创建测试图片
-        cover_image = CustomImage.objects.create(title="封面图片", file=create_dummy_png("cover.png"))
-        gallery_img1 = CustomImage.objects.create(title="架构拓扑图", file=create_dummy_png("gallery.png"))
+        cover_image = CustomImage.objects.create(
+            title="封面图片",
+            visibility=VisibilityChoices.PUBLIC,
+            file=create_dummy_png("cover.png"),
+        )
+        gallery_img1 = CustomImage.objects.create(
+            title="架构拓扑图",
+            visibility=VisibilityChoices.PUBLIC,
+            file=create_dummy_png("gallery.png"),
+        )
         self.created_snippets.extend([cover_image, gallery_img1])
 
         page = BlogPage(
@@ -193,14 +210,15 @@ class S10PresentationTests(unittest.TestCase):
         page.save_revision().publish()
         page.refresh_from_db()
 
-        req = self.factory.get(page.url_path)
+        req = self.factory.get(page.url_path, HTTP_HOST="localhost")
         resp = page.serve(req)
         resp.render()
         html_content = resp.content.decode("utf-8")
 
-        # 1. 验证封面居中渲染
-        self.assertIn('class="blog-featured-image"', html_content)
-        self.assertIn(str(cover_image.public_id), html_content)
+        # 1. 验证封面在 detail_shell.html 标题横幅中渲染，且指向 /media-gateway/image/<public_id>/
+        self.assertIn('class="detail-hero-banner"', html_content)
+        self.assertIn('class="detail-hero-bg"', html_content)
+        self.assertIn(f"/media-gateway/image/{cover_image.public_id}/", html_content)
 
         # 2. 验证文末独立画廊与灯箱属性
         self.assertIn('class="blog-gallery-section"', html_content)
@@ -212,7 +230,7 @@ class S10PresentationTests(unittest.TestCase):
         """测试 BlogIndexPage 栏目目录页与下属文章列表渲染"""
         from blog.models import BlogIndexPage, BlogPage
 
-        index = BlogIndexPage(title="后端工程栏目", slug=f"backend-{uuid4().hex[:6]}", intro="聚焦后端底层设计。")
+        index = BlogIndexPage(title="后端工程栏目", slug=f"backend-{uuid4().hex[:6]}", intro="<p>聚焦后端底层设计。</p>")
         self.home.add_child(instance=index)
         self.created_pages.append(index)
         index.save_revision().publish()
@@ -228,13 +246,15 @@ class S10PresentationTests(unittest.TestCase):
         self.created_pages.append(p2)
         p2.save_revision().publish()
 
-        req = self.factory.get(index.url_path)
+        req = self.factory.get(index.url_path, HTTP_HOST="localhost")
         resp = index.serve(req)
         resp.render()
         html_content = resp.content.decode("utf-8")
 
         self.assertIn("后端工程栏目", html_content)
-        self.assertIn("聚焦后端底层设计。", html_content)
+        self.assertIn("listing-page-intro", html_content)
+        self.assertIn("rich-text", html_content)
+        self.assertIn("<p>聚焦后端底层设计。</p>", html_content)
         self.assertIn("文章1: 并发设计", html_content)
         self.assertIn("文章2: 存储引擎", html_content)
 
@@ -252,7 +272,7 @@ class S10PresentationTests(unittest.TestCase):
         draft_page.save_revision()  # 仅保存草稿
 
         # 匿名访问必须阻断 (404)
-        req = self.factory.get(draft_page.url_path)
+        req = self.factory.get(draft_page.url_path, HTTP_HOST="localhost")
         with self.assertRaises(Http404):
             draft_page.serve(req)
 
@@ -266,10 +286,6 @@ class S10PresentationTests(unittest.TestCase):
         live_page.refresh_from_db()
 
         # 回收后访问必须严格 404
-        req2 = self.factory.get(live_page.url_path)
+        req2 = self.factory.get(live_page.url_path, HTTP_HOST="localhost")
         with self.assertRaises(Http404):
             live_page.serve(req2)
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -32,17 +32,7 @@ User = get_user_model()
 
 
 class AuthorDiscoveryConcurrencyTests(TransactionTestCase):
-    @classmethod
-    def tearDownClass(cls):
-        super().tearDownClass()
-        Locale.objects.get_or_create(
-            language_code=get_supported_content_language_variant(settings.LANGUAGE_CODE)
-        )
-        if Collection.get_first_root_node() is None:
-            Collection.add_root(name="Root")
-        if Page.get_first_root_node() is None:
-            Page.add_root(title="Root")
-        get_or_create_anonymous_person()
+    serialized_rollback = True
 
     def setUp(self):
         super().setUp()

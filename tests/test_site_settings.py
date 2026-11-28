@@ -10,16 +10,13 @@ tests.test_site_settings
 5. 配置变动 Epoch 原子自增与缓存失效。
 """
 
-import os
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "myblog.settings.dev")
-import django
-django.setup()
-
 import json
-import unittest
 import uuid
+from django.conf import settings
+from django.db import transaction
 from django.test import RequestFactory, TestCase
-from wagtail.models import Page, Site
+from wagtail.coreutils import get_supported_content_language_variant
+from wagtail.models import Collection, Locale, Page, Site
 
 from home.models import HomePage
 from blog.models import BlogPage, BlogIndexPage
@@ -29,9 +26,19 @@ from api.views import site_settings_api
 from content_lifecycle.recycle import RecycleService
 
 
-class SiteSettingsTestCase(unittest.TestCase):
+class SiteSettingsTestCase(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        Locale.objects.get_or_create(
+            language_code=get_supported_content_language_variant(settings.LANGUAGE_CODE)
+        )
+        if Collection.get_first_root_node() is None:
+            Collection.add_root(name="Root")
+        if Page.get_first_root_node() is None:
+            Page.add_root(title="Root")
+
     def setUp(self):
-        self.factory = RequestFactory()
+        self.factory = RequestFactory(HTTP_HOST="localhost")
         self.home = HomePage.objects.first()
         if not self.home:
             root = Page.get_first_root_node()
@@ -44,6 +51,7 @@ class SiteSettingsTestCase(unittest.TestCase):
         self.site = Site.objects.filter(is_default_site=True).first()
         if not self.site:
             self.site = Site.objects.create(hostname="localhost", port=80, root_page=self.home, is_default_site=True)
+        Site.clear_site_root_paths_cache()
 
         # 准备一个公开正常文章
         self.public_page = BlogPage(title=f"公开页面-{uuid.uuid4().hex[:6]}", slug=f"pub-{uuid.uuid4().hex[:6]}")
@@ -120,7 +128,7 @@ class SiteSettingsTestCase(unittest.TestCase):
         from django.db import IntegrityError
 
         # 尝试插入第二行 singleton_key=2 必须抛出异常
-        with self.assertRaises(IntegrityError):
+        with self.assertRaises(IntegrityError), transaction.atomic():
             NavigationSettings.objects.create(singleton_key=2)
 
     def test_site_settings_api_and_graceful_degradation(self):

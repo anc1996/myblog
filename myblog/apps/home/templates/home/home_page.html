@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load static wagtailcore_tags analytics_tags %}
+{% load static wagtailcore_tags analytics_tags site_settings_tags %}
 
 {% block body_class %}template-homepage{% endblock %}
 
@@ -13,6 +13,7 @@
 
 {% block content %}
 {% wagtail_site as current_site %}
+{% if not footer_cfg %}{% get_public_footer_settings as footer_cfg %}{% endif %}
 <div class="home-portal-shell">
     {# 1. 出版物刊头（后台可配标题、导语、背景/配图与 3 种排版样式 + 站内快速搜索） #}
     <header class="home-masthead{% if masthead_presentation.show_banner %} home-masthead--visual_banner{% elif masthead_presentation.show_split %} home-masthead--editorial_split{% endif %}">
@@ -29,7 +30,7 @@
         <div class="home-masthead-inner">
             <div class="home-masthead-copy">
                 <h1 class="home-masthead-title">{% if page.masthead_title %}{{ page.masthead_title }}{% elif current_site and current_site.site_name %}{{ current_site.site_name }}{% else %}{{ page.title }}{% endif %}</h1>
-                <p class="home-masthead-desc">{% if page.masthead_subtitle %}{{ page.masthead_subtitle }}{% elif settings.site_settings.FooterSettings.about_text %}{{ settings.site_settings.FooterSettings.about_text }}{% else %}记录思考、技术实践与专题归档。{% endif %}</p>
+                <p class="home-masthead-desc">{% if page.masthead_subtitle %}{{ page.masthead_subtitle }}{% elif footer_cfg.about_text %}{{ footer_cfg.about_text }}{% else %}记录思考、技术实践与专题归档。{% endif %}</p>
             </div>
             <form action="{% url 'search' %}" method="get" class="home-masthead-search" role="search" aria-label="站内快速搜索">
                 <div class="home-masthead-search-box">

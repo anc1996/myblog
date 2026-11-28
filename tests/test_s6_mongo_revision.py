@@ -12,22 +12,32 @@ S6 MongoDB 不可变正文版本与 Wagtail 发布绑定单元测试。
    - 发布 V1 后编辑草稿 V2，公众读者始终只看到 V1，后台预览能看到 V2。
 """
 
-import os
-from pathlib import Path
-import unittest
 from uuid import uuid4
 from datetime import datetime, timezone
 
-PROJECT_DIR = Path(__file__).resolve().parents[1]
+from django.conf import settings
+from django.test import TestCase
+from wagtail.coreutils import get_supported_content_language_variant
+from wagtail.models import Collection, Locale, Page
 
 
-class S6MongoRevisionTests(unittest.TestCase):
+class S6MongoRevisionTests(TestCase):
 
     @classmethod
-    def setUpClass(cls):
-        os.environ["DJANGO_SETTINGS_MODULE"] = "myblog.settings.dev"
-        import django
-        django.setup()
+    def setUpTestData(cls):
+        from home.models import HomePage
+
+        Locale.objects.get_or_create(
+            language_code=get_supported_content_language_variant(settings.LANGUAGE_CODE)
+        )
+        if Collection.get_first_root_node() is None:
+            Collection.add_root(name="Root")
+        root = Page.get_first_root_node() or Page.add_root(title="Root")
+        if HomePage.objects.first() is None:
+            slug = "home" if not root.get_children().filter(slug="home").exists() else f"home-{uuid4().hex[:6]}"
+            home = HomePage(title="Home", slug=slug)
+            root.add_child(instance=home)
+            home.save_revision().publish()
 
     def test_mongo_content_store_save_and_hash_verification(self):
         from external_content.store import MongoContentStore, calculate_payload_hash
@@ -243,7 +253,3 @@ class S6MongoRevisionTests(unittest.TestCase):
             blog_page.delete(allow_physical_purge=True)
         finally:
             store.close()
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -1,6 +1,6 @@
-{% load static wagtailcore_tags wagtailuserbar wagtailsettings_tags site_settings_tags %}
-{% get_settings %}
+{% load static wagtailcore_tags wagtailuserbar site_settings_tags %}
 {% get_theme_settings as theme_cfg %}
+{% get_public_footer_settings as footer_cfg %}
 
 <!DOCTYPE html>
 <html lang="zh-Hans"
@@ -179,7 +179,7 @@
 
         {# 1. 全局顶部响应式导航栏 (决策一 A) #}
         {% wagtail_site as current_site %}
-        {% get_site_navigation_data settings.site_settings.NavigationSettings as site_nav_data %}
+        {% get_site_navigation_data as site_nav_data %}
         <header class="site-header">
             <div class="site-nav-container">
                 <div class="site-brand-group">
@@ -351,7 +351,7 @@
                     <div class="footer-col footer-col-about">
                         <h4 class="footer-title">{{ current_site.site_name|default:"myblog" }}</h4>
                         <p class="footer-desc">
-                            {{ settings.site_settings.FooterSettings.about_text|default:"聚焦高并发内容系统、PostgreSQL 18、Wagtail 8 与现代分布式架构最佳实践。" }}
+                            {{ footer_cfg.about_text|default:"聚焦高并发内容系统、PostgreSQL 18、Wagtail 8 与现代分布式架构最佳实践。" }}
                         </p>
                         <div class="footer-social-links">
                             {% get_public_social_links as public_social_links %}
@@ -395,14 +395,14 @@
                 </div>
                 <div class="footer-bottom">
                     <div class="footer-copy">
-                        {{ settings.site_settings.FooterSettings.copyright_text|default:"© 2026 myblog. All Rights Reserved." }}
+                        {{ footer_cfg.copyright_text|default:"© 2026 myblog. All Rights Reserved." }}
                     </div>
                     <div class="footer-records">
-                        {% if settings.site_settings.FooterSettings.icp_number %}
-                            <span class="record-item">{{ settings.site_settings.FooterSettings.icp_number }}</span>
+                        {% if footer_cfg.icp_number %}
+                            <span class="record-item">{{ footer_cfg.icp_number }}</span>
                         {% endif %}
-                        {% if settings.site_settings.FooterSettings.police_record_number %}
-                            <span class="record-item">{{ settings.site_settings.FooterSettings.police_record_number }}</span>
+                        {% if footer_cfg.police_record_number %}
+                            <span class="record-item">{{ footer_cfg.police_record_number }}</span>
                         {% endif %}
                     </div>
                 </div>

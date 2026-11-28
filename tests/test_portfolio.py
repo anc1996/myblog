@@ -11,18 +11,14 @@ tests.test_portfolio
 6. 受控回收站原树占位、全量业务字段与子表恢复。
 """
 
-import os
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "myblog.settings.dev")
-import django
-django.setup()
-
 import json
-import unittest
 import uuid
 from datetime import date
-from django.test import RequestFactory
+from django.conf import settings
+from django.test import RequestFactory, TestCase
 from django.utils import timezone
-from wagtail.models import Page, Site
+from wagtail.coreutils import get_supported_content_language_variant
+from wagtail.models import Collection, Locale, Page, Site
 
 from home.models import HomePage
 from people.models import Person
@@ -34,21 +30,30 @@ from api.views import project_list_api, project_detail_api
 from content_lifecycle.recycle import RecycleService
 
 
-class PortfolioSystemTestCase(unittest.TestCase):
-    def setUp(self):
-        self.factory = RequestFactory()
-        self.home = HomePage.objects.first()
-        if not self.home:
-            root = Page.get_first_root_node()
-            if not root:
-                root = Page.add_root(title="Root")
-            self.home = HomePage(title="Home", slug="home")
-            root.add_child(instance=self.home)
-            self.home.save_revision().publish()
+class PortfolioSystemTestCase(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        Locale.objects.get_or_create(
+            language_code=get_supported_content_language_variant(settings.LANGUAGE_CODE)
+        )
+        if Collection.get_first_root_node() is None:
+            Collection.add_root(name="Root")
+        root = Page.get_first_root_node() or Page.add_root(title="Root")
+        cls.home = HomePage.objects.first()
+        if cls.home is None:
+            slug = "home" if not root.get_children().filter(slug="home").exists() else f"home-{uuid.uuid4().hex[:6]}"
+            cls.home = HomePage(title="Home", slug=slug)
+            root.add_child(instance=cls.home)
+            cls.home.save_revision().publish()
+        cls.site = Site.objects.filter(hostname="localhost").first()
+        if cls.site is None:
+            is_default = not Site.objects.filter(is_default_site=True).exists()
+            cls.site = Site.objects.create(hostname="localhost", port=80, root_page=cls.home, is_default_site=is_default)
+        Site.clear_site_root_paths_cache()
 
-        self.site = Site.objects.filter(is_default_site=True).first()
-        if not self.site:
-            self.site = Site.objects.create(hostname="localhost", port=80, root_page=self.home, is_default_site=True)
+    def setUp(self):
+        self.home.refresh_from_db()
+        self.factory = RequestFactory()
 
         # 创建作者
         self.author = Person.objects.create(
@@ -168,7 +173,7 @@ class PortfolioSystemTestCase(unittest.TestCase):
     def test_universal_feed_and_archive_integration(self):
         """验证多页面即插即用：ProjectPage 零核心侵入自动接入 RSS/Atom 与时间线归档"""
         # 1. RSS 订阅流 /feed/type/project/
-        req_feed = self.factory.get("/feed/type/project/")
+        req_feed = self.factory.get("/feed/type/project/", HTTP_HOST="localhost")
         resp_feed = public_feed_view(req_feed, dimension="type", slug="project")
         self.assertEqual(resp_feed.status_code, 200)
         content_feed = resp_feed.content.decode("utf-8")
@@ -176,7 +181,7 @@ class PortfolioSystemTestCase(unittest.TestCase):
         self.assertNotIn("开源作品集大厅", content_feed)  # 大厅聚合页被阻断
 
         # 2. Atom 订阅流 /feed/atom/type/project/
-        req_atom = self.factory.get("/feed/atom/type/project/")
+        req_atom = self.factory.get("/feed/atom/type/project/", HTTP_HOST="localhost")
         resp_atom = public_feed_view(req_atom, dimension="type", slug="project")
         self.assertEqual(resp_atom.status_code, 200)
         content_atom = resp_atom.content.decode("utf-8")

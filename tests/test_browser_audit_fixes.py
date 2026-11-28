@@ -6,21 +6,18 @@
 
 from datetime import date
 from io import BytesIO
-import os
 import re
 from uuid import uuid4
 
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "myblog.settings.dev")
-import django
-
-django.setup()
-
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from PIL import Image as PILImage
+from wagtail.coreutils import get_supported_content_language_variant
+from wagtail.models import Collection, Locale, Page, Site
 from wagtail.rich_text import RichText
 
 from blog.models import BlogIndexPage, BlogPage, BlogPagePerson
@@ -47,9 +44,25 @@ def _make_png(name: str = "img.png") -> SimpleUploadedFile:
 class BrowserAuditFixesTests(TestCase):
     @classmethod
     def setUpTestData(cls):
+        Locale.objects.get_or_create(
+            language_code=get_supported_content_language_variant(settings.LANGUAGE_CODE)
+        )
+        if Collection.get_first_root_node() is None:
+            Collection.add_root(name="Root")
+        root = Page.get_first_root_node() or Page.add_root(title="Root")
+        cls.home = HomePage.objects.first()
+        if cls.home is None:
+            slug = "home" if not root.get_children().filter(slug="home").exists() else f"home-{uuid4().hex[:6]}"
+            cls.home = HomePage(title="Home", slug=slug)
+            root.add_child(instance=cls.home)
+            cls.home.save_revision().publish()
+        if not Site.objects.filter(hostname="localhost").exists():
+            is_default = not Site.objects.filter(is_default_site=True).exists()
+            Site.objects.create(hostname="localhost", port=80, root_page=cls.home, is_default_site=is_default)
+        Site.clear_site_root_paths_cache()
+
         cls.infra = ensure_author_role_infrastructure()
         cls.authors_group = cls.infra["authors_group"]
-        cls.home = HomePage.objects.first()
         cls.superuser = User.objects.create_superuser(
             username=f"baf_su_{uuid4().hex[:6]}",
             email="baf_su@test.com",
@@ -100,7 +113,7 @@ class BrowserAuditFixesTests(TestCase):
         blog.intro = [("rich_text", RichText("<p>BLOG_INTRO_TOKEN_XYZ</p>"))]
         blog.body = [("markdown", "BLOG_BODY_TOKEN_XYZ")]
         self.blog_index.add_child(instance=blog)
-        BlogPagePerson.objects.create(page=blog, person=self.person_a, role="作者")
+        BlogPagePerson.objects.create(page=blog, person=self.person_a, role="primary_author")
         blog.save_revision(user=self.author_a).publish(user=self.author_a)
         blog.refresh_from_db()
         self.assertTrue(blog.live)
@@ -115,7 +128,7 @@ class BrowserAuditFixesTests(TestCase):
         )
         guide.body = [("step", {"step_number": "1", "title": "STEP_TITLE_XYZ", "content": RichText("<p>GUIDE_STEP_TOKEN_XYZ</p>")})]
         self.guide_index.add_child(instance=guide)
-        GuidePageAuthor.objects.create(page=guide, person=self.person_a, role="作者")
+        GuidePageAuthor.objects.create(page=guide, person=self.person_a, role="primary_author")
         guide.save_revision(user=self.author_a).publish(user=self.author_a)
         guide.refresh_from_db()
         self.assertFalse(guide.has_unpublished_changes)
@@ -183,14 +196,14 @@ class BrowserAuditFixesTests(TestCase):
         blog = BlogPage(title="Recycled Secret Title", slug=f"rec-{uuid4().hex[:6]}", owner=self.author_a, authored_on=date(2026, 6, 1))
         blog.body = [("markdown", "RECYCLE_NOTICE_BODY")]
         self.blog_index.add_child(instance=blog)
-        BlogPagePerson.objects.create(page=blog, person=self.person_a, role="作者")
+        BlogPagePerson.objects.create(page=blog, person=self.person_a, role="primary_author")
         blog.save_revision(user=self.author_a).publish(user=self.author_a)
         live_url = blog.get_url()
 
         RecycleService.recycle_page_or_subtree(blog, actor=self.author_a)
 
         # 1. 作者 A 访问原前台 URL：404 状态但渲染受控回收站提示页
-        client_a = Client()
+        client_a = Client(HTTP_HOST="localhost")
         client_a.force_login(self.author_a)
         res_a = client_a.get(live_url)
         self.assertEqual(res_a.status_code, 404)
@@ -198,25 +211,25 @@ class BrowserAuditFixesTests(TestCase):
         self.assertIn("/admin/recycle_bin/", res_a.content.decode("utf-8"))
 
         # 2. 超级管理员访问：同样显示受控回收站提示页
-        client_su = Client()
+        client_su = Client(HTTP_HOST="localhost")
         client_su.force_login(self.superuser)
         res_su = client_su.get(live_url)
         self.assertEqual(res_su.status_code, 404)
         self.assertIn("受控回收站", res_su.content.decode("utf-8"))
 
         # 3. 匿名游客、普通会员、其他受限作者 B 访问：仅普通 404，不泄露回收站信息与标题
-        for cl in (Client(),):
+        for cl in (Client(HTTP_HOST="localhost"),):
             res = cl.get(live_url)
             self.assertEqual(res.status_code, 404)
             self.assertNotIn("受控回收站", res.content.decode("utf-8"))
 
-        client_m = Client()
+        client_m = Client(HTTP_HOST="localhost")
         client_m.force_login(self.member)
         res_m = client_m.get(live_url)
         self.assertEqual(res_m.status_code, 404)
         self.assertNotIn("受控回收站", res_m.content.decode("utf-8"))
 
-        client_b = Client()
+        client_b = Client(HTTP_HOST="localhost")
         client_b.force_login(self.author_b)
         res_b = client_b.get(live_url)
         self.assertEqual(res_b.status_code, 404)
@@ -227,7 +240,7 @@ class BrowserAuditFixesTests(TestCase):
         blog = BlogPage(title="Comment Search Page", slug=f"cs-{uuid4().hex[:6]}", owner=self.author_a, authored_on=date(2026, 6, 1))
         blog.body = [("markdown", "Body")]
         self.blog_index.add_child(instance=blog)
-        BlogPagePerson.objects.create(page=blog, person=self.person_a, role="作者")
+        BlogPagePerson.objects.create(page=blog, person=self.person_a, role="primary_author")
         blog.save_revision(user=self.author_a).publish(user=self.author_a)
 
         token = f"PENDING_SEARCH_KW_{uuid4().hex[:8]}"
@@ -251,7 +264,7 @@ class BrowserAuditFixesTests(TestCase):
         blog = BlogPage(title="Recycle Table Check", slug=f"rtc-{uuid4().hex[:6]}", owner=self.author_a, authored_on=date(2026, 6, 1))
         blog.body = [("markdown", "Recycle table body")]
         self.blog_index.add_child(instance=blog)
-        BlogPagePerson.objects.create(page=blog, person=self.person_a, role="作者")
+        BlogPagePerson.objects.create(page=blog, person=self.person_a, role="primary_author")
         blog.save_revision(user=self.author_a).publish(user=self.author_a)
         batch = RecycleService.recycle_page_or_subtree(blog, actor=self.author_a)
 
@@ -289,11 +302,11 @@ class BrowserAuditFixesTests(TestCase):
             },
         )]
         self.guide_index.add_child(instance=guide)
-        GuidePageAuthor.objects.create(page=guide, person=self.person_a, role="作者")
+        GuidePageAuthor.objects.create(page=guide, person=self.person_a, role="primary_author")
         guide.tags.add(tag_name)
         guide.save_revision(user=self.author_a).publish(user=self.author_a)
 
-        client = Client()
+        client = Client(HTTP_HOST="localhost")
         tag_detail_url = f"{self.tag_index.get_url()}{tag_name}/"
         res_detail = client.get(tag_detail_url)
         self.assertEqual(res_detail.status_code, 200)
@@ -361,7 +374,7 @@ class BrowserAuditFixesTests(TestCase):
         self.assertEqual(Client().get(rendition.url).status_code, 403)
 
     def test_08_base_template_has_favicon_link(self):
-        client = Client()
+        client = Client(HTTP_HOST="localhost")
         res = client.get(self.blog_index.get_url())
         self.assertEqual(res.status_code, 200)
         self.assertIn('rel="icon"', res.content.decode("utf-8"))

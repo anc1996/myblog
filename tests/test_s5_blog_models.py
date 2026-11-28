@@ -10,23 +10,13 @@ S5 核心博客模型与元数据关联单元测试。
 6. CustomBasePage 核心安全防线：已回收禁止发布、直接物理删除被阻断、复制自动重置 document_uuid。
 """
 
-import os
-from pathlib import Path
-import unittest
 from datetime import date
 from uuid import UUID
 from django.core.exceptions import PermissionDenied
+from django.test import TestCase
 
-PROJECT_DIR = Path(__file__).resolve().parents[1]
 
-
-class S5BlogModelsTests(unittest.TestCase):
-
-    @classmethod
-    def setUpClass(cls):
-        os.environ["DJANGO_SETTINGS_MODULE"] = "myblog.settings.dev"
-        import django
-        django.setup()
+class S5BlogModelsTests(TestCase):
 
     def test_person_model_structure_and_snippet_registration(self):
         from people.models import Person
@@ -146,7 +136,3 @@ class S5BlogModelsTests(unittest.TestCase):
         # 2. 验证直接物理删除被守卫阻断
         with self.assertRaises(PermissionDenied):
             page.delete()
-
-
-if __name__ == "__main__":
-    unittest.main()

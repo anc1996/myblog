@@ -11,16 +11,14 @@ S7 私有媒体统一受控交付、Range 续传与 MEDIA-REF-01 引用保护单
 """
 
 import io
-import os
-from pathlib import Path
-import unittest
 from uuid import uuid4
 
+from django.conf import settings
 from django.core.files.base import ContentFile
-from django.test import RequestFactory
+from django.test import RequestFactory, TestCase
 from PIL import Image as PILImage
-
-PROJECT_DIR = Path(__file__).resolve().parents[1]
+from wagtail.coreutils import get_supported_content_language_variant
+from wagtail.models import Collection, Locale, Page, Site
 
 
 def create_dummy_png(name="test.png", width=10, height=10):
@@ -31,13 +29,27 @@ def create_dummy_png(name="test.png", width=10, height=10):
     return ContentFile(buf.getvalue(), name=name)
 
 
-class S7MediaDeliveryTests(unittest.TestCase):
-
+class S7MediaDeliveryTests(TestCase):
     @classmethod
-    def setUpClass(cls):
-        os.environ["DJANGO_SETTINGS_MODULE"] = "myblog.settings.dev"
-        import django
-        django.setup()
+    def setUpTestData(cls):
+        from home.models import HomePage
+
+        Locale.objects.get_or_create(
+            language_code=get_supported_content_language_variant(settings.LANGUAGE_CODE)
+        )
+        if Collection.get_first_root_node() is None:
+            Collection.add_root(name="Root")
+        root = Page.get_first_root_node() or Page.add_root(title="Root")
+        cls.home = HomePage.objects.first()
+        if cls.home is None:
+            slug = "home" if not root.get_children().filter(slug="home").exists() else f"home-{uuid4().hex[:6]}"
+            cls.home = HomePage(title="Home", slug=slug)
+            root.add_child(instance=cls.home)
+            cls.home.save_revision().publish()
+        if not Site.objects.filter(hostname="localhost").exists():
+            is_default = not Site.objects.filter(is_default_site=True).exists()
+            Site.objects.create(hostname="localhost", port=80, root_page=cls.home, is_default_site=is_default)
+        Site.clear_site_root_paths_cache()
         cls.factory = RequestFactory()
 
     def test_media_reference_tracker_and_deletion_protection(self):
@@ -152,7 +164,7 @@ class S7MediaDeliveryTests(unittest.TestCase):
             visibility=VisibilityChoices.PUBLIC,
             file=create_dummy_png("pub.png"),
         )
-        req_anon = self.factory.get(f"/media-gateway/image/{public_img.public_id}/")
+        req_anon = self.factory.get(f"/media-gateway/image/{public_img.public_id}/", HTTP_HOST="localhost")
         req_anon.user = AnonymousUser()
         res_pub = serve_media_asset(req_anon, "image", public_img.public_id)
         self.assertEqual(res_pub.status_code, 200)
@@ -169,7 +181,7 @@ class S7MediaDeliveryTests(unittest.TestCase):
 
         # 3. 受限图片：管理员登录后读取 200 OK
         admin_user = User(username=f"admin_{uuid4().hex[:6]}", is_staff=True, is_superuser=True)
-        req_admin = self.factory.get(f"/media-gateway/image/{restricted_img.public_id}/")
+        req_admin = self.factory.get(f"/media-gateway/image/{restricted_img.public_id}/", HTTP_HOST="localhost")
         req_admin.user = admin_user
         res_admin = serve_media_asset(req_admin, "image", restricted_img.public_id)
         self.assertEqual(res_admin.status_code, 200)
@@ -197,6 +209,7 @@ class S7MediaDeliveryTests(unittest.TestCase):
         req_range = self.factory.get(
             f"/media-gateway/audio/{audio.public_id}/",
             HTTP_RANGE="bytes=10-29",
+            HTTP_HOST="localhost",
         )
         req_range.user = AnonymousUser()
         res = serve_media_asset(req_range, "audio", audio.public_id)
@@ -223,7 +236,7 @@ class S7MediaDeliveryTests(unittest.TestCase):
             file=create_dummy_png("nginx_accel.png"),
         )
 
-        req = self.factory.get(f"/media-gateway/image/{img.public_id}/")
+        req = self.factory.get(f"/media-gateway/image/{img.public_id}/", HTTP_HOST="localhost")
         req.user = AnonymousUser()
 
         # 开启 USE_X_ACCEL_REDIRECT 模式
@@ -234,7 +247,3 @@ class S7MediaDeliveryTests(unittest.TestCase):
             self.assertIn(img.file.name, res["X-Accel-Redirect"])
 
         img.delete()
-
-
-if __name__ == "__main__":
-    unittest.main()

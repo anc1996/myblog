@@ -419,6 +419,8 @@ class RatingApiAndLifecycleTests(TestCase):
 class RatingConcurrencyRaceTests(TransactionTestCase):
     """真实 PostgreSQL 并发首票冲突测试。"""
 
+    serialized_rollback = True
+
     def test_concurrent_first_rating_insert_race_returns_single_row_and_409(self):
         _cleanup_analytics_redis()
         site, _, blog_idx, _, _ = _setup_site_tree()

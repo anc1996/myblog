@@ -13,20 +13,16 @@ RFC-020 全站多页面评论管理与多维治理系统专项测试集。
 8. B-05 & SEC-01: 外链超限人工待审门禁、长度超限拒绝、URL 防绕过与 inspect 原文 XSS 修复。
 """
 
-import os
 import json
-import unittest
 from uuid import uuid4
 from datetime import timedelta
 
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "myblog.settings.dev")
-import django
-django.setup()
-
+from django.conf import settings
 from django.core.exceptions import ValidationError, PermissionDenied
-from django.test import Client, RequestFactory
+from django.test import Client, RequestFactory, TestCase
 from django.utils import timezone
-from wagtail.models import Page
+from wagtail.coreutils import get_supported_content_language_variant
+from wagtail.models import Collection, Locale, Page, Site
 from home.models import HomePage
 from blog.models import BlogPage, BlogIndexPage
 from identity.account_lifecycle import AccountLifecycleService
@@ -52,13 +48,35 @@ from external_content.models import OutboxEvent
 from external_content.outbox import OutboxProcessor, UnsupportedOutboxEvent
 
 
-class CommentGovernanceTests(unittest.TestCase):
+class CommentGovernanceTests(TestCase):
 
     @classmethod
-    def setUpClass(cls):
-        cls.client = Client()
+    def setUpTestData(cls):
+        Locale.objects.get_or_create(
+            language_code=get_supported_content_language_variant(settings.LANGUAGE_CODE)
+        )
+        if Collection.get_first_root_node() is None:
+            Collection.add_root(name="Root")
+        root = Page.get_first_root_node() or Page.add_root(title="Root")
         cls.factory = RequestFactory()
         cls.home = HomePage.objects.first()
+        if cls.home is None:
+            slug = "home" if not root.get_children().filter(slug="home").exists() else f"home-{uuid4().hex[:6]}"
+            cls.home = HomePage(title="Home", slug=slug)
+            root.add_child(instance=cls.home)
+            cls.home.save_revision().publish()
+        site = Site.objects.filter(is_default_site=True).first()
+        if site is None:
+            site = Site.objects.filter(hostname="localhost", port=80).first()
+            if site is None:
+                Site.objects.create(hostname="localhost", port=80, root_page=cls.home, is_default_site=True)
+            else:
+                site.root_page = cls.home
+                site.is_default_site = True
+                site.save(update_fields=["root_page", "is_default_site"])
+        elif not Site.objects.filter(hostname="localhost", port=80).exists():
+            Site.objects.create(hostname="localhost", port=80, root_page=cls.home, is_default_site=False)
+        Site.clear_site_root_paths_cache()
 
         cls.admin_user = User.objects.filter(is_superuser=True, is_active=True).first()
         if not cls.admin_user:
@@ -96,6 +114,8 @@ class CommentGovernanceTests(unittest.TestCase):
             cls.blog_index.save_revision().publish()
 
     def setUp(self):
+        self.client = Client()
+        self.blog_index.refresh_from_db()
         self._cleanup_quotas()
         # 为每组测试创建独立的 BlogPage
         self.test_page = BlogPage(
@@ -126,16 +146,6 @@ class CommentGovernanceTests(unittest.TestCase):
                 "ip:198.51.100.9",
             ]
         ).delete()
-
-    @classmethod
-    def tearDownClass(cls):
-        try:
-            from external_content.outbox import OutboxProcessor
-            while OutboxProcessor.process_pending_events(batch_size=100) > 0:
-                pass
-        except Exception:
-            pass
-        super().tearDownClass()
 
     def test_ordinary_comment_delete_blocked(self):
         """验证 C-06：直接调用 Comment.delete() 必须被拒绝"""
