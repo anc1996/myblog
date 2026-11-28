@@ -76,6 +76,202 @@
     margin-bottom: 0;
 }
 
+/* ==========================================================================
+   可折叠引用块（方案 A 智能触发 + 收起态完全隐藏正文，点击标题栏展开/收起）
+   覆盖 CustomRichTextBlock 与 CustomMarkdownBlock，零裸 #hex，归口 tokens.css
+   ========================================================================== */
+.cb-bq-batch-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin: 18px 0 12px;
+    padding: 8px 14px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+    font-size: var(--text-sm);
+    color: var(--color-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.cb-bq-batch-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 12px;
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface-raised);
+    color: var(--color-link);
+    font-size: var(--text-sm);
+    font-weight: 600;
+    cursor: pointer;
+    transition: color var(--dur-fast) var(--ease-out-smooth),
+                border-color var(--dur-fast) var(--ease-out-smooth),
+                background-color var(--dur-fast) var(--ease-out-smooth);
+}
+
+.cb-bq-batch-btn:hover {
+    color: var(--color-link-hover);
+    border-color: var(--color-primary);
+    background: var(--color-primary-soft);
+}
+
+.cb-bq-collapsible {
+    margin: 18px 0;
+    border: 1px solid var(--color-border);
+    border-left: 4px solid var(--color-primary);
+    border-radius: 0 var(--radius-md) var(--radius-md) 0;
+    background: var(--color-surface-subtle);
+    overflow: hidden;
+}
+
+.cb-bq-header {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: 11px 16px;
+    border: 0;
+    background: var(--color-surface);
+    color: var(--color-text);
+    font-family: inherit;
+    font-size: var(--text-body);
+    text-align: left;
+    cursor: pointer;
+    transition: background-color var(--dur-fast) var(--ease-out-smooth);
+}
+
+.cb-bq-header:hover {
+    background: var(--color-primary-soft);
+}
+
+.cb-bq-header:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: -2px;
+}
+
+.cb-bq-title {
+    flex: 1;
+    min-width: 0;
+    font-weight: 600;
+    color: var(--color-text);
+    line-height: 1.45;
+    word-break: break-word;
+}
+
+.cb-bq-header-right {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-shrink: 0;
+}
+
+.cb-bq-meta {
+    font-size: var(--text-sm);
+    color: var(--color-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.cb-bq-toggle-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface-raised);
+    color: var(--color-link);
+    font-size: var(--text-sm);
+    font-weight: 600;
+    white-space: nowrap;
+    transition: color var(--dur-fast) var(--ease-out-smooth),
+                border-color var(--dur-fast) var(--ease-out-smooth),
+                background-color var(--dur-fast) var(--ease-out-smooth);
+}
+
+.cb-bq-header:hover .cb-bq-toggle-pill {
+    color: var(--color-link-hover);
+    border-color: var(--color-primary);
+}
+
+.cb-bq-viewport {
+    border-top: 1px solid var(--color-border);
+}
+
+.cb-bq-collapsible .cb-bq-viewport > blockquote {
+    margin: 0;
+    padding: 14px 18px;
+    border: 0;
+    border-left: 0;
+    border-radius: 0;
+    background: transparent;
+}
+
+.cb-bq-collapsible.is-collapsed .cb-bq-viewport {
+    display: none;
+}
+
+.cb-bq-chevron {
+    transition: transform var(--dur-fast) var(--ease-out-smooth);
+    flex-shrink: 0;
+}
+
+.cb-bq-collapsible.is-expanded .cb-bq-chevron {
+    transform: rotate(180deg);
+}
+
+/* 同步美化作者在 Markdown/富文本中显式书写的原生 <details>/<summary> 折叠块 */
+.detail-body-section details:not(.detail-toc-nojs-details),
+.cb-markdown-body details,
+.rich-text details {
+    margin: 16px 0;
+    padding: 10px 16px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-surface-subtle);
+    color: var(--color-text-secondary);
+}
+
+.detail-body-section details:not(.detail-toc-nojs-details) > summary,
+.cb-markdown-body details > summary,
+.rich-text details > summary {
+    cursor: pointer;
+    font-weight: 600;
+    color: var(--color-text);
+    list-style-position: inside;
+}
+
+.detail-body-section details[open]:not(.detail-toc-nojs-details) > summary,
+.cb-markdown-body details[open] > summary,
+.rich-text details[open] > summary {
+    margin-bottom: 10px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--color-border);
+}
+
+@media print {
+    .cb-bq-collapsible.is-collapsed .cb-bq-viewport {
+        display: block;
+    }
+    .cb-bq-toggle-pill,
+    .cb-bq-batch-bar {
+        display: none;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .cb-bq-batch-btn,
+    .cb-bq-header,
+    .cb-bq-toggle-pill,
+    .cb-bq-chevron {
+        transition: none;
+    }
+}
+
 .rich-text hr {
     border: 0;
     border-top: 1px solid var(--color-border);
