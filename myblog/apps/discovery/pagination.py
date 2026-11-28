@@ -123,10 +123,19 @@ def build_pagination_payload(
         reachable_last_page=reachable_last,
         max_jump_page=max_jump_page,
     )
+    prev_page: int | None = None
+    next_page: int | None = None
+    if current_page is not None:
+        if current_page > 1:
+            prev_page = current_page - 1
+        if has_next and current_page < max_jump_page:
+            next_page = current_page + 1
 
     return {
         "mode": mode,
         "page": current_page,
+        "prev_page": prev_page,
+        "next_page": next_page,
         "page_size": page_size,
         "max_jump_page": max_jump_page,
         "total_pages": total_pages,

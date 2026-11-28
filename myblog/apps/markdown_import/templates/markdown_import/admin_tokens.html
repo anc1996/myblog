@@ -1,9 +1,11 @@
 {% extends "wagtailadmin/base.html" %}
+{% load static %}
 {% block titletag %}Markdown 导入令牌与配对码{% endblock %}
 
 {% block content %}
+<link rel="stylesheet" href="{% static 'css/admin-workbench.css' %}?v=20261128a">
 {% include "wagtailadmin/shared/header.html" with title="Markdown 客户端导入授权" icon="upload" %}
-<div class="nice-padding">
+<div class="nice-padding admin-wb-scope">
     <p>在此生成用于本地 GUI / CLI 导入客户端的 10 分钟一次性配对码或短期 Bearer 令牌（服务端仅保存摘要，不存明文）。</p>
 
     {% if issued_pair_code %}
@@ -20,12 +22,12 @@
         </div>
     {% endif %}
 
-    <form method="post" style="display:flex; gap:12px; flex-wrap:wrap; margin:16px 0;">
+    <form method="post" class="admin-wb-token-form">
         {% csrf_token %}
         <button type="submit" name="action" value="create_pair_code" class="button button-primary">
             生成 10 分钟配对码（推荐）
         </button>
-        <input type="text" name="name" placeholder="令牌备注（如 笔记本向导）" style="max-width:220px;">
+        <input type="text" name="name" placeholder="令牌备注（如 笔记本向导）" class="admin-wb-token-input">
         <button type="submit" name="action" value="create_token" class="button button-secondary">
             直接签发 14 天令牌
         </button>
@@ -53,7 +55,7 @@
                 <td>{% if tok.last_used_at %}{{ tok.last_used_at|date:"Y-m-d H:i" }}{% else %}未使用{% endif %}</td>
                 <td>
                     {% if tok.is_active and not tok.revoked_at %}
-                    <form method="post" style="display:inline;">
+                    <form method="post" class="admin-wb-inline-action-form">
                         {% csrf_token %}
                         <input type="hidden" name="action" value="revoke_token">
                         <input type="hidden" name="token_id" value="{{ tok.pk }}">

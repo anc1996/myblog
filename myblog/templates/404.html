@@ -1,11 +1,30 @@
 {% extends "base.html" %}
 
-{% block title %}Page not found{% endblock %}
+{% block title %}页面未找到 (404){% endblock %}
 
 {% block body_class %}template-404{% endblock %}
 
 {% block content %}
-<h1>Page not found</h1>
-
-<h2>Sorry, this page could not be found.</h2>
+<section class="error-page-shell" aria-labelledby="error-404-title">
+    <div class="error-page-card">
+        <span class="error-page-code">
+            {% include "includes/_ui_icon.html" with name="compass" %}
+            <span>HTTP 404</span>
+        </span>
+        <h1 id="error-404-title" class="error-page-title">页面未找到</h1>
+        <p class="error-page-desc">
+            抱歉，你访问的地址可能已调整、尚未公开发布，或已被移出公开目录。你可以返回站点首页，或通过站内搜索查找相关内容。
+        </p>
+        <div class="error-page-actions">
+            <a href="/" class="ui-btn ui-btn-primary">
+                {% include "includes/_ui_icon.html" with name="home" %}
+                <span>返回首页</span>
+            </a>
+            <a href="{% url 'search' %}" class="ui-btn ui-btn-outline">
+                {% include "includes/_ui_icon.html" with name="search" %}
+                <span>站内搜索</span>
+            </a>
+        </div>
+    </div>
+</section>
 {% endblock %}

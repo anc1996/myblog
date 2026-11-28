@@ -9,7 +9,7 @@
                     {% if card.avatar_url %}
                         <img src="{{ card.avatar_url }}" alt="{{ card.name }}" class="author-card-avatar" loading="lazy">
                     {% else %}
-                        <span class="author-card-avatar-fallback" aria-hidden="true">{% if card.is_anonymous %}👤{% else %}{{ card.initial }}{% endif %}</span>
+                        <span class="author-card-avatar-fallback" aria-hidden="true">{% if card.is_anonymous %}{% include "includes/_ui_icon.html" with name="user" %}{% else %}{{ card.initial }}{% endif %}</span>
                     {% endif %}
                     <div class="author-card-identity">
                         <h3 class="author-card-name">{{ card.name }}{% if card.is_anonymous %} <span class="author-anon-pill">系统归档</span>{% endif %}</h3>
@@ -56,7 +56,7 @@
                         {% if card.avatar_url %}
                             <img src="{{ card.avatar_url }}" alt="{{ card.name }}" class="author-card-avatar" loading="lazy">
                         {% else %}
-                            <span class="author-card-avatar-fallback" aria-hidden="true">{% if card.is_anonymous %}👤{% else %}{{ card.initial }}{% endif %}</span>
+                            <span class="author-card-avatar-fallback" aria-hidden="true">{% if card.is_anonymous %}{% include "includes/_ui_icon.html" with name="user" %}{% else %}{{ card.initial }}{% endif %}</span>
                         {% endif %}
                         <div class="author-card-identity">
                             <h3 class="author-card-name">{{ card.name }}{% if card.is_anonymous %} <span class="author-anon-pill">系统归档</span>{% endif %}</h3>

@@ -1,0 +1,17 @@
+; myblog 原生 uWSGI 启动配置示例（仅绑定本机 127.0.0.1:8000，由 Nginx 反代）
+[uwsgi]
+chdir = /mnt/f/openclaw/workspace/wagtail/myblog
+module = myblog.wsgi:application
+http-socket = 127.0.0.1:8000
+master = true
+processes = 4
+threads = 2
+enable-threads = true
+vacuum = true
+die-on-term = true
+harakiri = 120
+max-requests = 2000
+
+; 生产环境变量（也可改由 systemd EnvironmentFile 注入）
+env = DJANGO_SETTINGS_MODULE=myblog.settings.production
+env = MYBLOG_ENV_FILE=/opt/myblog-services/secrets/myblog.prod.env

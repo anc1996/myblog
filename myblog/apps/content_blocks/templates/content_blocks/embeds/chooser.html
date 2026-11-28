@@ -1,8 +1,9 @@
-{% load wagtailadmin_tags i18n %}
+{% load wagtailadmin_tags i18n static %}
+<link rel="stylesheet" href="{% static 'css/admin-workbench.css' %}?v=20261128a">
 {% trans "插入内嵌元素" as ins_emb_str %}
 {% include "wagtailadmin/shared/header.html" with title=ins_emb_str %}
 
-<div class="tab-content">
+<div class="tab-content admin-wb-scope">
     <section id="form" class="active nice-padding">
         <form class="embed-form" action="{% url 'wagtailembeds:chooser_upload' %}" method="POST" novalidate>
             {% csrf_token %}
@@ -25,11 +26,11 @@
         </form>
 
         {% if providers %}
-            <details style="margin-top: 18px; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px 14px; background: #f8fafc;">
-                <summary style="cursor: pointer; font-weight: 600; font-size: 13px; color: #334155;">
+            <details class="admin-wb-embed-providers">
+                <summary class="admin-wb-embed-providers__summary">
                     查看当前支持的 {{ providers|length }} 个平台与示例链接格式
                 </summary>
-                <table class="listing" style="margin-top: 10px; font-size: 12px;">
+                <table class="listing admin-wb-embed-providers__table">
                     <thead>
                         <tr>
                             <th>平台</th>

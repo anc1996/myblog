@@ -32,6 +32,14 @@
     background: var(--wb-ok, #15803d);
 }
 
+.analytics-bar-fill--full {
+    width: 100%;
+}
+
+.analytics-bar-fill--empty {
+    width: 0%;
+}
+
 .analytics-term-chips {
     display: flex;
     flex-wrap: wrap;

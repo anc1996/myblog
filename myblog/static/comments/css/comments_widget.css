@@ -838,6 +838,22 @@
   margin-top: 16px;
 }
 
+.comment-initial-hidden {
+  display: none;
+}
+
+.comment-honeypot-field {
+  display: none !important;
+}
+
+.comments-title,
+.comments-login-prompt,
+.comments-closed-banner {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
 .comment-load-more-btn {
   background: var(--color-surface);
   border: 1px solid var(--color-border-strong);

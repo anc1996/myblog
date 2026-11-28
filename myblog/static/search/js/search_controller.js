@@ -328,8 +328,14 @@
         }
       } else if (nextBtn) {
         e.preventDefault();
+        var nextPage = nextBtn.getAttribute('data-page');
         var nextCursor = nextBtn.getAttribute('data-cursor');
-        if (nextCursor) {
+        if (nextPage) {
+          fetchSearch(
+            buildUrlWithOverrides({ page: nextPage, cursor: null, seek_date: null, seek_direction: null }),
+            true
+          );
+        } else if (nextCursor) {
           fetchSearch(
             buildUrlWithOverrides({ cursor: nextCursor, page: null, seek_date: null, seek_direction: null }),
             true
@@ -337,8 +343,14 @@
         }
       } else if (prevBtn) {
         e.preventDefault();
+        var prevPage = prevBtn.getAttribute('data-page');
         var prevCursor = prevBtn.getAttribute('data-cursor');
-        if (prevCursor) {
+        if (prevPage) {
+          fetchSearch(
+            buildUrlWithOverrides({ page: prevPage, cursor: null, seek_date: null, seek_direction: null }),
+            true
+          );
+        } else if (prevCursor) {
           fetchSearch(
             buildUrlWithOverrides({ cursor: prevCursor, page: null, seek_date: null, seek_direction: null }),
             true

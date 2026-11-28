@@ -5,7 +5,7 @@
 
 {% block extra_css %}
 {{ block.super }}
-<link rel="stylesheet" href="{% static 'css/admin-workbench.css' %}?v=20261123c">
+<link rel="stylesheet" href="{% static 'css/admin-workbench.css' %}?v=20261128a">
 <link rel="stylesheet" href="{% static 'analytics/css/analytics-admin.css' %}?v=20261123b">
 <style>
 .analytics-wb-tabs {
@@ -80,7 +80,7 @@
 {% include "wagtailadmin/shared/header.html" with title="高浏览低口碑与标题党降噪预警" icon="site" %}
 
 <div class="nice-padding admin-wb-shell analytics-shell">
-    <p class="admin-wb-note" style="margin:0 0 12px;">滞回告警状态机（observing / active / exempted / confirmed_demoted），支持 1~14 天限时豁免与确认下榜</p>
+    <p class="admin-wb-note admin-wb-note--lead">滞回告警状态机（observing / active / exempted / confirmed_demoted），支持 1~14 天限时豁免与确认下榜</p>
     {% if wb_nav %}
     <nav class="analytics-wb-tabs" aria-label="数据分析工作台导航">
         {% if wb_nav.can_site %}
@@ -139,9 +139,9 @@
                 </select>
             </div>
 
-            <div class="admin-wb-field">
+            <div class="admin-wb-field admin-wb-field--md">
                 <label for="al-q">定位文章</label>
-                <input id="al-q" type="search" name="q" value="{{ filters.q|default:'' }}" placeholder="标题或 Page ID" style="min-width:200px;">
+                <input id="al-q" type="search" name="q" value="{{ filters.q|default:'' }}" placeholder="标题或 Page ID">
             </div>
 
             <button type="submit" class="button button-primary">筛选</button>
@@ -183,7 +183,7 @@
                                 <strong>{{ row.alert.page.title }}</strong>
                                 <span class="admin-wb-note">#{{ row.alert.page_id }} · Rev #{{ row.alert.live_revision_id }}</span>
                             </div>
-                            <div class="admin-wb-note" style="margin-top:4px;">
+                            <div class="admin-wb-note admin-wb-note--mt">
                                 <a href="{% url 'analytics_admin_page_drawer' row.alert.page_id %}">查看单篇漏斗</a>
                                 {% if row.alert.last_evaluated_date %}
                                 · 最近评估 {{ row.alert.last_evaluated_date|date:"Y-m-d" }}
@@ -191,7 +191,7 @@
                             </div>
                         </td>
                         <td>
-                            <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;">
+                            <div class="admin-wb-badge-row">
                                 <span class="admin-wb-badge {% if row.alert.alert_kind == 'HIGH_TRAFFIC_LOW_REPUTATION' or row.alert.alert_kind == 'TRAFFIC_ANOMALY' %}admin-wb-badge--danger{% else %}admin-wb-badge--warn{% endif %}">
                                     {{ row.alert.get_alert_kind_display }}
                                 </span>
@@ -208,7 +208,7 @@
                                 {% endif %}
                                 <span class="admin-wb-badge admin-wb-badge--muted">v{{ row.expected_version }}</span>
                             </div>
-                            <div class="admin-wb-note" style="margin-top:4px;">
+                            <div class="admin-wb-note admin-wb-note--mt">
                                 连续命中 {{ row.alert.consecutive_hit_days }} 天 · 连续恢复 {{ row.alert.consecutive_clear_days }} 天
                                 {% if row.alert.exempt_until %}
                                 · 豁免至 {{ row.alert.exempt_until|date:"Y-m-d H:i" }}
@@ -286,7 +286,7 @@
             <div class="admin-wb-pills">
                 {% for pl in pagination.page_links %}
                     {% if pl.type == "ellipsis" %}
-                        <span class="admin-wb-note" style="padding:0 4px;">…</span>
+                        <span class="admin-wb-note admin-wb-ellipsis">…</span>
                     {% elif pl.is_current %}
                         <span class="button button-small button-primary" aria-current="page">{{ pl.label }}</span>
                     {% else %}

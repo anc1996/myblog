@@ -1,0 +1,24 @@
+# systemd 原生服务模板（Linux / 开启 systemd 的 WSL2）
+# 复制到 /etc/systemd/system/myblog.service 后按实际路径与用户调整。
+
+[Unit]
+Description=myblog Wagtail/Django Application Server
+After=network.target docker.service
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/mnt/f/openclaw/workspace/wagtail/myblog
+EnvironmentFile=/opt/myblog-services/secrets/myblog.prod.env
+Environment=DJANGO_SETTINGS_MODULE=myblog.settings.production
+Environment=MYBLOG_ENV_FILE=/opt/myblog-services/secrets/myblog.prod.env
+# 若使用 Gunicorn（推荐，需在生产环境安装 gunicorn）：
+ExecStart=/path/to/venv/bin/gunicorn myblog.wsgi:application --bind 127.0.0.1:8000 --workers 4 --timeout 120
+# 若直接复用 Conda 环境内已安装的 uWSGI，可改为：
+# ExecStart=/root/anaconda3/envs/wagtailblog-test/bin/uwsgi --ini /mnt/f/openclaw/workspace/wagtail/myblog/infra/deploy/myblog-uwsgi.ini
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

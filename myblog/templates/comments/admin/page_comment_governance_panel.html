@@ -1,16 +1,21 @@
-{% load i18n %}
-<div class="page-comment-governance-panel" style="padding: 16px; background: #fff; border-radius: 8px;">
+{% load i18n static %}
+<link rel="stylesheet" href="{% static 'css/admin-workbench.css' %}?v=20261128a">
+<div class="page-comment-governance-panel admin-wb-scope">
     {% if not page_id %}
-        <div class="help-block help-info" style="background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; padding: 16px; border-radius: 6px;">
-            <p style="margin: 0; font-size: 15px;">📌 <strong>提示：</strong>当前页面尚未保存草稿（暂无页面 ID）。在首次保存页面后，即可在此就地管理本页面的评论配置与互动审核。</p>
+        <div class="help-block help-info admin-wb-gov-help">
+            <p>
+                <svg class="admin-wb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                <span><strong>提示：</strong>当前页面尚未保存草稿（暂无页面 ID）。在首次保存页面后，即可在此就地管理本页面的评论配置与互动审核。</span>
+            </p>
         </div>
     {% else %}
         <!-- 1. 页面级运行设置 (B-03 隔离: 严禁使用 name 属性) -->
-        <div class="panel-section" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 16px; margin-bottom: 20px;">
-            <h3 style="margin-top: 0; margin-bottom: 12px; font-size: 16px; color: #1e293b; display: flex; align-items: center; gap: 8px;">
-                <span>⚙️</span> 单篇页面评论运行控制
+        <div class="panel-section admin-wb-gov-section admin-wb-gov-section--subtle">
+            <h3 class="admin-wb-gov-title">
+                <svg class="admin-wb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+                <span>单篇页面评论运行控制</span>
             </h3>
-            <div style="margin-bottom: 12px; padding: 8px 12px; border-radius: 4px; background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; font-size: 13px;">
+            <div class="admin-wb-gov-mode-banner">
                 全站当前评论准入模式：<strong>{{ community_comment_mode_display|default:"仅限登录会员发表评论" }}</strong>
                 {% if community_comment_mode == "members_only" %}
                     （全站目前仅限登录会员发评；如需对指定文章开放访客留言，请由管理员在“设置 → 社区评论与防刷设置”开启受控访客模式）
@@ -18,47 +23,48 @@
                     （全站当前已暂停新增评论，单篇配置将在全站重新开启后生效）
                 {% endif %}
             </div>
-            <div style="display: flex; flex-direction: column; gap: 12px;">
-                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 500;">
-                    <input type="checkbox" data-comment-field="allow_comments" {% if not comment_settings or comment_settings.allow_comments %}checked{% endif %} style="width: 18px; height: 18px;">
+            <div class="admin-wb-gov-fields">
+                <label class="admin-wb-gov-check">
+                    <input type="checkbox" data-comment-field="allow_comments" {% if not comment_settings or comment_settings.allow_comments %}checked{% endif %} class="admin-wb-gov-checkbox--lg">
                     <span>允许读者发表评论与回复互动</span>
                 </label>
                 {% if can_manage_guest_comments %}
-                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; color: #0f172a; background: #fff; padding: 8px 10px; border: 1px solid #e2e8f0; border-radius: 4px;">
-                    <input type="checkbox" data-comment-field="allow_guest_comments" {% if comment_settings and comment_settings.allow_guest_comments %}checked{% endif %} style="width: 16px; height: 16px;">
+                <label class="admin-wb-gov-check admin-wb-gov-check--boxed">
+                    <input type="checkbox" data-comment-field="allow_guest_comments" {% if comment_settings and comment_settings.allow_guest_comments %}checked{% endif %} class="admin-wb-gov-checkbox">
                     <span>允许未登录访客在本页发表受控留言（强制图片验证码、禁外链、强制人工待审，仅在全站开启受控访客模式时生效）</span>
                 </label>
                 {% endif %}
-                <div style="display: flex; align-items: center; gap: 12px;">
-                    <label style="font-size: 13px; color: #64748b; white-space: nowrap;">关评公告说明：</label>
-                    <input type="text" data-comment-field="close_reason" value="{{ comment_settings.close_reason|default:'' }}" placeholder="关闭评论时向前台读者展示的提示（可选）" style="flex: 1; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 13px;">
+                <div class="admin-wb-gov-input-row">
+                    <label class="admin-wb-gov-input-label">关评公告说明：</label>
+                    <input type="text" data-comment-field="close_reason" value="{{ comment_settings.close_reason|default:'' }}" placeholder="关闭评论时向前台读者展示的提示（可选）" class="admin-wb-gov-input">
                 </div>
-                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; color: #475569;">
-                    <input type="checkbox" data-comment-field="auto_moderate_new" {% if comment_settings and comment_settings.auto_moderate_new %}checked{% endif %} style="width: 16px; height: 16px;">
+                <label class="admin-wb-gov-check admin-wb-gov-check--muted">
+                    <input type="checkbox" data-comment-field="auto_moderate_new" {% if comment_settings and comment_settings.auto_moderate_new %}checked{% endif %} class="admin-wb-gov-checkbox">
                     <span>新提交评论强制进入人工待审队列（不走自动批准策略）</span>
                 </label>
-                <div style="display: flex; align-items: center; gap: 12px; margin-top: 4px;">
-                    <button type="button" id="btn-save-comment-settings" class="button button-small button-primary" style="background: #2563eb; color: #fff;">保存评论设置</button>
-                    <span id="status-comment-settings" style="font-size: 13px; font-weight: 500;"></span>
+                <div class="admin-wb-gov-save-row">
+                    <button type="button" id="btn-save-comment-settings" class="button button-small button-primary admin-wb-btn-primary">保存评论设置</button>
+                    <span id="status-comment-settings" class="admin-wb-gov-status"></span>
                 </div>
             </div>
         </div>
 
         <!-- 2. 就地单篇评论审核工作台 -->
-        <div class="panel-section" style="border: 1px solid #e2e8f0; border-radius: 6px; padding: 16px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                <h3 style="margin: 0; font-size: 16px; color: #1e293b; display: flex; align-items: center; gap: 8px;">
-                    <span>💬</span> 本篇评论就地审核
+        <div class="panel-section admin-wb-gov-section">
+            <div class="admin-wb-gov-head">
+                <h3 class="admin-wb-gov-title">
+                    <svg class="admin-wb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                    <span>本篇评论就地审核</span>
                 </h3>
-                <div style="display: flex; gap: 6px;">
+                <div class="admin-wb-gov-filter-group">
                     <button type="button" class="button button-small button-secondary btn-filter-comm active" data-filter="all">全部</button>
                     <button type="button" class="button button-small button-secondary btn-filter-comm" data-filter="pending">待审核</button>
                     <button type="button" class="button button-small button-secondary btn-filter-comm" data-filter="active">已公开</button>
                     <button type="button" class="button button-small button-secondary" id="btn-refresh-inpage-comments">刷新</button>
                 </div>
             </div>
-            <div id="inpage-comments-container" style="min-height: 120px; font-size: 14px;">
-                <div style="color: #94a3b8; text-align: center; padding: 24px;">正在载入本篇评论列表...</div>
+            <div id="inpage-comments-container" class="admin-wb-gov-list-wrap">
+                <div class="admin-wb-gov-empty">正在载入本篇评论列表...</div>
             </div>
         </div>
 
@@ -102,7 +108,7 @@
                     const closeReason = document.querySelector('[data-comment-field="close_reason"]').value;
                     const autoModerate = document.querySelector('[data-comment-field="auto_moderate_new"]').checked;
 
-                    statusSpan.style.color = "#64748b";
+                    statusSpan.className = "admin-wb-gov-status is-saving";
                     statusSpan.textContent = "保存中...";
 
                     const formData = new URLSearchParams();
@@ -128,16 +134,16 @@
                     .then(res => res.json())
                     .then(data => {
                         if (data.status === "success") {
-                            statusSpan.style.color = "#16a34a";
+                            statusSpan.className = "admin-wb-gov-status is-success";
                             statusSpan.textContent = "✓ 评论设置已保存生效！";
                             setTimeout(() => { statusSpan.textContent = ""; }, 3000);
                         } else {
-                            statusSpan.style.color = "#dc2626";
+                            statusSpan.className = "admin-wb-gov-status is-error";
                             statusSpan.textContent = "保存失败：" + (data.message || "未知错误");
                         }
                     })
                     .catch(err => {
-                        statusSpan.style.color = "#dc2626";
+                        statusSpan.className = "admin-wb-gov-status is-error";
                         statusSpan.textContent = "网络异常：" + err;
                     });
                 });
@@ -154,15 +160,15 @@
                 .then(res => res.json())
                 .then(data => {
                     if (data.status !== "success") {
-                        container.innerHTML = '<div style="color: #dc2626; padding: 16px;">载入评论失败：' + escapeHtml(data.message || '权限不足或未知错误') + '</div>';
+                        container.innerHTML = '<div class="admin-wb-gov-error">载入评论失败：' + escapeHtml(data.message || '权限不足或未知错误') + '</div>';
                         return;
                     }
                     if (!data.items || data.items.length === 0) {
-                        container.innerHTML = '<div style="color: #94a3b8; text-align: center; padding: 24px;">暂无符合条件的评论记录。</div>';
+                        container.innerHTML = '<div class="admin-wb-gov-empty">暂无符合条件的评论记录。</div>';
                         return;
                     }
                     const canModerate = Boolean(data.can_moderate);
-                    let html = '<div style="display: flex; flex-direction: column; gap: 10px;">';
+                    let html = '<div class="admin-wb-gov-list">';
                     data.items.forEach(c => {
                         const isPending = !!c.pending_version_id;
                         const safeAuthor = escapeHtml(c.author_name);
@@ -170,25 +176,25 @@
                         const safeStatus = escapeHtml(c.status);
                         const safeSnippet = escapeHtml(c.content_snippet);
                         const statusBadge = isPending
-                            ? '<span style="background:#fef3c7;color:#92400e;padding:2px 6px;border-radius:4px;font-size:12px;font-weight:600;">待审核 V' + escapeHtml(c.pending_version_number || '') + '</span>'
+                            ? '<span class="admin-wb-gov-badge admin-wb-gov-badge--pending">待审核 V' + escapeHtml(c.pending_version_number || '') + '</span>'
                             : (c.status === 'active'
-                                ? '<span style="background:#dcfce7;color:#166534;padding:2px 6px;border-radius:4px;font-size:12px;font-weight:600;">已公开</span>'
-                                : '<span style="background:#f1f5f9;color:#475569;padding:2px 6px;border-radius:4px;font-size:12px;">' + safeStatus + '</span>');
+                                ? '<span class="admin-wb-gov-badge admin-wb-gov-badge--active">已公开</span>'
+                                : '<span class="admin-wb-gov-badge admin-wb-gov-badge--muted">' + safeStatus + '</span>');
 
-                        const pinnedBadge = c.is_pinned ? '<span style="background:#e0e7ff;color:#3730a3;padding:2px 6px;border-radius:4px;font-size:12px;font-weight:600;">📌 置顶</span>' : '';
+                        const pinnedBadge = c.is_pinned ? '<span class="admin-wb-gov-badge admin-wb-gov-badge--pinned">置顶</span>' : '';
 
                         html += `
-                        <div style="border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px; background: ${isPending ? '#fffdf5' : '#fff'}; display: flex; flex-direction: column; gap: 6px;">
-                            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 13px;">
-                                <div>
+                        <div class="admin-wb-gov-item${isPending ? ' admin-wb-gov-item--pending' : ''}">
+                            <div class="admin-wb-gov-item-head">
+                                <div class="admin-wb-gov-item-meta">
                                     <strong>${safeAuthor}</strong>
-                                    <span style="color: #94a3b8; margin-left: 6px;">${safeCreatedAt}</span>
+                                    <span class="admin-wb-gov-item-date">${safeCreatedAt}</span>
                                     ${statusBadge} ${pinnedBadge}
                                 </div>
-                                <div style="display: flex; gap: 6px;">
+                                <div class="admin-wb-gov-item-actions">
                                     ${canModerate && isPending ? `
-                                    <button type="button" class="button button-small action-moderate-btn" data-id="${c.id}" data-action="approve" data-ver="${c.pending_version_id}" style="background:#16a34a;color:#fff;">批准</button>
-                                    <button type="button" class="button button-small action-moderate-btn" data-id="${c.id}" data-action="reject" data-ver="${c.pending_version_id}" style="background:#ea580c;color:#fff;">驳回</button>
+                                    <button type="button" class="button button-small action-moderate-btn admin-wb-btn-approve" data-id="${c.id}" data-action="approve" data-ver="${c.pending_version_id}">批准</button>
+                                    <button type="button" class="button button-small action-moderate-btn admin-wb-btn-reject" data-id="${c.id}" data-action="reject" data-ver="${c.pending_version_id}">驳回</button>
                                     ` : ''}
                                     ${canModerate && c.status === 'active' ? `
                                     <button type="button" class="button button-small button-secondary action-moderate-btn" data-id="${c.id}" data-action="hide">隐藏</button>
@@ -196,7 +202,7 @@
                                     ` : ''}
                                 </div>
                             </div>
-                            <div style="color: #334155; font-size: 14px; line-height: 1.5; background: #f8fafc; padding: 8px; border-radius: 4px;">
+                            <div class="admin-wb-gov-item-body">
                                 ${safeSnippet}
                             </div>
                         </div>`;
@@ -206,7 +212,7 @@
                     bindActionButtons();
                 })
                 .catch(err => {
-                    container.innerHTML = '<div style="color: #dc2626; padding: 16px;">载入评论失败：' + escapeHtml(err) + '</div>';
+                    container.innerHTML = '<div class="admin-wb-gov-error">载入评论失败：' + escapeHtml(err) + '</div>';
                 });
             }
 

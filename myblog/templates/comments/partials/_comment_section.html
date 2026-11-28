@@ -1,7 +1,7 @@
 {% load static comment_tags %}
 {% get_page_comment_policy page as comment_policy %}
 {% if comment_policy.supported %}
-<link rel="stylesheet" type="text/css" href="{% static 'comments/css/comments_widget.css' %}?v=20261125c">
+<link rel="stylesheet" type="text/css" href="{% static 'comments/css/comments_widget.css' %}?v=20261128a">
 <section class="site-comments-widget" id="comments-section" aria-label="读者评论区"
          data-page-id="{{ page.id|default:'' }}"
          data-allow-comments="{{ comment_policy.allow_comments|yesno:'true,false' }}"
@@ -23,7 +23,7 @@
          data-delete-url-tpl="{% url 'api_v1:delete_comment' 0 %}"
          {% endif %}>
   <div class="comments-header">
-    <h3 class="comments-title">💬 读者交流与讨论</h3>
+    <h3 class="comments-title">{% include "includes/_ui_icon.html" with name="message-square" %}<span>读者交流与讨论</span></h3>
     {% if not comment_policy.is_preview and comment_policy.has_id %}
     <div class="comments-header-tools">
       <div class="comments-sort-tabs" role="group" aria-label="评论排序">
@@ -40,8 +40,8 @@
       预览模式下暂不加载公开评论区，页面正式发布后即可显示历史评论并参与讨论。
     </div>
   {% else %}
-    <div style="display:none;" id="comments-csrf-holder">{% csrf_token %}</div>
-    <div id="comment-form-alert" class="comment-alert" style="display: none;" role="alert"></div>
+    <div class="comment-initial-hidden" id="comments-csrf-holder">{% csrf_token %}</div>
+    <div id="comment-form-alert" class="comment-alert comment-initial-hidden" role="alert"></div>
 
     {% if comment_policy.allow_comments %}
       {% if comment_policy.can_submit %}
@@ -56,10 +56,10 @@
           <input type="hidden" name="reply_to_comment_id" id="comment-reply-to-id-input" value="">
           <input type="hidden" name="request_key" id="comment-request-key-input" value="">
           {# 蜜罐字段静默防垃圾爬虫 #}
-          <input type="text" name="contact_website" style="display: none !important;" tabindex="-1" autocomplete="off" aria-hidden="true">
+          <input type="text" name="contact_website" class="comment-honeypot-field" tabindex="-1" autocomplete="off" aria-hidden="true">
 
           <!-- 回复目标提示框 -->
-          <div id="comment-replying-notice" class="comment-replying-notice" style="display: none;">
+          <div id="comment-replying-notice" class="comment-replying-notice comment-initial-hidden">
             <span>正在回复评论 <strong id="replying-target-name"></strong></span>
             <button type="button" class="comment-cancel-reply-btn" id="cancel-reply-btn">取消回复</button>
           </div>
@@ -101,16 +101,18 @@
         </form>
       {% else %}
         <div class="comments-login-prompt" id="comment-login-prompt">
-          💬 本文章当前仅限登录会员发表评论。请先
+          {% include "includes/_ui_icon.html" with name="message-square" %}
+          <span>本文章当前仅限登录会员发表评论。请先
           <a href="{% url 'identity:login' %}?next={{ request.get_full_path|urlencode }}">登录</a>
           或
           <a href="{% url 'identity:register' %}?next={{ request.get_full_path|urlencode }}">注册会员</a>
-          后参与讨论。
+          后参与讨论。</span>
         </div>
       {% endif %}
     {% else %}
       <div class="comments-closed-banner">
-        🔒 本页已关闭新评论与回复互动{% if comment_policy.close_reason %}（{{ comment_policy.close_reason }}）{% endif %}。以下保留历史公开评论供查阅。
+        {% include "includes/_ui_icon.html" with name="lock" %}
+        <span>本页已关闭新评论与回复互动{% if comment_policy.close_reason %}（{{ comment_policy.close_reason }}）{% endif %}。以下保留历史公开评论供查阅。</span>
       </div>
     {% endif %}
 
@@ -120,7 +122,7 @@
         正在载入评论列表...
       </div>
       <div id="comments-items-list" class="comments-items-list"></div>
-      <div class="comments-pagination-area" id="comments-pagination-area" style="display: none;">
+      <div class="comments-pagination-area comment-initial-hidden" id="comments-pagination-area">
         <button type="button" class="comment-load-more-btn" id="load-more-comments-btn">加载更多评论</button>
       </div>
     </div>

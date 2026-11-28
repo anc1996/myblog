@@ -138,7 +138,7 @@ def author_detail_view(request, slug: str):
             safe_err = escape(ctx.get("error_message", "参数错误"))
             resp = JsonResponse(
                 {
-                    "html": f'<div class="alert alert-warning" role="alert">{safe_err}</div>',
+                    "html": f'<div class="ui-alert ui-alert-warning" role="alert"><div class="ui-alert-body">{safe_err}</div></div>',
                     "error_message": ctx.get("error_message", "参数错误"),
                     "canonical_url": ctx["canonical_url"],
                 },

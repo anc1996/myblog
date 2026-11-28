@@ -1,62 +1,94 @@
-<div class="listing-pagination-wrap pt-3 border-top mt-4">
-  <div class="listing-pagination d-flex justify-content-between align-items-center">
-    <div class="text-muted small">
+<div class="listing-pagination-wrap">
+  <div class="listing-pagination-head">
+    <div class="listing-pagination-meta">
       {% if view_model.count_meta.label %}
         <strong>{{ view_model.count_meta.label }}</strong>
       {% else %}
         共匹配到 <strong>{{ view_model.total_count }}</strong> 篇内容
       {% endif %}
+      {% if view_model.pagination.page and view_model.pagination.total_pages %}
+        <span class="listing-pagination-sep" aria-hidden="true">·</span>
+        <span>第 <strong>{{ view_model.pagination.page }}</strong> / {{ view_model.pagination.total_pages }} 页</span>
+      {% elif view_model.pagination.page %}
+        <span class="listing-pagination-sep" aria-hidden="true">·</span>
+        <span>第 <strong>{{ view_model.pagination.page }}</strong> 页</span>
+      {% elif view_model.pagination.mode == "oldest" %}
+        <span class="listing-pagination-sep" aria-hidden="true">·</span>
+        <span class="listing-pagination-mode-tag">当前查看最早一批</span>
+      {% elif view_model.pagination.mode == "seek_date" %}
+        <span class="listing-pagination-sep" aria-hidden="true">·</span>
+        <span class="listing-pagination-mode-tag">当前按日期定位浏览</span>
+      {% elif view_model.pagination.mode == "cursor" %}
+        <span class="listing-pagination-sep" aria-hidden="true">·</span>
+        <span class="listing-pagination-mode-tag">当前处于深翻浏览视图</span>
+      {% endif %}
       {% if view_model.pagination.is_window_capped %}
-        <span class="ms-1 text-muted">（页码直跳上限 {{ view_model.pagination.max_jump_page }} 页，更早内容请用游标或日期定位）</span>
-      {% endif %}
-    </div>
-
-    <div class="btn-group">
-      {% if view_model.previous_cursor %}
-        <button type="button" class="ui-btn ui-btn-sm btn btn-sm btn-outline-primary listing-page-prev-btn" data-cursor="{{ view_model.previous_cursor }}">
-          &larr; 上一页
-        </button>
-      {% else %}
-        <button type="button" class="ui-btn ui-btn-sm btn btn-sm btn-outline-secondary disabled" disabled>
-          &larr; 上一页
-        </button>
-      {% endif %}
-
-      {% if view_model.next_cursor %}
-        <button type="button" class="ui-btn ui-btn-sm btn btn-sm btn-outline-primary listing-page-next-btn" data-cursor="{{ view_model.next_cursor }}">
-          下一页 &rarr;
-        </button>
-      {% else %}
-        <button type="button" class="ui-btn ui-btn-sm btn btn-sm btn-outline-secondary disabled" disabled>
-          下一页 &rarr;
-        </button>
+        <span class="listing-pagination-hint">（页码直跳上限 {{ view_model.pagination.max_jump_page }} 页，更早内容请用游标或日期定位）</span>
       {% endif %}
     </div>
   </div>
 
-  {% if view_model.pagination.page_links or view_model.pagination.max_jump_page %}
   <div class="listing-pagination-bar">
-    {% if view_model.pagination.page_links %}
     <nav class="listing-page-numbers" aria-label="页码分页导航">
-      {% for link in view_model.pagination.page_links %}
-        {% if link.type == "ellipsis" %}
-          <span class="listing-page-ellipsis" aria-hidden="true">…</span>
-        {% elif link.is_current %}
-          <span class="ui-btn ui-btn-sm ui-btn-primary listing-page-current" aria-current="page">{{ link.label }}</span>
-        {% else %}
-          <a
-            href="?page={{ link.page }}{% if view_model.query_string %}&amp;{{ view_model.query_string }}{% endif %}"
-            class="ui-btn ui-btn-sm ui-btn-outline listing-page-num-btn"
-            data-page="{{ link.page }}"
-          >{{ link.label }}</a>
-        {% endif %}
-      {% endfor %}
-    </nav>
-    {% endif %}
+      {% if view_model.pagination.prev_page %}
+        <a
+          href="?page={{ view_model.pagination.prev_page }}{% if view_model.query_string %}&amp;{{ view_model.query_string }}{% endif %}"
+          class="ui-btn ui-btn-sm ui-btn-outline listing-page-prev-btn"
+          data-page="{{ view_model.pagination.prev_page }}"
+        >&larr; 上一页</a>
+      {% elif view_model.previous_cursor %}
+        <a
+          href="?cursor={{ view_model.previous_cursor|urlencode }}{% if view_model.query_string %}&amp;{{ view_model.query_string }}{% endif %}"
+          class="ui-btn ui-btn-sm ui-btn-outline listing-page-prev-btn"
+          data-cursor="{{ view_model.previous_cursor }}"
+        >&larr; 上一页</a>
+      {% else %}
+        <span class="ui-btn ui-btn-sm ui-btn-outline listing-page-btn-disabled" aria-disabled="true">&larr; 上一页</span>
+      {% endif %}
 
+      {% if view_model.pagination.page_links %}
+        {% for link in view_model.pagination.page_links %}
+          {% if link.type == "ellipsis" %}
+            <span class="listing-page-ellipsis" aria-hidden="true">…</span>
+          {% elif link.is_current %}
+            <span class="ui-btn ui-btn-sm ui-btn-primary listing-page-current" aria-current="page">{{ link.label }}</span>
+          {% else %}
+            <a
+              href="?page={{ link.page }}{% if view_model.query_string %}&amp;{{ view_model.query_string }}{% endif %}"
+              class="ui-btn ui-btn-sm ui-btn-outline listing-page-num-btn"
+              data-page="{{ link.page }}"
+            >{{ link.label }}</a>
+          {% endif %}
+        {% endfor %}
+      {% else %}
+        <a
+          href="?page=1{% if view_model.query_string %}&amp;{{ view_model.query_string }}{% endif %}"
+          class="ui-btn ui-btn-sm ui-btn-outline listing-page-num-btn"
+          data-page="1"
+        >返回第 1 页</a>
+      {% endif %}
+
+      {% if view_model.pagination.next_page %}
+        <a
+          href="?page={{ view_model.pagination.next_page }}{% if view_model.query_string %}&amp;{{ view_model.query_string }}{% endif %}"
+          class="ui-btn ui-btn-sm ui-btn-outline listing-page-next-btn"
+          data-page="{{ view_model.pagination.next_page }}"
+        >下一页 &rarr;</a>
+      {% elif view_model.next_cursor %}
+        <a
+          href="?cursor={{ view_model.next_cursor|urlencode }}{% if view_model.query_string %}&amp;{{ view_model.query_string }}{% endif %}"
+          class="ui-btn ui-btn-sm ui-btn-outline listing-page-next-btn"
+          data-cursor="{{ view_model.next_cursor }}"
+        >下一页 &rarr;</a>
+      {% else %}
+        <span class="ui-btn ui-btn-sm ui-btn-outline listing-page-btn-disabled" aria-disabled="true">下一页 &rarr;</span>
+      {% endif %}
+    </nav>
+
+    {% if view_model.pagination.page_links or view_model.pagination.max_jump_page %}
     <div class="listing-pagination-tools">
       <form method="get" action="{{ view_model.canonical_url|default:'' }}" class="listing-tool-form listing-jump-page-form">
-        <label class="small text-muted" for="listing-jump-page-input">跳至</label>
+        <label class="listing-pagination-label" for="listing-jump-page-input">跳至</label>
         <input
           type="number"
           id="listing-jump-page-input"
@@ -71,7 +103,7 @@
       </form>
 
       <form method="get" action="{{ view_model.canonical_url|default:'' }}" class="listing-tool-form listing-seek-date-form">
-        <label class="small text-muted" for="listing-seek-date-input">定位日期</label>
+        <label class="listing-pagination-label" for="listing-seek-date-input">定位日期</label>
         <input
           type="date"
           id="listing-seek-date-input"
@@ -84,12 +116,15 @@
         <button type="submit" class="ui-btn ui-btn-sm ui-btn-outline">定位</button>
       </form>
 
+      {% if view_model.pagination.is_window_capped %}
       <a
         href="?seek_direction=oldest{% if view_model.query_string %}&amp;{{ view_model.query_string }}{% endif %}"
         class="ui-btn ui-btn-sm ui-btn-outline listing-oldest-btn"
         data-seek-oldest="1"
-      >最早一批</a>
+        title="列表超过页码直跳上限，点击可跳过中间页直达最早发表的一批内容"
+      >直达最早</a>
+      {% endif %}
     </div>
+    {% endif %}
   </div>
-  {% endif %}
 </div>

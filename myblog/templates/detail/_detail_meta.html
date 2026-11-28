@@ -17,7 +17,7 @@
             {% if author.avatar_url %}
                 <img src="{{ author.avatar_url }}" alt="{{ author.name }}" class="author-avatar" loading="lazy">
             {% elif author.is_anonymous %}
-                <span aria-hidden="true">👤</span>
+                {% include "includes/_ui_icon.html" with name="user" %}
             {% endif %}
             <span itemprop="name">{{ author.name }}</span>
             {% if not author.is_anonymous and author.role_label %}
@@ -29,7 +29,7 @@
             {% if author.avatar_url %}
                 <img src="{{ author.avatar_url }}" alt="{{ author.name }}" class="author-avatar" loading="lazy">
             {% elif author.is_anonymous %}
-                <span aria-hidden="true">👤</span>
+                {% include "includes/_ui_icon.html" with name="user" %}
             {% endif %}
             <span itemprop="name">{{ author.name }}</span>
             {% if not author.is_anonymous and author.role_label %}

@@ -1,0 +1,57 @@
+# myblog 原生部署 Nginx 反向代理配置示例（含 /static/ 托管与 /internal-rustfs/ 受控流式代理）
+# 使用前请替换域名、TLS 证书路径、STATIC_ROOT 路径与 RustFS 存储桶名称。
+
+upstream myblog_app {
+    server 127.0.0.1:8000 fail_timeout=0;
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name blog.example.com www.example.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name blog.example.com www.example.com;
+
+    ssl_certificate     /etc/ssl/certs/blog.example.com.fullchain.pem;
+    ssl_certificate_key /etc/ssl/private/blog.example.com.key;
+
+    client_max_body_size 320m;
+
+    # collectstatic 收集后的生产静态文件（ManifestStaticFilesStorage）
+    location /static/ {
+        alias /mnt/f/openclaw/workspace/wagtail/myblog/staticfiles/;
+        access_log off;
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # Django 鉴权后通过 X-Accel-Redirect: /internal-rustfs/<key> 内部转发给 RustFS
+    # 注意：internal 指令确保外部访客不能直接请求 /internal-rustfs/ 绕过权限检查
+    # 重要：RustFS 桶默认全私有（无匿名读权限），X-Accel-Redirect 本身不附带 S3 SigV4 签名；
+    # 开启 USE_X_ACCEL_REDIRECT=1 前，上游 127.0.0.1:9001（或对应内网 S3 签名代理）必须完成 SigV4 签名与 Range 透传并在第 5 步实测。
+    location ~ ^/internal-rustfs/(.+)$ {
+        internal;
+        proxy_pass http://127.0.0.1:9000/myblog-prod/$1;  # 第 5 步需替换为带 SigV4 签名的内网 S3 代理上游
+        proxy_set_header Host 127.0.0.1:9000;
+        proxy_set_header Range $http_range;
+        proxy_set_header If-Range $http_if_range;
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_hide_header x-amz-request-id;
+        proxy_hide_header x-amz-id-2;
+    }
+
+    location / {
+        proxy_pass http://myblog_app;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 120s;
+    }
+}

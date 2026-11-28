@@ -310,3 +310,132 @@ class PaginationAndCalendarArchiveTests(TestCase):
         html_yr = r_yr.content.decode("utf-8")
         self.assertIn("2002 年全年归档", html_yr)
         self.assertIn("2002年分布式早期文献", html_yr)
+
+    def test_unified_pagination_prev_next_keeps_page_numbers_and_scheme_a_oldest_button(self):
+        """验证页码态上一页/下一页保持 ?page=N、标准内联包住页码，且仅超页码上限才显示「直达最早」(方案 A)"""
+        from pathlib import Path
+        from django.template.loader import render_to_string
+        from discovery.pagination import build_count_meta, build_pagination_payload
+
+        # 1. 浅页第 1 页（共 68 页，未超 100 页上限）
+        p1 = build_pagination_payload(
+            mode="shallow_page",
+            current_page=1,
+            page_size=15,
+            total_count=1006,
+            count_kind="exact",
+            has_next=True,
+            has_previous=False,
+            next_cursor="v2:next1",
+            previous_cursor=None,
+        )
+        self.assertIsNone(p1["prev_page"])
+        self.assertEqual(p1["next_page"], 2)
+        self.assertFalse(p1["is_window_capped"])
+
+        html_p1 = render_to_string(
+            "discovery/listing/_listing_pagination.html",
+            {
+                "view_model": {
+                    "total_count": 1006,
+                    "count_meta": build_count_meta(value=1006, kind="exact"),
+                    "pagination": p1,
+                    "next_cursor": "v2:next1",
+                    "previous_cursor": None,
+                    "query_string": "sort=authored_desc",
+                    "canonical_url": "/demo/",
+                    "active_filters": {"seek_date": ""},
+                }
+            },
+        )
+        self.assertIn('data-page="2"', html_p1)
+        self.assertIn('href="?page=2&amp;sort=authored_desc"', html_p1)
+        self.assertNotIn('data-cursor="v2:next1"', html_p1)
+        self.assertNotIn("listing-oldest-btn", html_p1)
+        self.assertNotIn("最早一批", html_p1)
+        # 确认布局顺序：上一页 -> [1] -> [68] -> 下一页 在同一 nav 内
+        nav_start = html_p1.index('<nav class="listing-page-numbers"')
+        nav_end = html_p1.index("</nav>", nav_start)
+        nav_html = html_p1[nav_start:nav_end]
+        self.assertLess(nav_html.index("上一页"), nav_html.index("listing-page-current"))
+        self.assertLess(nav_html.index("listing-page-current"), nav_html.index(">68<"))
+        self.assertLess(nav_html.index(">68<"), nav_html.index("下一页"))
+
+        # 2. 超页码上限第 100 页（is_window_capped=True）：上一页走 page=99，下一页平滑降级为 cursor，且显示「直达最早」
+        p100 = build_pagination_payload(
+            mode="shallow_page",
+            current_page=100,
+            page_size=20,
+            total_count=5000,
+            count_kind="lower_bound",
+            has_next=True,
+            has_previous=True,
+            next_cursor="v2:next100",
+            previous_cursor="v2:prev100",
+        )
+        self.assertEqual(p100["prev_page"], 99)
+        self.assertIsNone(p100["next_page"])
+        self.assertTrue(p100["is_window_capped"])
+
+        html_p100 = render_to_string(
+            "discovery/listing/_listing_pagination.html",
+            {
+                "view_model": {
+                    "total_count": 5000,
+                    "count_meta": build_count_meta(value=5000, kind="lower_bound"),
+                    "pagination": p100,
+                    "next_cursor": "v2:next100",
+                    "previous_cursor": "v2:prev100",
+                    "query_string": "",
+                    "canonical_url": "/demo/",
+                    "active_filters": {"seek_date": ""},
+                }
+            },
+        )
+        self.assertIn('data-page="99"', html_p100)
+        self.assertIn('data-cursor="v2:next100"', html_p100)
+        self.assertIn("listing-oldest-btn", html_p100)
+        self.assertIn("直达最早", html_p100)
+
+        # 3. 游标深翻态（current_page=None）：提供「返回第 1 页」快捷入口
+        p_cur = build_pagination_payload(
+            mode="cursor",
+            current_page=None,
+            page_size=15,
+            total_count=5000,
+            count_kind="lower_bound",
+            has_next=True,
+            has_previous=True,
+            next_cursor="v2:cnext",
+            previous_cursor="v2:cprev",
+        )
+        html_cur = render_to_string(
+            "discovery/listing/_listing_pagination.html",
+            {
+                "view_model": {
+                    "total_count": 5000,
+                    "count_meta": build_count_meta(value=5000, kind="lower_bound"),
+                    "pagination": p_cur,
+                    "next_cursor": "v2:cnext",
+                    "previous_cursor": "v2:cprev",
+                    "query_string": "",
+                    "canonical_url": "/demo/",
+                    "active_filters": {"seek_date": ""},
+                }
+            },
+        )
+        self.assertIn("返回第 1 页", html_cur)
+        self.assertIn('data-cursor="v2:cprev"', html_cur)
+        self.assertIn('data-cursor="v2:cnext"', html_cur)
+
+        # 4. 全部 5 个前台 JS 控制器均优先读取 data-page 再回退 data-cursor
+        project_root = Path(__file__).resolve().parents[1]
+        for rel in (
+            "myblog/static/discovery/js/listing_controller.js",
+            "myblog/static/search/js/search_controller.js",
+            "myblog/static/discovery/js/timeline_controller.js",
+            "myblog/static/taxonomy/js/tag_controller.js",
+            "myblog/static/people/js/author_controller.js",
+        ):
+            js_text = (project_root / rel).read_text(encoding="utf-8")
+            self.assertIn("getAttribute('data-page')" if "'" in js_text and "getAttribute('data-page')" in js_text else 'getAttribute("data-page")', js_text, msg=f"{rel} 未优先处理 data-page")

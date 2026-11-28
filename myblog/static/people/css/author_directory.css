@@ -473,6 +473,32 @@
     text-align: left;
 }
 
+.author-filter-label {
+    font-size: var(--text-sm);
+    color: var(--color-muted);
+}
+
+.author-expansion-note {
+    color: var(--color-primary);
+}
+
+.author-result-meta {
+    margin: 0 0 var(--space-2);
+    font-size: var(--text-sm);
+    color: var(--color-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.author-result-snippet {
+    margin: 0 0 var(--space-2);
+    font-size: var(--text-sm);
+    color: var(--color-text-secondary);
+}
+
+.author-expand-note {
+    margin: 0 0 var(--space-2);
+    color: var(--color-muted);
+}
 @media (max-width: 720px) {
     .author-hero,
     .author-profile-card {

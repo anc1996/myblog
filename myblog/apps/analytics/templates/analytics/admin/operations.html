@@ -5,7 +5,7 @@
 
 {% block extra_css %}
 {{ block.super }}
-<link rel="stylesheet" href="{% static 'css/admin-workbench.css' %}?v=20261123c">
+<link rel="stylesheet" href="{% static 'css/admin-workbench.css' %}?v=20261128a">
 <link rel="stylesheet" href="{% static 'analytics/css/analytics-admin.css' %}?v=20261123b">
 <style>
 .analytics-wb-tabs {
@@ -48,7 +48,7 @@
 {% include "wagtailadmin/shared/header.html" with title="作者产能、审核效率与治理看板" icon="site" %}
 
 <div class="nice-padding admin-wb-shell analytics-shell">
-    <p class="admin-wb-note" style="margin:0 0 12px;">
+    <p class="admin-wb-note admin-wb-note--lead">
         统计仅供内容运营、专栏维护与审核排班参考，绝不用于绩效考核、自动封禁或展示访客 IP。
     </p>
 
@@ -115,12 +115,12 @@
     </div>
 
     {% if ops.can_view_governance and ops.review_governance %}
-    <div class="admin-wb-panel" style="margin-bottom:16px;">
+    <div class="admin-wb-panel admin-wb-panel--compact">
         <div class="admin-wb-panel-head">
             <h2>工作流、评论审核效率与治理统计（近 {{ ops.filters.days }} 日）</h2>
             <span class="admin-wb-note">驳回率 = 已驳回 ÷ (已通过 + 已驳回)，绝不用待审积压数作分母</span>
         </div>
-        <div class="admin-wb-kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr));margin-bottom:0;">
+        <div class="admin-wb-kpi-grid admin-wb-kpi-grid--gov">
             <div class="admin-wb-kpi-card">
                 <div class="admin-wb-kpi-label">页面工作流待审积压</div>
                 <div class="admin-wb-kpi-value">{{ ops.review_governance.workflow.backlog.total }}</div>
@@ -173,7 +173,7 @@
     </div>
     {% endif %}
 
-    <div class="admin-wb-panel" style="margin-bottom:16px;">
+    <div class="admin-wb-panel admin-wb-panel--compact">
         <div class="admin-wb-panel-head">
             <h2>作者产能、维护提醒与作品样本（{{ ops.authors.count_meta.label }}）</h2>
             <span class="admin-wb-note">按页面去重统计；合著作品不重复加总成全站总量；评价样本 &lt; {{ ops.authors.min_rating_votes }} 票时不展示好评率</span>
@@ -234,7 +234,7 @@
         </div>
 
         {% if ops.authors.pagination.has_previous or ops.authors.pagination.has_next %}
-        <div class="admin-wb-pagination" style="margin-top:12px;">
+        <div class="admin-wb-pagination admin-wb-pagination--compact">
             {% if ops.authors.pagination.has_previous %}
                 <a href="?{% if ops.site %}site_id={{ ops.site.id }}&amp;{% endif %}days={{ ops.filters.days }}&amp;author_q={{ ops.filters.author_q|urlencode }}&amp;p={{ ops.authors.pagination.current_page|add:-1 }}" class="button button-small button-secondary">上一页</a>
             {% endif %}
@@ -247,7 +247,7 @@
     </div>
 
     {% if ops.authors.overdue_guides %}
-    <div class="admin-wb-panel" style="margin-bottom:16px;">
+    <div class="admin-wb-panel admin-wb-panel--compact">
         <div class="admin-wb-panel-head">
             <h2>365 日逾期未复核指南维护清单</h2>
             <span class="admin-wb-note">按已发布贡献关系分派；未分派维护人的页面单列标注</span>

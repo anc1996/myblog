@@ -1,6 +1,7 @@
 /* myblog 统一 Wagtail 8.1 后台工作台公共组件样式（浅色/深色自适应，禁止误用侧栏菜单深紫色背景） */
 
-.admin-wb-shell {
+.admin-wb-shell,
+.admin-wb-scope {
     --wb-surface: var(--w-color-surface-page, #ffffff);
     --wb-surface-subtle: var(--w-color-surface-header, #f6f8fa);
     --wb-surface-elevated: #ffffff;
@@ -9,24 +10,37 @@
     --wb-muted: var(--w-color-text-context, #4b5563);
     --wb-accent: var(--w-color-secondary, #007d7e);
     --wb-accent-bg: rgba(0, 125, 126, 0.1);
+    --wb-info: #1e40af;
+    --wb-info-bg: #eff6ff;
+    --wb-info-border: #bfdbfe;
     --wb-ok: #15803d;
     --wb-ok-bg: #ecfdf5;
     --wb-ok-border: #a7f3d0;
     --wb-warn: #92400e;
     --wb-warn-bg: #fffbeb;
     --wb-warn-border: #fde68a;
+    --wb-warn-solid: #b45309;
+    --wb-warn-solid-border: #92400e;
     --wb-danger: #991b1b;
     --wb-danger-bg: #fef2f2;
     --wb-danger-border: #fecaca;
     --wb-neutral: #334155;
     --wb-neutral-bg: #f1f5f9;
     --wb-neutral-border: #cbd5e1;
+    --wb-btn-primary-bg: #2563eb;
+    --wb-btn-approve-bg: #15803d;
+    --wb-btn-reject-bg: #c2410c;
     color: var(--wb-text);
+}
+
+.admin-wb-shell {
     padding-bottom: 48px;
 }
 
 html.w-theme-dark .admin-wb-shell,
-[data-w-theme="dark"] .admin-wb-shell {
+[data-w-theme="dark"] .admin-wb-shell,
+html.w-theme-dark .admin-wb-scope,
+[data-w-theme="dark"] .admin-wb-scope {
     --wb-surface: var(--w-color-surface-page, #161b22);
     --wb-surface-subtle: var(--w-color-surface-header, #1f2937);
     --wb-surface-elevated: #1c2430;
@@ -35,18 +49,60 @@ html.w-theme-dark .admin-wb-shell,
     --wb-muted: var(--w-color-text-context, #cbd5e1);
     --wb-accent: #2dd4bf;
     --wb-accent-bg: rgba(45, 212, 191, 0.14);
+    --wb-info: #93c5fd;
+    --wb-info-bg: rgba(59, 130, 246, 0.16);
+    --wb-info-border: rgba(147, 197, 253, 0.35);
     --wb-ok: #4ade80;
     --wb-ok-bg: rgba(22, 163, 74, 0.18);
     --wb-ok-border: rgba(74, 222, 128, 0.35);
     --wb-warn: #fbbf24;
     --wb-warn-bg: rgba(245, 158, 11, 0.16);
     --wb-warn-border: rgba(251, 191, 36, 0.35);
+    --wb-warn-solid: #b45309;
+    --wb-warn-solid-border: #d97706;
     --wb-danger: #f87171;
     --wb-danger-bg: rgba(220, 38, 38, 0.18);
     --wb-danger-border: rgba(248, 113, 113, 0.35);
     --wb-neutral: #cbd5e1;
     --wb-neutral-bg: rgba(148, 163, 184, 0.16);
     --wb-neutral-border: rgba(148, 163, 184, 0.3);
+    --wb-btn-primary-bg: #1d4ed8;
+    --wb-btn-approve-bg: #15803d;
+    --wb-btn-reject-bg: #c2410c;
+}
+
+@media (prefers-color-scheme: dark) {
+    html.w-theme-system .admin-wb-shell,
+    html.w-theme-system .admin-wb-scope {
+        --wb-surface: var(--w-color-surface-page, #161b22);
+        --wb-surface-subtle: var(--w-color-surface-header, #1f2937);
+        --wb-surface-elevated: #1c2430;
+        --wb-border: var(--w-color-border-furniture, #334155);
+        --wb-text: var(--w-color-text-label, #f1f5f9);
+        --wb-muted: var(--w-color-text-context, #cbd5e1);
+        --wb-accent: #2dd4bf;
+        --wb-accent-bg: rgba(45, 212, 191, 0.14);
+        --wb-info: #93c5fd;
+        --wb-info-bg: rgba(59, 130, 246, 0.16);
+        --wb-info-border: rgba(147, 197, 253, 0.35);
+        --wb-ok: #4ade80;
+        --wb-ok-bg: rgba(22, 163, 74, 0.18);
+        --wb-ok-border: rgba(74, 222, 128, 0.35);
+        --wb-warn: #fbbf24;
+        --wb-warn-bg: rgba(245, 158, 11, 0.16);
+        --wb-warn-border: rgba(251, 191, 36, 0.35);
+        --wb-warn-solid: #b45309;
+        --wb-warn-solid-border: #d97706;
+        --wb-danger: #f87171;
+        --wb-danger-bg: rgba(220, 38, 38, 0.18);
+        --wb-danger-border: rgba(248, 113, 113, 0.35);
+        --wb-neutral: #cbd5e1;
+        --wb-neutral-bg: rgba(148, 163, 184, 0.16);
+        --wb-neutral-border: rgba(148, 163, 184, 0.3);
+        --wb-btn-primary-bg: #1d4ed8;
+        --wb-btn-approve-bg: #15803d;
+        --wb-btn-reject-bg: #c2410c;
+    }
 }
 
 .admin-wb-toolbar {
@@ -375,4 +431,598 @@ html.w-theme-dark .admin-wb-shell,
     border-radius: 4px;
     background: var(--wb-surface-elevated);
     color: var(--wb-text);
+}
+
+/* ========================================================================
+   通用辅助类与工作台组件扩展（替代各后台模板中的静态内联 style）
+   ======================================================================== */
+
+.admin-wb-icon {
+    display: inline-block;
+    width: 1em;
+    height: 1em;
+    vertical-align: -0.125em;
+    flex-shrink: 0;
+}
+
+.admin-wb-note--lead {
+    margin: 0 0 12px;
+}
+
+.admin-wb-note--mt {
+    margin-top: 4px;
+}
+
+.admin-wb-note--mt-xs {
+    margin-top: 2px;
+}
+
+.admin-wb-note--mt-lg {
+    margin-top: 10px;
+}
+
+.admin-wb-note--ml {
+    margin-left: 6px;
+}
+
+.admin-wb-note--regular {
+    font-weight: 500;
+}
+
+.admin-wb-ellipsis {
+    padding: 0 4px;
+}
+
+.admin-wb-panel--compact {
+    margin-bottom: 16px;
+}
+
+.admin-wb-panel--drawer {
+    margin-bottom: 14px;
+}
+
+.admin-wb-toolbar--drawer {
+    margin-bottom: 14px;
+}
+
+.admin-wb-grid-2--flush {
+    margin-bottom: 0;
+}
+
+.admin-wb-kpi-grid--compact {
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    margin-bottom: 0;
+}
+
+.admin-wb-kpi-grid--gov {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    margin-bottom: 0;
+}
+
+.admin-wb-kpi-subval {
+    font-size: 14px;
+    color: var(--wb-muted);
+    font-weight: 500;
+}
+
+.admin-wb-subhead {
+    margin: 0 0 8px;
+    font-size: 13px;
+    color: var(--wb-muted);
+}
+
+.admin-wb-drawer-title {
+    margin: 0;
+    font-size: 16px;
+}
+
+.admin-wb-drawer-page-title {
+    font-size: 16px;
+    font-weight: 700;
+}
+
+.admin-wb-table-wrap--mt {
+    margin-top: 10px;
+}
+
+.admin-wb-pagination--compact {
+    margin-top: 12px;
+}
+
+.admin-wb-code-sm {
+    font-size: 11px;
+}
+
+.admin-wb-td-trend {
+    min-width: 180px;
+}
+
+.admin-wb-table td.admin-wb-td-left {
+    text-align: left;
+}
+
+.admin-wb-badge-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+}
+
+.admin-wb-field--xs input[type="text"],
+.admin-wb-field--xs input[type="search"] {
+    min-width: 80px;
+}
+
+.admin-wb-field--sm input[type="text"],
+.admin-wb-field--sm input[type="search"] {
+    min-width: 110px;
+}
+
+.admin-wb-field--md input[type="text"],
+.admin-wb-field--md input[type="search"] {
+    min-width: 200px;
+}
+
+.admin-wb-field--lg input[type="text"],
+.admin-wb-field--lg input[type="search"] {
+    min-width: 210px;
+}
+
+/* ========================================================================
+   评论管理工作台 (comment_index.html)
+   ======================================================================== */
+
+.comment-type-tabs {
+    margin: 0 0 16px 0;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+    background: var(--wb-surface-subtle);
+    padding: 12px;
+    border-radius: 6px;
+    border: 1px solid var(--wb-border);
+    color: var(--wb-text);
+}
+
+.comment-type-tabs__label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 600;
+    color: var(--wb-muted);
+    margin-right: 4px;
+}
+
+.comment-type-tabs__queue {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.comment-type-tabs__queue--alert {
+    background: var(--wb-warn-solid);
+    color: #ffffff;
+    border-color: var(--wb-warn-solid-border);
+}
+
+.comment-type-tabs__queue--alert:hover {
+    background: var(--wb-warn-solid-border);
+    color: #ffffff;
+}
+
+.admin-wb-filter-banner {
+    padding: 8px 12px;
+    border-radius: 6px;
+    margin-bottom: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    border: 1px solid var(--wb-border);
+    background: var(--wb-surface-subtle);
+    color: var(--wb-text);
+}
+
+.admin-wb-filter-banner__text {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.admin-wb-filter-banner--info {
+    background: var(--wb-info-bg);
+    border-color: var(--wb-info-border);
+    color: var(--wb-info);
+}
+
+.admin-wb-filter-banner--warn {
+    background: var(--wb-warn-bg);
+    border-color: var(--wb-warn-border);
+    color: var(--wb-warn);
+}
+
+.admin-wb-filter-banner--danger {
+    background: var(--wb-danger-bg);
+    border-color: var(--wb-danger-border);
+    color: var(--wb-danger);
+}
+
+.comment-page-jump-form {
+    margin-top: 14px;
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    background: var(--wb-surface-subtle);
+    border: 1px solid var(--wb-border);
+    border-radius: 6px;
+    color: var(--wb-text);
+}
+
+.comment-page-jump-form__label {
+    color: var(--wb-muted);
+}
+
+.comment-page-jump-form__input {
+    width: 76px;
+    min-height: 32px;
+    padding: 4px 8px;
+    border: 1px solid var(--wb-border);
+    border-radius: 4px;
+    background: var(--wb-surface-elevated);
+    color: var(--wb-text);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ========================================================================
+   单篇评论治理面板 (page_comment_governance_panel.html)
+   ======================================================================== */
+
+.page-comment-governance-panel {
+    padding: 16px;
+    background: var(--wb-surface);
+    color: var(--wb-text);
+    border-radius: 8px;
+}
+
+.admin-wb-gov-help {
+    background: var(--wb-ok-bg);
+    border: 1px solid var(--wb-ok-border);
+    color: var(--wb-ok);
+    padding: 16px;
+    border-radius: 6px;
+}
+
+.admin-wb-gov-help p {
+    margin: 0;
+    font-size: 15px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.admin-wb-gov-section {
+    border: 1px solid var(--wb-border);
+    border-radius: 6px;
+    padding: 16px;
+    background: var(--wb-surface);
+}
+
+.admin-wb-gov-section--subtle {
+    background: var(--wb-surface-subtle);
+    margin-bottom: 20px;
+}
+
+.admin-wb-gov-title {
+    margin: 0 0 12px;
+    font-size: 16px;
+    color: var(--wb-text);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.admin-wb-gov-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.admin-wb-gov-head .admin-wb-gov-title {
+    margin-bottom: 0;
+}
+
+.admin-wb-gov-mode-banner {
+    margin-bottom: 12px;
+    padding: 8px 12px;
+    border-radius: 4px;
+    background: var(--wb-info-bg);
+    border: 1px solid var(--wb-info-border);
+    color: var(--wb-info);
+    font-size: 13px;
+}
+
+.admin-wb-gov-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.admin-wb-gov-check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-weight: 500;
+    color: var(--wb-text);
+}
+
+.admin-wb-gov-check--boxed {
+    font-size: 13px;
+    background: var(--wb-surface-elevated);
+    padding: 8px 10px;
+    border: 1px solid var(--wb-border);
+    border-radius: 4px;
+}
+
+.admin-wb-gov-check--muted {
+    font-size: 13px;
+    color: var(--wb-muted);
+    font-weight: 400;
+}
+
+.admin-wb-gov-checkbox {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+}
+
+.admin-wb-gov-checkbox--lg {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+}
+
+.admin-wb-gov-input-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.admin-wb-gov-input-label {
+    font-size: 13px;
+    color: var(--wb-muted);
+    white-space: nowrap;
+}
+
+.admin-wb-gov-input {
+    flex: 1;
+    min-width: 200px;
+    padding: 6px 10px;
+    border: 1px solid var(--wb-border);
+    border-radius: 4px;
+    font-size: 13px;
+    background: var(--wb-surface-elevated);
+    color: var(--wb-text);
+}
+
+.admin-wb-gov-save-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 4px;
+}
+
+.admin-wb-gov-status {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--wb-muted);
+}
+
+.admin-wb-gov-status.is-saving {
+    color: var(--wb-muted);
+}
+
+.admin-wb-gov-status.is-success {
+    color: var(--wb-ok);
+}
+
+.admin-wb-gov-status.is-error {
+    color: var(--wb-danger);
+}
+
+.admin-wb-gov-filter-group {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.admin-wb-gov-list-wrap {
+    min-height: 120px;
+    font-size: 14px;
+}
+
+.admin-wb-gov-empty {
+    color: var(--wb-muted);
+    text-align: center;
+    padding: 24px;
+}
+
+.admin-wb-gov-error {
+    color: var(--wb-danger);
+    padding: 16px;
+}
+
+.admin-wb-gov-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.admin-wb-gov-item {
+    border: 1px solid var(--wb-border);
+    border-radius: 6px;
+    padding: 12px;
+    background: var(--wb-surface-elevated);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.admin-wb-gov-item--pending {
+    background: var(--wb-warn-bg);
+    border-color: var(--wb-warn-border);
+}
+
+.admin-wb-gov-item-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-size: 13px;
+}
+
+.admin-wb-gov-item-meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.admin-wb-gov-item-date {
+    color: var(--wb-muted);
+}
+
+.admin-wb-gov-item-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.admin-wb-gov-item-body {
+    color: var(--wb-text);
+    font-size: 14px;
+    line-height: 1.5;
+    background: var(--wb-surface-subtle);
+    padding: 8px;
+    border-radius: 4px;
+    word-break: break-word;
+}
+
+.admin-wb-gov-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 600;
+    border: 1px solid transparent;
+}
+
+.admin-wb-gov-badge--pending {
+    background: var(--wb-warn-bg);
+    color: var(--wb-warn);
+    border-color: var(--wb-warn-border);
+}
+
+.admin-wb-gov-badge--active {
+    background: var(--wb-ok-bg);
+    color: var(--wb-ok);
+    border-color: var(--wb-ok-border);
+}
+
+.admin-wb-gov-badge--muted {
+    background: var(--wb-neutral-bg);
+    color: var(--wb-neutral);
+    border-color: var(--wb-neutral-border);
+    font-weight: 500;
+}
+
+.admin-wb-gov-badge--pinned {
+    background: var(--wb-info-bg);
+    color: var(--wb-info);
+    border-color: var(--wb-info-border);
+}
+
+.admin-wb-btn-primary {
+    background: var(--wb-btn-primary-bg);
+    color: #ffffff;
+    border-color: var(--wb-btn-primary-bg);
+}
+
+.admin-wb-btn-approve {
+    background: var(--wb-btn-approve-bg);
+    color: #ffffff;
+    border-color: var(--wb-btn-approve-bg);
+}
+
+.admin-wb-btn-reject {
+    background: var(--wb-btn-reject-bg);
+    color: #ffffff;
+    border-color: var(--wb-btn-reject-bg);
+}
+
+/* ========================================================================
+   头像面板 / 内嵌媒体选择器 / Markdown 导入令牌页
+   ======================================================================== */
+
+.admin-wb-avatar-preview {
+    margin-bottom: 12px;
+}
+
+.admin-wb-avatar-img {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 1px solid var(--wb-border);
+    display: block;
+}
+
+.admin-wb-embed-providers {
+    margin-top: 18px;
+    border: 1px solid var(--wb-border);
+    border-radius: 6px;
+    padding: 10px 14px;
+    background: var(--wb-surface-subtle);
+    color: var(--wb-text);
+}
+
+.admin-wb-embed-providers__summary {
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--wb-text);
+}
+
+.admin-wb-embed-providers__table {
+    margin-top: 10px;
+    font-size: 12px;
+}
+
+.admin-wb-token-form {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    align-items: center;
+    margin: 16px 0;
+}
+
+.admin-wb-token-input {
+    max-width: 220px;
+}
+
+.admin-wb-inline-action-form {
+    display: inline;
 }

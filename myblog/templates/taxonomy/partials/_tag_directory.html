@@ -239,23 +239,16 @@
                 · 页码直跳上限 {{ view_model.pagination.max_jump_page }} 页
               {% endif %}
             </span>
-            <div class="tag-pagination-prevnext">
-              {% if view_model.pagination.has_previous %}
-                <a href="{{ view_model.pagination.prev_url }}" class="ui-btn ui-btn-sm ui-btn-outline tag-dir-nav-link">&larr; 上一页</a>
-              {% else %}
-                <span class="ui-btn ui-btn-sm ui-btn-outline" aria-disabled="true">&larr; 上一页</span>
-              {% endif %}
-              {% if view_model.pagination.has_next %}
-                <a href="{{ view_model.pagination.next_url }}" class="ui-btn ui-btn-sm ui-btn-outline tag-dir-nav-link">下一页 &rarr;</a>
-              {% else %}
-                <span class="ui-btn ui-btn-sm ui-btn-outline" aria-disabled="true">下一页 &rarr;</span>
-              {% endif %}
-            </div>
           </div>
 
           {% if view_model.pagination.total_pages > 1 %}
             <div class="tag-pagination-bar">
               <nav class="tag-page-numbers" aria-label="标签页码导航">
+                {% if view_model.pagination.has_previous %}
+                  <a href="{{ view_model.pagination.prev_url }}" class="ui-btn ui-btn-sm ui-btn-outline tag-dir-nav-link">&larr; 上一页</a>
+                {% else %}
+                  <span class="ui-btn ui-btn-sm ui-btn-outline listing-page-btn-disabled" aria-disabled="true">&larr; 上一页</span>
+                {% endif %}
                 {% for pl in view_model.pagination.page_links %}
                   {% if pl.number is None %}
                     <span class="tag-page-ellipsis" aria-hidden="true">…</span>
@@ -265,6 +258,11 @@
                     <a href="{{ pl.url }}" class="ui-btn ui-btn-sm ui-btn-outline tag-page-num-btn tag-dir-nav-link">{{ pl.number }}</a>
                   {% endif %}
                 {% endfor %}
+                {% if view_model.pagination.has_next %}
+                  <a href="{{ view_model.pagination.next_url }}" class="ui-btn ui-btn-sm ui-btn-outline tag-dir-nav-link">下一页 &rarr;</a>
+                {% else %}
+                  <span class="ui-btn ui-btn-sm ui-btn-outline listing-page-btn-disabled" aria-disabled="true">下一页 &rarr;</span>
+                {% endif %}
               </nav>
 
               <form method="get" action="{{ view_model.canonical_url }}" class="tag-jump-form">

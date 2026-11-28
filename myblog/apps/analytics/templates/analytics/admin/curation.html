@@ -5,7 +5,7 @@
 
 {% block extra_css %}
 {{ block.super }}
-<link rel="stylesheet" href="{% static 'css/admin-workbench.css' %}?v=20261123c">
+<link rel="stylesheet" href="{% static 'css/admin-workbench.css' %}?v=20261128a">
 <link rel="stylesheet" href="{% static 'analytics/css/analytics-admin.css' %}?v=20261123b">
 <style>
 .analytics-wb-tabs {
@@ -87,7 +87,7 @@
 {% include "wagtailadmin/shared/header.html" with title="精选推荐审批工作台" icon="site" %}
 
 <div class="nice-padding admin-wb-shell analytics-shell">
-    <p class="admin-wb-note" style="margin:0 0 12px;">Quality Score 每日候选审批、置顶排序、14 天拒绝冷却与按 Page ID 手工提名</p>
+    <p class="admin-wb-note admin-wb-note--lead">Quality Score 每日候选审批、置顶排序、14 天拒绝冷却与按 Page ID 手工提名</p>
     {% if wb_nav %}
     <nav class="analytics-wb-tabs" aria-label="数据分析工作台导航">
         {% if wb_nav.can_site %}
@@ -144,9 +144,9 @@
                 </select>
             </div>
 
-            <div class="admin-wb-field">
+            <div class="admin-wb-field admin-wb-field--md">
                 <label for="cur-q">定位文章</label>
-                <input id="cur-q" type="search" name="q" value="{{ filters.q|default:'' }}" placeholder="标题或 Page ID" style="min-width:200px;">
+                <input id="cur-q" type="search" name="q" value="{{ filters.q|default:'' }}" placeholder="标题或 Page ID">
             </div>
 
             <button type="submit" class="button button-primary">筛选</button>
@@ -176,9 +176,9 @@
             <input type="hidden" name="filter_q" value="{{ filters.q }}">
             {% if site %}<input type="hidden" name="site_id" value="{{ site.id }}">{% endif %}
 
-            <div class="admin-wb-field">
+            <div class="admin-wb-field admin-wb-field--sm">
                 <label for="nom-page-id">目标 Page ID</label>
-                <input id="nom-page-id" type="text" name="page_id" required placeholder="例如 42" style="min-width:110px;">
+                <input id="nom-page-id" type="text" name="page_id" required placeholder="例如 42">
             </div>
             <div class="admin-wb-field">
                 <label for="nom-pos">投放位置</label>
@@ -188,17 +188,17 @@
                     {% endfor %}
                 </select>
             </div>
-            <div class="admin-wb-field">
+            <div class="admin-wb-field admin-wb-field--sm">
                 <label for="nom-col">栏目页 ID（可选）</label>
-                <input id="nom-col" type="text" name="column_page_id" placeholder="栏目精选可填" style="min-width:110px;">
+                <input id="nom-col" type="text" name="column_page_id" placeholder="栏目精选可填">
             </div>
-            <div class="admin-wb-field">
+            <div class="admin-wb-field admin-wb-field--xs">
                 <label for="nom-prio">优先级</label>
-                <input id="nom-prio" type="text" name="priority" value="0" style="min-width:80px;">
+                <input id="nom-prio" type="text" name="priority" value="0">
             </div>
-            <div class="admin-wb-field">
+            <div class="admin-wb-field admin-wb-field--md">
                 <label for="nom-reason">提名理由</label>
-                <input id="nom-reason" type="text" name="reason" placeholder="主编推荐理由" style="min-width:200px;">
+                <input id="nom-reason" type="text" name="reason" placeholder="主编推荐理由">
             </div>
             <label class="curation-inline-check">
                 <input type="checkbox" name="is_pinned" value="1"> 置顶
@@ -239,12 +239,12 @@
                                 <span class="admin-wb-badge admin-wb-badge--info">手工提名</span>
                                 {% endif %}
                             </div>
-                            <div class="admin-wb-note" style="margin-top:4px;">
+                            <div class="admin-wb-note admin-wb-note--mt">
                                 <a href="{% url 'analytics_admin_page_drawer' row.rec.page_id %}">查看单篇漏斗</a>
                                 {% if row.rec.page.url %} · <a href="{{ row.rec.page.url }}" target="_blank" rel="noopener">查看公开页</a>{% endif %}
                             </div>
                             {% if row.recent_actions %}
-                            <div class="admin-wb-note" style="margin-top:4px;">
+                            <div class="admin-wb-note admin-wb-note--mt">
                                 最近审计：{% for act in row.recent_actions %}{{ act.action }}{% if act.actor %}({{ act.actor.username }}){% endif %}{% if not forloop.last %} / {% endif %}{% endfor %}
                             </div>
                             {% endif %}
@@ -252,10 +252,10 @@
                         <td>
                             <span class="admin-wb-badge admin-wb-badge--info">{{ row.rec.get_position_display }}</span>
                             {% if row.rec.column_page_id %}
-                            <div class="admin-wb-note" style="margin-top:4px;">栏目 #{{ row.rec.column_page_id }}</div>
+                            <div class="admin-wb-note admin-wb-note--mt">栏目 #{{ row.rec.column_page_id }}</div>
                             {% endif %}
                         </td>
-                        <td class="num" style="text-align:left;">
+                    <td class="num admin-wb-td-left">
                             <div><strong>{{ row.rec.quality_score|floatformat:1 }}</strong> 分</div>
                             <div class="admin-wb-note">
                                 {% if row.completion_rate_pct is not None %}完读 {{ row.completion_rate_pct }}%{% endif %}
@@ -282,7 +282,7 @@
                                 {% endif %}
                                 <span class="admin-wb-badge admin-wb-badge--muted">v{{ row.rec.version }}</span>
                             </div>
-                            <div class="admin-wb-note" style="margin-top:4px;">
+                            <div class="admin-wb-note admin-wb-note--mt">
                                 优先级 {{ row.rec.priority }}
                                 {% if row.rec.rejected_cooldown_until %}
                                     · 冷却至 {{ row.rec.rejected_cooldown_until|date:"Y-m-d H:i" }}
@@ -370,7 +370,7 @@
             <div class="admin-wb-pills">
                 {% for pl in pagination.page_links %}
                     {% if pl.type == "ellipsis" %}
-                        <span class="admin-wb-note" style="padding:0 4px;">…</span>
+                        <span class="admin-wb-note admin-wb-ellipsis">…</span>
                     {% elif pl.is_current %}
                         <span class="button button-small button-primary" aria-current="page">{{ pl.label }}</span>
                     {% else %}

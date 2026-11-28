@@ -10,7 +10,7 @@
 <link rel="alternate" type="application/rss+xml" title="{{ person.name }} RSS 订阅" href="{{ rss_url }}">
 <link rel="alternate" type="application/atom+xml" title="{{ person.name }} Atom 订阅" href="{{ atom_url }}">
 <link rel="stylesheet" type="text/css" href="{% static 'css/pages/search.css' %}?v=20261126a">
-<link rel="stylesheet" type="text/css" href="{% static 'people/css/author_directory.css' %}?v=20261127a">
+<link rel="stylesheet" type="text/css" href="{% static 'people/css/author_directory.css' %}?v=20261128a">
 {% endblock %}
 
 {% block content %}
@@ -28,7 +28,7 @@
             {% if avatar_url %}
                 <img src="{{ avatar_url }}" alt="{{ person.name }}" class="author-profile-avatar">
             {% else %}
-                <span class="author-profile-avatar-fallback" aria-hidden="true">{% if person.is_system_anonymous %}👤{% else %}{{ person.initial }}{% endif %}</span>
+                <span class="author-profile-avatar-fallback" aria-hidden="true">{% if person.is_system_anonymous %}{% include "includes/_ui_icon.html" with name="user" %}{% else %}{{ person.initial }}{% endif %}</span>
             {% endif %}
         </div>
         <div class="author-profile-body">
@@ -48,9 +48,9 @@
                 {% endif %}
             </div>
             <div class="author-profile-actions">
-                <a href="{{ rss_url }}" class="ui-btn ui-btn-outline ui-btn-sm">📡 RSS 订阅</a>
-                <a href="{{ atom_url }}" class="ui-btn ui-btn-outline ui-btn-sm">⚛️ Atom 订阅</a>
-                <a href="{{ search_in_site_url }}" class="ui-btn ui-btn-outline ui-btn-sm">🔍 在全站搜索此作者</a>
+                <a href="{{ rss_url }}" class="ui-btn ui-btn-outline ui-btn-sm">{% include "includes/_ui_icon.html" with name="rss" %}<span>RSS 订阅</span></a>
+                <a href="{{ atom_url }}" class="ui-btn ui-btn-outline ui-btn-sm">{% include "includes/_ui_icon.html" with name="rss" %}<span>Atom 订阅</span></a>
+                <a href="{{ search_in_site_url }}" class="ui-btn ui-btn-outline ui-btn-sm">{% include "includes/_ui_icon.html" with name="search" %}<span>在全站搜索此作者</span></a>
             </div>
         </div>
     </section>
@@ -73,7 +73,7 @@
                     id="author-detail-q"
                     name="q"
                     value="{{ search_query }}"
-                    class="ui-input form-control"
+                    class="ui-input"
                     placeholder="在 {{ person.name }} 的全部文章中搜索标题、简介与万字正文..."
                     autocomplete="off"
                 >
@@ -84,7 +84,7 @@
                 <select
                     name="sort"
                     id="author-detail-sort"
-                    class="ui-select form-select"
+                    class="ui-select"
                     data-ui-select
                     data-placeholder="排序方式"
                     aria-label="排序方式"
@@ -111,7 +111,7 @@
             </label>
 
             <div class="listing-date-range">
-                <span class="small text-muted">成文日期：</span>
+                <span class="author-filter-label">成文日期：</span>
                 <input
                     type="date"
                     id="author-date-from"
@@ -121,7 +121,7 @@
                     placeholder="开始日期"
                     value="{{ date_from }}"
                 >
-                <span class="small text-muted">至</span>
+                <span class="author-filter-label">至</span>
                 <input
                     type="date"
                     id="author-date-to"
@@ -142,5 +142,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{% static 'people/js/author_controller.js' %}?v=20261123a" defer></script>
+<script src="{% static 'people/js/author_controller.js' %}?v=20261128a" defer></script>
 {% endblock %}

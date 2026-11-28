@@ -133,15 +133,23 @@
 
       if (nextBtn) {
         e.preventDefault();
+        const pageVal = nextBtn.getAttribute('data-page');
         const cursorVal = nextBtn.getAttribute('data-cursor');
-        if (cursorVal) {
+        if (pageVal) {
+          const url = buildUrlFromForm(null, { page: pageVal, seek_date: null, seek_direction: null });
+          fetchListing(url, true);
+        } else if (cursorVal) {
           const url = buildUrlFromForm(cursorVal);
           fetchListing(url, true);
         }
       } else if (prevBtn) {
         e.preventDefault();
+        const pageVal = prevBtn.getAttribute('data-page');
         const cursorVal = prevBtn.getAttribute('data-cursor');
-        if (cursorVal) {
+        if (pageVal) {
+          const url = buildUrlFromForm(null, { page: pageVal, seek_date: null, seek_direction: null });
+          fetchListing(url, true);
+        } else if (cursorVal) {
           const url = buildUrlFromForm(cursorVal);
           fetchListing(url, true);
         }

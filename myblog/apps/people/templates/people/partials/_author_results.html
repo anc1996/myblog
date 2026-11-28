@@ -45,14 +45,14 @@
 {% endif %}
 
 {% if error_message %}
-<div class="alert alert-warning mb-3" role="alert">
-    <strong>提示：</strong> {{ error_message }}
+<div class="ui-alert ui-alert-warning" role="alert">
+    <div class="ui-alert-body"><strong>提示：</strong> {{ error_message }}</div>
 </div>
 {% endif %}
 
 {% if cursor_reset %}
-<div class="alert alert-info mb-3" role="alert">
-    <strong>提示：</strong> 站点内容刚刚有更新，已为您自动刷新回最新结果第 1 页。
+<div class="ui-alert ui-alert-info" role="alert">
+    <div class="ui-alert-body"><strong>提示：</strong> 站点内容刚刚有更新，已为您自动刷新回最新结果第 1 页。</div>
 </div>
 {% endif %}
 
@@ -60,14 +60,14 @@
 <div class="author-results-summary">
     共找到 <strong>{{ total_count }}</strong> 条内容
     {% if expansion_used %}
-    <span class="text-primary">（已自动扩展同义词）</span>
+    <span class="author-expansion-note">（已自动扩展同义词）</span>
     {% endif %}
 </div>
 
 <ul class="search-result-list">
     {% for entry in display_items %}
     {% with item=entry.item %}
-    <li class="search-result-item card{% if item.cover_url %} has-cover{% endif %}">
+    <li class="search-result-item ui-card{% if item.cover_url %} has-cover{% endif %}">
         {% if item.cover_url %}
         <a href="{{ item.url }}" class="search-result-media" tabindex="-1" aria-hidden="true">
             <img src="{{ item.cover_url }}" alt="{{ item.title }}" loading="lazy">
@@ -90,13 +90,13 @@
                 {% endif %}
             </div>
         </div>
-        <p class="text-muted small mb-2">
+        <p class="author-result-meta">
             成文于 {{ item.authored_on|date:"Y-m-d" }}
             {% if item.authors %}
                 <span class="search-result-authors">
                     · 作者：
                     {% for au in item.authors %}
-                        <a href="{{ au.url }}" class="search-result-author-link">{% if au.is_anonymous %}👤 {% endif %}{{ au.name }}</a>{% if not forloop.last %}、{% endif %}
+                        <a href="{{ au.url }}" class="search-result-author-link">{% if au.is_anonymous %}{% include "includes/_ui_icon.html" with name="user" %}{% endif %}{{ au.name }}</a>{% if not forloop.last %}、{% endif %}
                     {% endfor %}
                 </span>
             {% endif %}
@@ -105,11 +105,11 @@
             {% endif %}
         </p>
         {% if item.highlights %}
-            <p class="text-secondary small mb-2 search-result-snippet">
+            <p class="author-result-snippet search-result-snippet">
                 {% for h in item.highlights %}{{ h.snippet|safe }}{% endfor %}
             </p>
         {% elif item.summary %}
-            <p class="text-secondary small mb-2 search-result-snippet">{{ item.summary }}</p>
+            <p class="author-result-snippet search-result-snippet">{{ item.summary }}</p>
         {% endif %}
         {% if item.tags %}
         <div class="search-item-tags">
@@ -126,7 +126,7 @@
 
 {% if show_expand_button %}
 <div class="search-expand-box">
-    <p class="text-muted mb-2">当前仅显示完整原句匹配（共 {{ items|length }} 条），未达到 5 条。</p>
+    <p class="author-expand-note">当前仅显示完整原句匹配（共 {{ items|length }} 条），未达到 5 条。</p>
     <a href="{{ show_expand_url }}" class="ui-btn ui-btn-primary author-ajax-link">
         点击继续查看包含相关分词的更多结果（模式 B）
     </a>

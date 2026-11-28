@@ -47,14 +47,14 @@
 <div class="search-layout">
     <div class="search-results-pane">
         {% if error_message %}
-        <div class="alert alert-warning search-alert" role="alert">
-            <strong>分页提示：</strong> {{ error_message }}
+        <div class="ui-alert ui-alert-warning search-alert" role="alert">
+            <div class="ui-alert-body"><strong>分页提示：</strong> {{ error_message }}</div>
         </div>
         {% endif %}
 
         {% if cursor_reset %}
-        <div class="alert alert-info search-alert" role="alert">
-            <strong>提示：</strong> 内容刚刚有更新，已为您自动刷新回最新结果第 1 页。
+        <div class="ui-alert ui-alert-info search-alert" role="alert">
+            <div class="ui-alert-body"><strong>提示：</strong> 内容刚刚有更新，已为您自动刷新回最新结果第 1 页。</div>
         </div>
         {% endif %}
 

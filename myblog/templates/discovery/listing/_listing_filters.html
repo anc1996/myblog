@@ -4,39 +4,39 @@
 
   <div class="listing-filter-top">
     <div class="listing-search-group">
-      <input type="text" name="q" id="listing-query-input" class="ui-input form-control" placeholder="在当前栏目中搜索（支持标题与全文检索）..." value="{{ view_model.active_filters.q }}">
-      <button class="ui-btn ui-btn-primary btn btn-primary" type="submit" id="listing-search-submit-btn">搜索</button>
+      <input type="text" name="q" id="listing-query-input" class="ui-input" placeholder="在当前栏目中搜索（支持标题与全文检索）..." value="{{ view_model.active_filters.q }}">
+      <button class="ui-btn ui-btn-primary" type="submit" id="listing-search-submit-btn">搜索</button>
     </div>
 
     <div>
-      <select name="sort" class="ui-select form-select" id="listing-sort-select" data-ui-select data-placeholder="选择排序方式">
+      <select name="sort" class="ui-select" id="listing-sort-select" data-ui-select data-placeholder="选择排序方式">
         <option value="authored_desc" {% if view_model.active_filters.sort == "authored_desc" %}selected{% endif %}>成文日期：新 &rarr; 旧</option>
         <option value="authored_asc" {% if view_model.active_filters.sort == "authored_asc" %}selected{% endif %}>成文日期：旧 &rarr; 新</option>
         <option value="relevance" {% if view_model.active_filters.sort == "relevance" %}selected{% endif %}>按匹配相关度优先</option>
       </select>
     </div>
 
-    <div class="text-end">
-      <a href="{{ page.url }}" class="ui-btn ui-btn-sm ui-btn-outline btn btn-sm btn-outline-secondary" id="listing-reset-btn">重置筛选</a>
+    <div class="listing-filter-actions">
+      <a href="{{ page.url }}" class="ui-btn ui-btn-sm ui-btn-outline" id="listing-reset-btn">重置筛选</a>
     </div>
   </div>
 
   <div class="listing-filter-bottom">
     <div class="listing-filter-checks">
       <label class="ui-check-label" for="title-only-check">
-        <input class="form-check-input" type="checkbox" name="title_only" id="title-only-check" value="1" {% if view_model.active_filters.title_only %}checked{% endif %}>
+        <input class="listing-check-input" type="checkbox" name="title_only" id="title-only-check" value="1" {% if view_model.active_filters.title_only %}checked{% endif %}>
         <span>仅搜标题</span>
       </label>
       <label class="ui-check-label" for="include-descendants-check">
-        <input class="form-check-input" type="checkbox" name="include_descendants" id="include-descendants-check" value="1" {% if view_model.active_filters.include_descendants %}checked{% endif %}>
+        <input class="listing-check-input" type="checkbox" name="include_descendants" id="include-descendants-check" value="1" {% if view_model.active_filters.include_descendants %}checked{% endif %}>
         <span>包含子分类内容</span>
       </label>
     </div>
 
     <div class="listing-date-range">
-      <span class="small text-muted">成文日期:</span>
+      <span class="listing-filter-label">成文日期:</span>
       <input type="date" name="date_from" class="ui-input ui-date-input" data-ui-date="single" placeholder="开始日期" value="{{ view_model.active_filters.date_from }}">
-      <span class="small text-muted">-</span>
+      <span class="listing-filter-sep">-</span>
       <input type="date" name="date_to" class="ui-input ui-date-input" data-ui-date="single" placeholder="结束日期" value="{{ view_model.active_filters.date_to }}">
     </div>
   </div>

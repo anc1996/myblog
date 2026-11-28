@@ -91,6 +91,9 @@
 
 # 2. 跑生产静态资源收集演练（确认 CSS 字体和资源路径没报错）
 MYBLOG_ENV_FILE=.env.test DJANGO_SETTINGS_MODULE=myblog.settings.production \
+  DJANGO_SECRET_KEY="prod-dry-run-secret-key-at-least-50-unique-chars-123456" \
+  ALLOWED_HOSTS="localhost,127.0.0.1" \
+  DJANGO_STATIC_ROOT=/tmp/myblog_collectstatic_check \
   /root/anaconda3/envs/wagtailblog-test/bin/python -B manage.py collectstatic --dry-run --noinput
 
 # 3. 跑定向与全站测试（重点看 test_vendor_sync、test_embed_playback、test_admin_split_editors、test_s3_blocks、test_s4_table、test_p1_content_enhancements）

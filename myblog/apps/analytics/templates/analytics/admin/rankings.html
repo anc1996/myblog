@@ -5,7 +5,7 @@
 
 {% block extra_css %}
 {{ block.super }}
-<link rel="stylesheet" href="{% static 'css/admin-workbench.css' %}?v=20261123c">
+<link rel="stylesheet" href="{% static 'css/admin-workbench.css' %}?v=20261128a">
 <link rel="stylesheet" href="{% static 'analytics/css/analytics-admin.css' %}?v=20261123b">
 <style>
 .analytics-wb-tabs {
@@ -48,7 +48,7 @@
 {% include "wagtailadmin/shared/header.html" with title="全站榜单快照与降权预览" icon="site" %}
 
 <div class="nice-padding admin-wb-shell analytics-shell">
-    <p class="admin-wb-note" style="margin:0 0 12px;">按站点、榜种与内容类型预览最新 RankingSnapshot（原分、降权系数与最终分对照）</p>
+    <p class="admin-wb-note admin-wb-note--lead">按站点、榜种与内容类型预览最新 RankingSnapshot（原分、降权系数与最终分对照）</p>
     {% if wb_nav %}
     <nav class="analytics-wb-tabs" aria-label="数据分析工作台导航">
         {% if wb_nav.can_site %}
@@ -141,7 +141,7 @@
             <h2>
                 榜单快照明细
                 {% if filters.board_kind == "reputation" %}
-                    <span class="admin-wb-note" style="font-weight:500;">（口碑榜按内容类型分组展示，不跨类型混排）</span>
+                    <span class="admin-wb-note admin-wb-note--regular">（口碑榜按内容类型分组展示，不跨类型混排）</span>
                 {% endif %}
             </h2>
             <span class="admin-wb-note">降权系数：正常 1.00 · 低口碑 0.60 · 高PV低口碑且低完读 0.35</span>
@@ -175,7 +175,7 @@
                                     <span class="admin-wb-badge admin-wb-badge--warn">样本观察中</span>
                                 {% endif %}
                             </div>
-                            <div class="admin-wb-note" style="margin-top:2px;">
+                            <div class="admin-wb-note admin-wb-note--mt-xs">
                                 <a href="{% url 'analytics_admin_page_drawer' item.page_id %}">查看单篇漏斗</a>
                                 {% if item.active_alerts %}
                                 · 触发告警：{% for ak in item.active_alerts %}<code>{{ ak }}</code>{% if not forloop.last %}, {% endif %}{% endfor %}

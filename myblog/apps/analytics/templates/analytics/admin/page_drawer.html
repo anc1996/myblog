@@ -1,14 +1,14 @@
 {% load static %}
 {% if is_partial %}
-<link rel="stylesheet" href="{% static 'css/admin-workbench.css' %}?v=20261123c">
+<link rel="stylesheet" href="{% static 'css/admin-workbench.css' %}?v=20261128a">
 <link rel="stylesheet" href="{% static 'analytics/css/analytics-admin.css' %}?v=20261123b">
 {% endif %}
 
 <div class="admin-wb-shell analytics-shell analytics-drawer-body">
-    <div class="admin-wb-toolbar" style="margin-bottom:14px;">
+    <div class="admin-wb-toolbar admin-wb-toolbar--drawer">
         <div>
-            <div style="font-size:16px;font-weight:700;">{{ detail.page.title }}</div>
-            <div class="admin-wb-note" style="margin-top:4px;">
+            <div class="admin-wb-drawer-page-title">{{ detail.page.title }}</div>
+            <div class="admin-wb-note admin-wb-note--mt">
                 <span>类型：{{ detail.page.type_label }}</span>
                 {% if detail.page.document_uuid %} · <code>{{ detail.page.document_uuid }}</code>{% endif %}
                 {% if detail.page.live_revision_id %} · 正式版本 Rev #{{ detail.page.live_revision_id }}{% endif %}
@@ -65,7 +65,7 @@
             <div class="admin-wb-kpi-label"><span>近 7 日 / 近 30 日 PV</span></div>
             <div class="admin-wb-kpi-value">
                 {% if detail.summary.pv_7d is not None %}{{ detail.summary.pv_7d }}{% else %}—{% endif %}
-                <span style="font-size:14px;color:var(--wb-muted);font-weight:500;">
+                <span class="admin-wb-kpi-subval">
                     / {% if detail.summary.pv_30d is not None %}{{ detail.summary.pv_30d }}{% else %}—{% endif %}
                 </span>
             </div>
@@ -79,7 +79,7 @@
             </div>
             <div class="admin-wb-kpi-value">
                 {% if detail.summary.yesterday_uv is not None %}{{ detail.summary.yesterday_uv }}{% else %}—{% endif %}
-                <span style="font-size:14px;color:var(--wb-muted);font-weight:500;">
+                <span class="admin-wb-kpi-subval">
                     / {% if detail.summary.visitor_days_7d is not None %}{{ detail.summary.visitor_days_7d }}{% else %}—{% endif %}
                 </span>
             </div>
@@ -111,7 +111,7 @@
             <div class="admin-wb-kpi-label"><span>平均活跃时长 / 短读离开率</span></div>
             <div class="admin-wb-kpi-value">
                 {% if detail.summary.avg_active_seconds is not None %}{{ detail.summary.avg_active_seconds }}s{% else %}—{% endif %}
-                <span style="font-size:14px;color:var(--wb-muted);font-weight:500;">
+                <span class="admin-wb-kpi-subval">
                     / {% if detail.summary.short_bounce_rate_pct is not None %}{{ detail.summary.short_bounce_rate_pct }}%{% else %}—{% endif %}
                 </span>
             </div>
@@ -146,7 +146,7 @@
                 </div>
                 {% endfor %}
             </div>
-            <div class="admin-wb-note" style="margin-top:10px;">
+            <div class="admin-wb-note admin-wb-note--mt-lg">
                 满足停留规则的完读访问：<strong>{{ detail.funnel.completed_views }} 次</strong>
                 {% if detail.funnel.short_body_views is not None %}
                     · 首屏短正文访问：<strong>{{ detail.funnel.short_body_views }} 次</strong>
@@ -169,13 +169,13 @@
             <div class="analytics-bar-row">
                 <span>精选/榜单导流</span>
                 <div class="analytics-bar-track">
-                    <div class="analytics-bar-fill" style="width: {% if detail.sources.curated_or_rank_pv > 0 %}100{% else %}0{% endif %}%;"></div>
+                    <div class="analytics-bar-fill {% if detail.sources.curated_or_rank_pv > 0 %}analytics-bar-fill--full{% else %}analytics-bar-fill--empty{% endif %}"></div>
                 </div>
                 <span class="num">{{ detail.sources.curated_or_rank_pv }}</span>
             </div>
 
             {% if detail.sources.channels %}
-            <div class="admin-wb-table-wrap" style="margin-top:10px;">
+            <div class="admin-wb-table-wrap admin-wb-table-wrap--mt">
                 <table class="admin-wb-table">
                     <thead>
                         <tr>
@@ -200,7 +200,7 @@
     </div>
 
     {% if detail.type_conversions and detail.type_conversions.items %}
-    <div class="admin-wb-panel" style="margin-bottom:14px;">
+    <div class="admin-wb-panel admin-wb-panel--drawer">
         <div class="admin-wb-panel-head">
             <h2>类型专属转化与内容健康（近 30 日）</h2>
             <span class="admin-wb-note">
@@ -215,7 +215,7 @@
                 {% endif %}
             </span>
         </div>
-        <div class="admin-wb-kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin-bottom:0;">
+        <div class="admin-wb-kpi-grid admin-wb-kpi-grid--compact">
             {% for cv in detail.type_conversions.items %}
             <div class="admin-wb-kpi-card">
                 <div class="admin-wb-kpi-label">{{ cv.label }}</div>

@@ -7,7 +7,7 @@
 
 {% block extra_css %}
 {{ block.super }}
-<link rel="stylesheet" href="{% static 'css/admin-workbench.css' %}?v=20261123c">
+<link rel="stylesheet" href="{% static 'css/admin-workbench.css' %}?v=20261128a">
 <link rel="stylesheet" href="{% static 'analytics/css/analytics-admin.css' %}?v=20261123b">
 <style>
 .analytics-wb-tabs {
@@ -121,9 +121,9 @@
                 </select>
             </div>
 
-            <div class="admin-wb-field">
+            <div class="admin-wb-field admin-wb-field--lg">
                 <label for="an-q">定位文章</label>
-                <input id="an-q" type="search" name="q" value="{{ dashboard.filters.q|default:'' }}" placeholder="标题 / 网址 / Page ID" style="min-width:210px;">
+                <input id="an-q" type="search" name="q" value="{{ dashboard.filters.q|default:'' }}" placeholder="标题 / 网址 / Page ID">
             </div>
 
             {% if not is_author_scope %}
@@ -224,7 +224,7 @@
                 </div>
                 <div class="admin-wb-kpi-value">
                     {% if dashboard.summary.site_today_uv is not None %}{{ dashboard.summary.site_today_uv }}{% else %}—{% endif %}
-                    <span style="font-size:14px;color:var(--wb-muted);font-weight:500;">
+                    <span class="admin-wb-kpi-subval">
                         / {% if dashboard.summary.site_yesterday_uv is not None %}{{ dashboard.summary.site_yesterday_uv }}{% else %}—{% endif %}
                     </span>
                 </div>
@@ -294,7 +294,7 @@
                             <td><code>{{ day.date }}</code></td>
                             <td class="num">{% if day.pv is not None %}{{ day.pv }}{% else %}—{% endif %}</td>
                             <td class="num">{% if day.daily_uv is not None %}{{ day.daily_uv }}{% else %}—{% endif %}</td>
-                            <td style="min-width:180px;">
+                            <td class="admin-wb-td-trend">
                                 {% if day.pv is not None %}
                                 <div class="analytics-bar-track">
                                     <div class="analytics-bar-fill" style="width: {{ day.pv_bar_pct }}%;"></div>
@@ -362,7 +362,7 @@
                         <tbody>
                             {% for entry in dashboard.entry_stats %}
                             <tr>
-                                <td>{{ entry.label }} <code style="font-size:11px;">{{ entry.entry_kind }}</code></td>
+                                <td>{{ entry.label }} <code class="admin-wb-code-sm">{{ entry.entry_kind }}</code></td>
                                 <td class="num">{{ entry.pv }}</td>
                                 <td class="num">{{ entry.visitor_days }}</td>
                                 <td class="num">{{ entry.entry_clicks }}</td>
@@ -385,9 +385,9 @@
                     仅展示命中安全技术词表或已发布主题的词条；未命中白名单查询：{{ dashboard.safe_search_terms.unlisted_count }} 次 · 无结果搜索总计：{{ dashboard.safe_search_terms.zero_result_total|default:0 }} 次
                 </span>
             </div>
-            <div class="admin-wb-grid-2" style="margin-bottom:0;">
+            <div class="admin-wb-grid-2 admin-wb-grid-2--flush">
                 <div>
-                    <h3 style="margin:0 0 8px;font-size:13px;color:var(--wb-muted);">热门安全搜索词</h3>
+                    <h3 class="admin-wb-subhead">热门安全搜索词</h3>
                     {% if dashboard.safe_search_terms.hot_terms %}
                     <div class="analytics-term-chips">
                         {% for term in dashboard.safe_search_terms.hot_terms %}
@@ -402,7 +402,7 @@
                     {% endif %}
                 </div>
                 <div>
-                    <h3 style="margin:0 0 8px;font-size:13px;color:var(--wb-muted);">安全无结果词</h3>
+                    <h3 class="admin-wb-subhead">安全无结果词</h3>
                     {% if dashboard.safe_search_terms.zero_result_terms %}
                     <div class="analytics-term-chips">
                         {% for term in dashboard.safe_search_terms.zero_result_terms %}
@@ -425,7 +425,7 @@
             <h2>
                 {% if is_author_scope %}我授权管理的页面统计{% else %}授权页面分析明细{% endif %}
                 {% if dashboard.count_meta %}
-                    <span class="admin-wb-note" style="font-weight:500;">（{{ dashboard.count_meta.label }}{% if dashboard.filters.q %}，搜索“{{ dashboard.filters.q }}”{% endif %}）</span>
+                    <span class="admin-wb-note admin-wb-note--regular">（{{ dashboard.count_meta.label }}{% if dashboard.filters.q %}，搜索“{{ dashboard.filters.q }}”{% endif %}）</span>
                 {% endif %}
             </h2>
             <span class="admin-wb-note">千万级混合分页（浅页直跳 ≤100 页 + 双向游标深翻 + 5,000 有界计数）；支持「定位文章」秒级检索</span>
@@ -452,7 +452,7 @@
                     <tr>
                         <td>
                             <strong>{{ row.title }}</strong>
-                            <span class="admin-wb-note" style="margin-left:6px;">#{{ row.page_id }}</span>
+                            <span class="admin-wb-note admin-wb-note--ml">#{{ row.page_id }}</span>
                             {% if row.is_recycled %}
                                 <span class="admin-wb-badge admin-wb-badge--warn">回收站</span>
                             {% elif not row.live %}
@@ -495,7 +495,7 @@
                 {% endif %}
                 {% for pl in dashboard.pages_pagination.page_links %}
                     {% if pl.type == "ellipsis" %}
-                        <span class="admin-wb-note" style="padding:0 4px;">…</span>
+                        <span class="admin-wb-note admin-wb-ellipsis">…</span>
                     {% elif pl.is_current %}
                         <span class="button button-small button-primary" aria-current="page">{{ pl.label }}</span>
                     {% else %}
@@ -517,7 +517,7 @@
 <div class="admin-wb-drawer-backdrop" id="analytics-drawer-backdrop" aria-hidden="true">
     <div class="admin-wb-drawer-panel" role="dialog" aria-modal="true" aria-labelledby="analytics-drawer-title">
         <div class="admin-wb-drawer-header">
-            <h3 id="analytics-drawer-title" style="margin:0;font-size:16px;">单篇数据分析</h3>
+            <h3 id="analytics-drawer-title" class="admin-wb-drawer-title">单篇数据分析</h3>
             <button type="button" class="button button-small button-secondary" id="analytics-drawer-close">关闭</button>
         </div>
         <div class="admin-wb-drawer-content" id="analytics-drawer-content">

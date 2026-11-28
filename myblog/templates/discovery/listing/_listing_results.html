@@ -1,23 +1,25 @@
 <div id="listing-results-container">
   {% if view_model.error_message %}
-    <div class="alert alert-warning mb-3" role="alert">
-      {{ view_model.error_message }}
+    <div class="ui-alert ui-alert-warning" role="alert">
+      <div class="ui-alert-body">{{ view_model.error_message }}</div>
     </div>
   {% endif %}
 
   {% if view_model.cursor_reset %}
-    <div class="alert alert-warning alert-dismissible fade show small mb-3" role="alert">
-      内容库已发生更新，已自动为您重置回当前筛选条件的首页。
-      <button type="button" class="btn-close btn-close-white" data-bs-dismiss="alert" aria-label="Close"></button>
+    <div class="ui-alert ui-alert-warning" role="alert">
+      <div class="ui-alert-body">内容库已发生更新，已自动为您重置回当前筛选条件的首页。</div>
+      <button type="button" class="ui-alert-close" onclick="this.closest('.ui-alert').remove()" aria-label="关闭提示">
+        {% include "includes/_ui_icon.html" with name="close" %}
+      </button>
     </div>
   {% endif %}
 
   {% include "discovery/listing/_listing_subcategories.html" %}
 
   {% if view_model.is_empty %}
-    <div class="text-center py-5 text-muted bg-white rounded border">
-      <p class="fs-5 mb-1">未找到符合条件的内容</p>
-      <small>建议尝试缩短检索词、勾选“包含子栏目”或清除特定日期/筛选条件。</small>
+    <div class="listing-empty-state">
+      <p class="listing-empty-title">未找到符合条件的内容</p>
+      <p class="listing-empty-desc">建议尝试缩短检索词、勾选“包含子栏目”或清除特定日期/筛选条件。</p>
     </div>
   {% else %}
     <div class="listing-items">

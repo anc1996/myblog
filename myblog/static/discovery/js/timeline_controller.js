@@ -133,12 +133,16 @@
         if (href) fetchTimeline(href, true);
       } else if (nextBtn) {
         e.preventDefault();
+        var p1 = nextBtn.getAttribute("data-page");
         var c1 = nextBtn.getAttribute("data-cursor");
-        if (c1) fetchTimeline(buildUrlWithOverrides({ cursor: c1, page: null, seek_date: null, seek_direction: null }), true);
+        if (p1) fetchTimeline(buildUrlWithOverrides({ page: p1, cursor: null, seek_date: null, seek_direction: null }), true);
+        else if (c1) fetchTimeline(buildUrlWithOverrides({ cursor: c1, page: null, seek_date: null, seek_direction: null }), true);
       } else if (prevBtn) {
         e.preventDefault();
+        var p2 = prevBtn.getAttribute("data-page");
         var c2 = prevBtn.getAttribute("data-cursor");
-        if (c2) fetchTimeline(buildUrlWithOverrides({ cursor: c2, page: null, seek_date: null, seek_direction: null }), true);
+        if (p2) fetchTimeline(buildUrlWithOverrides({ page: p2, cursor: null, seek_date: null, seek_direction: null }), true);
+        else if (c2) fetchTimeline(buildUrlWithOverrides({ cursor: c2, page: null, seek_date: null, seek_direction: null }), true);
       } else if (pageNumBtn) {
         e.preventDefault();
         var p = pageNumBtn.getAttribute("data-page");

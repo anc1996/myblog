@@ -1,47 +1,64 @@
 {% extends "wagtailadmin/generic/index.html" %}
-{% load i18n %}
+{% load i18n static %}
 
 {% block listing %}
-    <div class="comment-type-tabs" style="margin: 0 0 16px 0; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; background: #f8fafc; padding: 12px; border-radius: 6px; border: 1px solid #e2e8f0;">
-        <span style="font-weight: 600; color: #475569; margin-right: 4px;">📂 页面类型：</span>
+    <link rel="stylesheet" href="{% static 'css/admin-workbench.css' %}?v=20261128a">
+    <div class="admin-wb-scope">
+    <div class="comment-type-tabs">
+        <span class="comment-type-tabs__label">
+            <svg class="admin-wb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+            <span>页面类型：</span>
+        </span>
         <a href="?page_type=all{% if current_page_id %}&page_id={{ current_page_id }}{% endif %}" class="button button-small {% if current_page_type == 'all' and not current_status and not current_pending_queue %}button-primary{% else %}button-secondary{% endif %}">全部 ({{ tab_counts.all }})</a>
         {% for tab in page_type_tabs %}
         <a href="?page_type={{ tab.key }}{% if current_page_id %}&page_id={{ current_page_id }}{% endif %}" class="button button-small {% if tab.is_active %}button-primary{% else %}button-secondary{% endif %}">{{ tab.label }} ({{ tab.count }})</a>
         {% endfor %}
-        <a href="?pending_queue=1{% if current_page_id %}&page_id={{ current_page_id }}{% endif %}" class="button button-small {% if current_pending_queue or current_status == 'pending' %}button-primary{% else %}button-secondary{% endif %}" style="margin-left: auto; {% if tab_counts.pending > 0 %}background:#f59e0b;color:#fff;border-color:#d97706;{% endif %}">⚠️ 待审核队列 ({{ tab_counts.pending }})</a>
+        <a href="?pending_queue=1{% if current_page_id %}&page_id={{ current_page_id }}{% endif %}" class="button button-small comment-type-tabs__queue {% if current_pending_queue or current_status == 'pending' %}button-primary{% elif tab_counts.pending > 0 %}comment-type-tabs__queue--alert{% else %}button-secondary{% endif %}">
+            <svg class="admin-wb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>
+            <span>待审核队列 ({{ tab_counts.pending }})</span>
+        </a>
     </div>
 
     {% if current_page_id %}
-    <div style="background: #e0f2fe; border: 1px solid #7dd3fc; color: #0369a1; padding: 8px 12px; border-radius: 6px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
-        <span>🔍 <strong>当前锁定单篇页面筛选：</strong>Page ID #{{ current_page_id }}</span>
-        <a href="?page_type={{ current_page_type }}" class="button button-small button-secondary" style="background: #fff;">清除单篇锁定</a>
+    <div class="admin-wb-filter-banner admin-wb-filter-banner--info">
+        <span class="admin-wb-filter-banner__text">
+            <svg class="admin-wb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+            <strong>当前锁定单篇页面筛选：</strong>Page ID #{{ current_page_id }}
+        </span>
+        <a href="?page_type={{ current_page_type }}" class="button button-small button-secondary">清除单篇锁定</a>
     </div>
     {% endif %}
 
     {% if current_author_key %}
-    <div style="background: #fef3c7; border: 1px solid #fcd34d; color: #92400e; padding: 8px 12px; border-radius: 6px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
-        <span>👤 <strong>发评主体溯源筛选：</strong>{{ current_author_key }}</span>
-        <a href="?page_type={{ current_page_type }}" class="button button-small button-secondary" style="background: #fff;">清除主体筛选</a>
+    <div class="admin-wb-filter-banner admin-wb-filter-banner--warn">
+        <span class="admin-wb-filter-banner__text">
+            <svg class="admin-wb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <strong>发评主体溯源筛选：</strong>{{ current_author_key }}
+        </span>
+        <a href="?page_type={{ current_page_type }}" class="button button-small button-secondary">清除主体筛选</a>
     </div>
     {% endif %}
 
     {% if current_ip %}
-    <div style="background: #fee2e2; border: 1px solid #fca5a5; color: #991b1b; padding: 8px 12px; border-radius: 6px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
-        <span>🌐 <strong>客户端 IP 溯源筛选：</strong><code>{{ current_ip }}</code></span>
-        <a href="?page_type={{ current_page_type }}" class="button button-small button-secondary" style="background: #fff;">清除 IP 筛选</a>
+    <div class="admin-wb-filter-banner admin-wb-filter-banner--danger">
+        <span class="admin-wb-filter-banner__text">
+            <svg class="admin-wb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
+            <strong>客户端 IP 溯源筛选：</strong><code>{{ current_ip }}</code>
+        </span>
+        <a href="?page_type={{ current_page_type }}" class="button button-small button-secondary">清除 IP 筛选</a>
     </div>
     {% endif %}
 
     {{ block.super }}
 
     {% if is_paginated and paginator.num_pages > 1 %}
-    <form method="get" class="comment-page-jump-form" style="margin-top: 14px; padding: 10px 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px;">
+    <form method="get" class="comment-page-jump-form">
         {% for k, v in request.GET.items %}
             {% if k != "p" %}
                 <input type="hidden" name="{{ k }}" value="{{ v }}">
             {% endif %}
         {% endfor %}
-        <span style="color: #475569;">第 <strong>{{ page_obj.number }}</strong> / {{ paginator.num_pages }} 页（共 {{ items_count }} 条），跳转到第</span>
+        <span class="comment-page-jump-form__label">第 <strong>{{ page_obj.number }}</strong> / {{ paginator.num_pages }} 页（共 {{ items_count }} 条），跳转到第</span>
         <input
             type="number"
             name="p"
@@ -49,12 +66,13 @@
             max="{{ paginator.num_pages }}"
             value="{{ page_obj.number }}"
             aria-label="跳转页码"
-            style="width: 76px; min-height: 32px; padding: 4px 8px; border: 1px solid #cbd5e1; border-radius: 4px;"
+            class="comment-page-jump-form__input"
         >
-        <span style="color: #475569;">页</span>
+        <span class="comment-page-jump-form__label">页</span>
         <button type="submit" class="button button-small button-secondary">跳转</button>
     </form>
     {% endif %}
+    </div>
 
     <script>
     (function() {

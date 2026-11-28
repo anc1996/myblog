@@ -355,12 +355,16 @@
         if (href) fetchDetail(href, true);
       } else if (nextBtn) {
         e.preventDefault();
+        var np = nextBtn.getAttribute('data-page');
         var nc = nextBtn.getAttribute('data-cursor');
-        if (nc) fetchDetail(buildUrlWithPaginationOverrides({ cursor: nc, page: null, seek_date: null, seek_direction: null }), true);
+        if (np) fetchDetail(buildUrlWithPaginationOverrides({ page: np, cursor: null, seek_date: null, seek_direction: null }), true);
+        else if (nc) fetchDetail(buildUrlWithPaginationOverrides({ cursor: nc, page: null, seek_date: null, seek_direction: null }), true);
       } else if (prevBtn) {
         e.preventDefault();
+        var pp = prevBtn.getAttribute('data-page');
         var pc = prevBtn.getAttribute('data-cursor');
-        if (pc) fetchDetail(buildUrlWithPaginationOverrides({ cursor: pc, page: null, seek_date: null, seek_direction: null }), true);
+        if (pp) fetchDetail(buildUrlWithPaginationOverrides({ page: pp, cursor: null, seek_date: null, seek_direction: null }), true);
+        else if (pc) fetchDetail(buildUrlWithPaginationOverrides({ cursor: pc, page: null, seek_date: null, seek_direction: null }), true);
       } else if (pageNumBtn) {
         e.preventDefault();
         var pv = pageNumBtn.getAttribute('data-page');

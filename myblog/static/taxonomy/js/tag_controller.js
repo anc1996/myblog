@@ -165,14 +165,20 @@
 
       if (nextBtn) {
         e.preventDefault();
+        const pageVal = nextBtn.getAttribute('data-page');
         const cursorVal = nextBtn.getAttribute('data-cursor');
-        if (cursorVal) {
+        if (pageVal) {
+          fetchPartial(buildDetailUrl(tagForm, null, { page: pageVal, seek_date: null, seek_direction: null }), true);
+        } else if (cursorVal) {
           fetchPartial(buildDetailUrl(tagForm, cursorVal), true);
         }
       } else if (prevBtn) {
         e.preventDefault();
+        const pageVal = prevBtn.getAttribute('data-page');
         const cursorVal = prevBtn.getAttribute('data-cursor');
-        if (cursorVal) {
+        if (pageVal) {
+          fetchPartial(buildDetailUrl(tagForm, null, { page: pageVal, seek_date: null, seek_direction: null }), true);
+        } else if (cursorVal) {
           fetchPartial(buildDetailUrl(tagForm, cursorVal), true);
         }
       } else if (pageNumBtn) {
